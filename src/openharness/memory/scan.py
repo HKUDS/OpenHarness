@@ -53,18 +53,23 @@ def _parse_memory_file(path: Path, content: str) -> MemoryHeader:
                 break
 
     # Fallback: first non-empty, non-frontmatter line as description
+    desc_line_idx: int | None = None
     if not description:
-        for line in lines[body_start:body_start + 10]:
+        for idx, line in enumerate(lines[body_start:body_start + 10], body_start):
             stripped = line.strip()
-            if stripped and not stripped.startswith("#"):
+            if stripped and stripped != "---" and not stripped.startswith("#"):
                 description = stripped[:200]
+                desc_line_idx = idx
                 break
 
-    # Build body preview from content after frontmatter
+    # Build body preview from content after frontmatter, excluding the
+    # line already used as description so search scoring stays consistent.
     body_lines = [
         line.strip()
-        for line in lines[body_start:]
-        if line.strip() and not line.strip().startswith("#")
+        for idx, line in enumerate(lines[body_start:], body_start)
+        if line.strip()
+        and not line.strip().startswith("#")
+        and idx != desc_line_idx
     ]
     body_preview = " ".join(body_lines)[:300]
 

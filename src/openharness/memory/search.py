@@ -41,9 +41,9 @@ def find_relevant_memories(
 
 
 def _tokenize(text: str) -> set[str]:
-    """Extract search tokens from *text*, handling ASCII and CJK."""
+    """Extract search tokens from *text*, handling ASCII and Han ideographs."""
     # ASCII word tokens (3+ chars)
     ascii_tokens = {t for t in re.findall(r"[A-Za-z0-9_]+", text.lower()) if len(t) >= 3}
-    # CJK individual characters (each is meaningful on its own)
-    cjk_chars = set(re.findall(r"[\u4e00-\u9fff\u3400-\u4dbf]", text))
-    return ascii_tokens | cjk_chars
+    # Han ideographs (each character carries independent meaning)
+    han_chars = set(re.findall(r"[\u4e00-\u9fff\u3400-\u4dbf]", text))
+    return ascii_tokens | han_chars

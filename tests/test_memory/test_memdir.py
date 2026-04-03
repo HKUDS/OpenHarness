@@ -86,6 +86,20 @@ def test_parse_frontmatter_falls_back_without_frontmatter(tmp_path: Path):
     assert header.title == "quick_note"
     assert header.description == "Redis cache invalidation strategy"
     assert header.memory_type == ""
+    # Description line must not be duplicated into body_preview.
+    assert header.body_preview == "Details here."
+
+
+def test_parse_malformed_frontmatter_does_not_return_delimiter(tmp_path: Path):
+    """Unclosed frontmatter must not leak '---' into description."""
+    path = tmp_path / "broken.md"
+    path.write_text("---\nname: oops\nActual content here.\n", encoding="utf-8")
+
+    header = _parse_memory_file(path, path.read_text(encoding="utf-8"))
+
+    # The key invariant: description is never the raw delimiter.
+    assert header.description != "---"
+    assert header.description  # non-empty
 
 
 def test_parse_frontmatter_skips_headings_for_description(tmp_path: Path):
