@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from openharness.config.settings import Settings
+from openharness.config.settings import Settings, _is_gemini
 
 
 @dataclass(frozen=True)
@@ -42,6 +42,13 @@ def detect_provider(settings: Settings) -> ProviderInfo:
             voice_supported=False,
             voice_reason="voice mode is not wired for Vertex in this build",
         )
+    if _is_gemini(settings.model):
+        return ProviderInfo(
+            name="gemini",
+            auth_kind="api_key",
+            voice_supported=False,
+            voice_reason="voice mode is not wired for Gemini in this build",
+        )
     if base_url:
         return ProviderInfo(
             name="anthropic-compatible",
@@ -59,7 +66,9 @@ def detect_provider(settings: Settings) -> ProviderInfo:
 
 def auth_status(settings: Settings) -> str:
     """Return a compact auth status string."""
-    if settings.api_key:
+    try:
+        settings.resolve_api_key()
         return "configured"
-    return "missing"
+    except ValueError:
+        return "missing"
 

@@ -46,6 +46,12 @@ class MemorySettings(BaseModel):
     max_entrypoint_lines: int = 200
 
 
+def _is_gemini(model: str) -> bool:
+    """Return True if *model* identifies a Google Gemini model."""
+    m = model.lower()
+    return m.startswith("gemini") or "/gemini" in m
+
+
 class Settings(BaseModel):
     """Main settings model for OpenHarness."""
 
@@ -78,19 +84,17 @@ class Settings(BaseModel):
     verbose: bool = False
 
     def resolve_api_key(self) -> str:
-        """Resolve the API key appropriate for the configured model.
+        """Resolve the API key for the configured model.
 
-        Precedence (highest first):
-        1. ``api_key`` field set directly on this instance or via ``OPENHARNESS_API_KEY``
-        2. Provider-specific environment variable (``GEMINI_API_KEY`` / ``VERTEX_AI_API_KEY``
-           for Gemini models; ``ANTHROPIC_API_KEY`` for all others)
-
-        Raises ``ValueError`` when no key can be resolved.
+        Precedence: ``api_key`` field → provider-specific env var
+        (``GEMINI_API_KEY`` / ``VERTEX_AI_API_KEY`` for Gemini;
+        ``ANTHROPIC_API_KEY`` for everything else).
+        Raises ``ValueError`` when no key is found.
         """
         if self.api_key:
             return self.api_key
 
-        if "gemini" in self.model.lower():
+        if _is_gemini(self.model):
             env_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("VERTEX_AI_API_KEY", "")
             if env_key:
                 return env_key
@@ -116,13 +120,11 @@ class Settings(BaseModel):
 
 
 def _apply_env_overrides(settings: Settings) -> Settings:
-    """Apply supported environment variable overrides over loaded settings.
+    """Apply environment variable overrides.
 
-    Note: provider-specific API keys (``ANTHROPIC_API_KEY``, ``GEMINI_API_KEY``,
-    ``VERTEX_AI_API_KEY``) are intentionally **not** loaded into the ``api_key``
-    field here.  They are resolved lazily and model-aware by ``resolve_api_key()``.
-    Use ``OPENHARNESS_API_KEY`` only if you need to pin an explicit key regardless
-    of the model.
+    Provider-specific keys (``ANTHROPIC_API_KEY``, ``GEMINI_API_KEY``, etc.) are
+    resolved lazily by ``resolve_api_key()`` — not stored here.  Use
+    ``OPENHARNESS_API_KEY`` to pin a key unconditionally.
     """
     updates: dict[str, Any] = {}
 
@@ -138,10 +140,6 @@ def _apply_env_overrides(settings: Settings) -> Settings:
     if max_tokens:
         updates["max_tokens"] = int(max_tokens)
 
-    # Explicit key override — use this only to pin a key unconditionally.
-    # Model-specific keys (ANTHROPIC_API_KEY, GEMINI_API_KEY, etc.) are
-    # resolved lazily by Settings.resolve_api_key() so they never clobber
-    # each other when switching providers.
     api_key = os.environ.get("OPENHARNESS_API_KEY")
     if api_key:
         updates["api_key"] = api_key

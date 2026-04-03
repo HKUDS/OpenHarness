@@ -146,7 +146,6 @@ class TestLoadSaveSettings:
         path.write_text(json.dumps({"model": "from-file", "base_url": "https://file.example"}))
         monkeypatch.setenv("ANTHROPIC_MODEL", "from-env-model")
         monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://env.example/anthropic")
-        # ANTHROPIC_API_KEY is not loaded into api_key — use OPENHARNESS_API_KEY for that
         monkeypatch.setenv("OPENHARNESS_API_KEY", "sk-env-override")
 
         s = load_settings(path)
@@ -155,14 +154,7 @@ class TestLoadSaveSettings:
         assert s.base_url == "https://env.example/anthropic"
         assert s.api_key == "sk-env-override"
 
-    def test_load_anthropic_api_key_env_not_loaded_into_api_key_field(
-        self, tmp_path: Path, monkeypatch
-    ):
-        """ANTHROPIC_API_KEY must not clobber the api_key field.
-
-        It is resolved lazily by resolve_api_key() so that provider-specific
-        key routing remains correct when switching between Anthropic and Gemini.
-        """
+    def test_anthropic_api_key_not_stored_in_field(self, tmp_path: Path, monkeypatch):
         path = tmp_path / "settings.json"
         path.write_text(json.dumps({}))
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-anthropic-env")
@@ -170,9 +162,7 @@ class TestLoadSaveSettings:
 
         s = load_settings(path)
 
-        # api_key field stays empty — resolved dynamically by resolve_api_key()
         assert s.api_key == ""
-        # But resolve_api_key() still finds it
         assert s.resolve_api_key() == "sk-anthropic-env"
 
     def test_load_applies_vertex_env_overrides(self, tmp_path: Path, monkeypatch):
