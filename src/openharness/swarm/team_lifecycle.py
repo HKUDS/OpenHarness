@@ -624,16 +624,67 @@ def unregister_team_for_session_cleanup(team_name: str) -> None:
     _session_created_teams.discard(team_name)
 
 
+async def _kill_orphaned_teammate_panes(team_name: str) -> None:
+    """Best-effort kill of all pane-backed teammate panes for a team.
+
+    Called from :func:`cleanup_session_teams` on ungraceful leader exit
+    (SIGINT/SIGTERM).  Deleting directories alone would orphan teammate
+    processes in open tmux/iTerm2 panes; this function kills them first.
+
+    Mirrors TS ``killOrphanedTeammatePanes`` in teamHelpers.ts.
+    """
+    from openharness.swarm.registry import get_backend_registry
+    from openharness.swarm.spawn_utils import is_inside_tmux
+    from openharness.swarm.types import is_pane_backend
+
+    team_file = read_team_file(team_name)
+    if not team_file:
+        return
+
+    pane_members = [
+        m
+        for m in team_file.members.values()
+        if m.name != "team-lead"
+        and m.tmux_pane_id
+        and m.backend_type
+        and is_pane_backend(m.backend_type)
+    ]
+    if not pane_members:
+        return
+
+    registry = get_backend_registry()
+    use_external_session = not is_inside_tmux()
+
+    async def _kill_one(member: TeamMember) -> None:
+        try:
+            executor = registry.get_executor(member.backend_type)
+            await executor.kill_pane(
+                member.tmux_pane_id,
+                use_external_session=use_external_session,
+            )
+        except Exception:
+            pass
+
+    await asyncio.gather(*(_kill_one(m) for m in pane_members), return_exceptions=True)
+
+
 async def cleanup_session_teams() -> None:
     """Clean up all teams created this session that weren't explicitly deleted.
 
-    Removes team and task directories for every team registered via
-    :func:`register_team_for_session_cleanup`.  Safe to call multiple times.
+    Kills orphaned teammate panes first, then removes team and task directories
+    for every team registered via :func:`register_team_for_session_cleanup`.
+    Safe to call multiple times.
     """
     if not _session_created_teams:
         return
 
     teams = list(_session_created_teams)
+    # Kill panes first — on SIGINT the teammate processes are still running;
+    # deleting directories alone would orphan them in open tmux/iTerm2 panes.
+    await asyncio.gather(
+        *(_kill_orphaned_teammate_panes(t) for t in teams),
+        return_exceptions=True,
+    )
     await asyncio.gather(
         *(cleanup_team_directories(t) for t in teams),
         return_exceptions=True,
