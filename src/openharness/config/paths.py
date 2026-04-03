@@ -106,6 +106,17 @@ def get_project_config_dir(cwd: str | Path) -> Path:
     return project_dir
 
 
+def get_project_runs_dir(cwd: str | Path) -> Path:
+    """Return the per-project run-artifact directory.
+
+    Each automated agent run stores its manifest, logs, and workspace
+    under a unique subdirectory of this directory.
+    """
+    runs_dir = Path(cwd).resolve() / "runs"
+    runs_dir.mkdir(parents=True, exist_ok=True)
+    return runs_dir
+
+
 def get_project_issue_file(cwd: str | Path) -> Path:
     """Return the per-project issue context file."""
     return get_project_config_dir(cwd) / "issue.md"

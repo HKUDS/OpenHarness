@@ -55,6 +55,10 @@ class Settings(BaseModel):
     max_tokens: int = 16384
     base_url: str | None = None
 
+    # Vertex AI / Google Cloud configuration (used when model is a Gemini variant)
+    vertex_project: str | None = None
+    vertex_location: str | None = None
+
     # Behavior
     system_prompt: str | None = None
     permission: PermissionSettings = Field(default_factory=PermissionSettings)
@@ -74,12 +78,27 @@ class Settings(BaseModel):
     verbose: bool = False
 
     def resolve_api_key(self) -> str:
-        """Resolve API key with precedence: instance value > env var > empty.
+        """Resolve the API key appropriate for the configured model.
 
-        Returns the API key string. Raises ValueError if no key is found.
+        Precedence (highest first):
+        1. ``api_key`` field set directly on this instance or via ``OPENHARNESS_API_KEY``
+        2. Provider-specific environment variable (``GEMINI_API_KEY`` / ``VERTEX_AI_API_KEY``
+           for Gemini models; ``ANTHROPIC_API_KEY`` for all others)
+
+        Raises ``ValueError`` when no key can be resolved.
         """
         if self.api_key:
             return self.api_key
+
+        if "gemini" in self.model.lower():
+            env_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("VERTEX_AI_API_KEY", "")
+            if env_key:
+                return env_key
+            raise ValueError(
+                "No API key found for Gemini model. "
+                "Set GEMINI_API_KEY or VERTEX_AI_API_KEY, "
+                "or configure api_key in ~/.openharness/settings.json"
+            )
 
         env_key = os.environ.get("ANTHROPIC_API_KEY", "")
         if env_key:
@@ -97,8 +116,16 @@ class Settings(BaseModel):
 
 
 def _apply_env_overrides(settings: Settings) -> Settings:
-    """Apply supported environment variable overrides over loaded settings."""
+    """Apply supported environment variable overrides over loaded settings.
+
+    Note: provider-specific API keys (``ANTHROPIC_API_KEY``, ``GEMINI_API_KEY``,
+    ``VERTEX_AI_API_KEY``) are intentionally **not** loaded into the ``api_key``
+    field here.  They are resolved lazily and model-aware by ``resolve_api_key()``.
+    Use ``OPENHARNESS_API_KEY`` only if you need to pin an explicit key regardless
+    of the model.
+    """
     updates: dict[str, Any] = {}
+
     model = os.environ.get("ANTHROPIC_MODEL") or os.environ.get("OPENHARNESS_MODEL")
     if model:
         updates["model"] = model
@@ -111,9 +138,21 @@ def _apply_env_overrides(settings: Settings) -> Settings:
     if max_tokens:
         updates["max_tokens"] = int(max_tokens)
 
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    # Explicit key override — use this only to pin a key unconditionally.
+    # Model-specific keys (ANTHROPIC_API_KEY, GEMINI_API_KEY, etc.) are
+    # resolved lazily by Settings.resolve_api_key() so they never clobber
+    # each other when switching providers.
+    api_key = os.environ.get("OPENHARNESS_API_KEY")
     if api_key:
         updates["api_key"] = api_key
+
+    vertex_project = os.environ.get("VERTEX_PROJECT") or os.environ.get("GOOGLE_CLOUD_PROJECT")
+    if vertex_project:
+        updates["vertex_project"] = vertex_project
+
+    vertex_location = os.environ.get("VERTEX_LOCATION") or os.environ.get("GOOGLE_CLOUD_LOCATION")
+    if vertex_location:
+        updates["vertex_location"] = vertex_location
 
     if not updates:
         return settings

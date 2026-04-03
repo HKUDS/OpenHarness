@@ -9,6 +9,8 @@ from openharness.config.paths import (
     get_config_file_path,
     get_data_dir,
     get_logs_dir,
+    get_project_config_dir,
+    get_project_runs_dir,
 )
 
 
@@ -67,3 +69,22 @@ def test_get_logs_dir_env_override(tmp_path: Path, monkeypatch):
     logs_dir = get_logs_dir()
     assert logs_dir == custom
     assert logs_dir.is_dir()
+
+
+def test_get_project_config_dir(tmp_path: Path):
+    config_dir = get_project_config_dir(tmp_path)
+    assert config_dir == tmp_path / ".openharness"
+    assert config_dir.is_dir()
+
+
+def test_get_project_runs_dir(tmp_path: Path):
+    runs_dir = get_project_runs_dir(tmp_path)
+    assert runs_dir == tmp_path / "runs"
+    assert runs_dir.is_dir()
+
+
+def test_get_project_runs_dir_creates_missing_parents(tmp_path: Path):
+    project = tmp_path / "deep" / "project"
+    runs_dir = get_project_runs_dir(project)
+    assert runs_dir == project.resolve() / "runs"
+    assert runs_dir.is_dir()
