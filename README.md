@@ -126,43 +126,297 @@ oh -p "Fix the bug" --output-format stream-json
 
 ## 🏗️ Harness Architecture
 
-OpenHarness implements the core Agent Harness pattern with 10 subsystems:
+### System Architecture
 
 ```
-openharness/
-  engine/          # 🧠 Agent Loop — query → stream → tool-call → loop
-  tools/           # 🔧 43 Tools — file I/O, shell, search, web, MCP
-  skills/          # 📚 Knowledge — on-demand skill loading (.md files)
-  plugins/         # 🔌 Extensions — commands, hooks, agents, MCP servers
-  permissions/     # 🛡️ Safety — multi-level modes, path rules, command deny
-  hooks/           # ⚡ Lifecycle — PreToolUse/PostToolUse event hooks
-  commands/        # 💬 54 Commands — /help, /commit, /plan, /resume, ...
-  mcp/             # 🌐 MCP — Model Context Protocol client
-  memory/          # 🧠 Memory — persistent cross-session knowledge
-  tasks/           # 📋 Tasks — background task management
-  coordinator/     # 🤝 Multi-Agent — subagent spawning, team coordination
-  prompts/         # 📝 Context — system prompt assembly, CLAUDE.md, skills
-  config/          # ⚙️ Settings — multi-layer config, migrations
-  ui/              # 🖥️ React TUI — backend protocol + frontend
+┌──────────────────────────────────────────────────────────────┐
+│                   CLI Entry (cli.py / Typer)                 │
+│               oh / openharness → Interactive or Print mode   │
+├──────────┬───────────────────────────────────────────────────┤
+│ TUI Mode │  React/Ink Frontend ←─JSON Protocol─→ BackendHost│
+│ Print    │  oh -p "..." → Headless agent loop → stdout       │
+├──────────┴───────────────────────────────────────────────────┤
+│              RuntimeBundle (ui/runtime.py)                    │
+│   Assembles: ApiClient + ToolRegistry + Hooks + Commands     │
+├──────────────────────────────────────────────────────────────┤
+│                QueryEngine (engine/)                          │
+│       Conversation history + Cost tracking + run_query()     │
+├──────────────────────────────────────────────────────────────┤
+│  ┌─────────┬────────────┬────────┬───────┬───────┬────────┐ │
+│  │ Tools   │ Permissions│ Hooks  │  MCP  │Skills │Plugins │ │
+│  │ 43 tools│ 3 modes    │ Pre/   │ Proto │ .md   │ claude │ │
+│  │ Pydantic│ Path rules │ Post   │ Client│ files │ compat │ │
+│  └─────────┴────────────┴────────┴───────┴───────┴────────┘ │
+└──────────────────────────────────────────────────────────────┘
+```
+
+### Project Structure & File Reference
+
+```
+OpenHarness/
+├── pyproject.toml                  # Build config (hatchling), deps, pytest/ruff/mypy settings
+├── LICENSE                         # MIT License
+├── README.md                       # This file
+├── CLAUDE.md                       # AI assistant project context
+├── DESIGN.md                       # Architecture design document (Chinese)
+│
+├── src/openharness/                # ══════ Core Python Package ══════
+│   ├── __init__.py                 # Package marker
+│   ├── __main__.py                 # `python -m openharness` entry
+│   ├── cli.py                      # CLI entry point (Typer): oh [options], sub-commands
+│   │
+│   ├── engine/                     # ── Agent Loop (core) ──
+│   │   ├── query.py                #   run_query(): async tool-call loop (max_turns=8)
+│   │   ├── query_engine.py         #   QueryEngine: conversation history + cost tracking
+│   │   ├── messages.py             #   ConversationMessage, TextBlock, ToolUseBlock, ToolResultBlock
+│   │   ├── stream_events.py        #   StreamEvent types: TextDelta, TurnComplete, ToolStarted/Completed
+│   │   └── cost_tracker.py         #   CostTracker: cumulative token usage per session
+│   │
+│   ├── api/                        # ── Anthropic API Client ──
+│   │   ├── client.py               #   AnthropicApiClient: streaming + exponential backoff retry (3x)
+│   │   ├── errors.py               #   AuthenticationFailure, RateLimitFailure, RequestFailure
+│   │   ├── provider.py             #   ProviderInfo: detect API capabilities
+│   │   └── usage.py                #   UsageSnapshot: input/output token counts
+│   │
+│   ├── tools/                      # ── 43 Tools (all extend BaseTool) ──
+│   │   ├── base.py                 #   BaseTool ABC, ToolResult, ToolExecutionContext, ToolRegistry
+│   │   ├── bash_tool.py            #   Execute shell commands via subprocess
+│   │   ├── file_read_tool.py       #   Read file contents with offset/limit
+│   │   ├── file_write_tool.py      #   Create or overwrite files atomically
+│   │   ├── file_edit_tool.py       #   Search-and-replace edits within files
+│   │   ├── glob_tool.py            #   Find files matching glob patterns
+│   │   ├── grep_tool.py            #   Regex search with ripgrep integration
+│   │   ├── web_fetch_tool.py       #   Fetch and parse HTML/text from URLs
+│   │   ├── web_search_tool.py      #   Web search via search engine API
+│   │   ├── agent_tool.py           #   Spawn sub-agent with separate context
+│   │   ├── send_message_tool.py    #   Send message to sub-agent or team member
+│   │   ├── team_create_tool.py     #   Create multi-agent team
+│   │   ├── team_delete_tool.py     #   Delete team
+│   │   ├── skill_tool.py           #   Load and apply skill knowledge
+│   │   ├── mcp_tool.py             #   Call MCP server tools dynamically
+│   │   ├── mcp_auth_tool.py        #   MCP server authentication
+│   │   ├── list_mcp_resources_tool.py  # List MCP resources
+│   │   ├── read_mcp_resource_tool.py   # Read MCP resource content
+│   │   ├── task_create_tool.py     #   Create background shell/agent task
+│   │   ├── task_list_tool.py       #   List running tasks
+│   │   ├── task_get_tool.py        #   Get task status and output
+│   │   ├── task_update_tool.py     #   Update task parameters
+│   │   ├── task_stop_tool.py       #   Gracefully stop a task
+│   │   ├── task_output_tool.py     #   Stream task output
+│   │   ├── cron_create_tool.py     #   Schedule agents on cron
+│   │   ├── cron_list_tool.py       #   List cron schedules
+│   │   ├── cron_delete_tool.py     #   Delete cron schedule
+│   │   ├── enter_plan_mode_tool.py #   Switch to read-only plan mode
+│   │   ├── exit_plan_mode_tool.py  #   Exit plan mode
+│   │   ├── enter_worktree_tool.py  #   Enter git worktree for isolation
+│   │   ├── exit_worktree_tool.py   #   Exit git worktree
+│   │   ├── config_tool.py          #   Get/set configuration values
+│   │   ├── sleep_tool.py           #   Delay execution for polling scenarios
+│   │   ├── ask_user_question_tool.py   # Ask user for input (blocks until response)
+│   │   ├── brief_tool.py           #   Summarize conversation context
+│   │   ├── tool_search_tool.py     #   Search available tools by name/description
+│   │   ├── lsp_tool.py             #   Language Server Protocol integration
+│   │   ├── notebook_edit_tool.py   #   Edit Jupyter notebook cells
+│   │   ├── remote_trigger_tool.py  #   Trigger remote agent execution
+│   │   └── todo_write_tool.py      #   Update task/todo list
+│   │
+│   ├── permissions/                # ── Permission System ──
+│   │   ├── modes.py                #   PermissionMode enum: DEFAULT, PLAN, FULL_AUTO
+│   │   └── checker.py              #   PermissionChecker: evaluate tool calls against rules
+│   │
+│   ├── hooks/                      # ── Lifecycle Hooks ──
+│   │   ├── executor.py             #   HookExecutor: run Command/HTTP/Prompt/Agent hooks
+│   │   ├── loader.py               #   HookRegistry: load hooks from settings
+│   │   ├── events.py               #   HookEvent: PRE_TOOL_USE, POST_TOOL_USE, SESSION_START
+│   │   ├── schemas.py              #   HookDefinition pydantic model
+│   │   ├── types.py                #   Hook type definitions
+│   │   └── hot_reload.py           #   HookReloader: watch settings for hot-reload
+│   │
+│   ├── config/                     # ── Configuration ──
+│   │   ├── settings.py             #   Settings model (Pydantic): model, perms, hooks, MCP
+│   │   └── paths.py                #   Config/session/task/memory directory helpers
+│   │
+│   ├── mcp/                        # ── Model Context Protocol ──
+│   │   ├── client.py               #   McpClientManager: connect to MCP servers via stdio
+│   │   ├── config.py               #   Load MCP server configs from settings
+│   │   └── types.py                #   McpStdioServerConfig, McpToolInfo, McpResourceInfo
+│   │
+│   ├── skills/                     # ── Skills (on-demand knowledge) ──
+│   │   ├── loader.py               #   Load skills from bundled/ and ~/.openharness/skills/
+│   │   ├── registry.py             #   SkillRegistry: store loaded skill definitions
+│   │   ├── types.py                #   SkillDefinition model (name, description, content)
+│   │   └── bundled/content/        #   Built-in skills: commit, debug, plan, review, simplify, test
+│   │
+│   ├── plugins/                    # ── Plugin System (claude-code compatible) ──
+│   │   ├── loader.py               #   Load plugins from ~/.openharness/plugins/
+│   │   ├── installer.py            #   Plugin install/uninstall helpers
+│   │   ├── schemas.py              #   PluginManifest model
+│   │   └── types.py                #   LoadedPlugin dataclass
+│   │
+│   ├── coordinator/                # ── Multi-Agent Coordination ──
+│   │   ├── coordinator_mode.py     #   TeamRegistry: in-memory team/agent membership
+│   │   └── agent_definitions.py    #   AgentDefinition: built-in roles (default, worker)
+│   │
+│   ├── commands/                   # ── 54 Interactive Slash Commands ──
+│   │   └── registry.py             #   CommandRegistry: /help, /commit, /plan, /resume, /perms...
+│   │
+│   ├── prompts/                    # ── System Prompt Assembly ──
+│   │   ├── system_prompt.py        #   Build system prompt from base + environment
+│   │   ├── environment.py          #   EnvironmentInfo: OS, Python, git, cwd detection
+│   │   ├── context.py              #   PromptContext: optional CLAUDE.md injection
+│   │   └── claudemd.py             #   Load/parse CLAUDE.md from project root
+│   │
+│   ├── memory/                     # ── Persistent Cross-Session Memory ──
+│   │   ├── manager.py              #   Memory file CRUD operations
+│   │   ├── memdir.py               #   MemoryDirectory: persistent storage
+│   │   ├── scan.py                 #   Scan markdown memory files
+│   │   ├── search.py               #   Heuristic memory search (token matching)
+│   │   ├── paths.py                #   Memory directory path helpers
+│   │   └── types.py                #   MemoryHeader, MemoryBlock dataclasses
+│   │
+│   ├── tasks/                      # ── Background Tasks ──
+│   │   ├── manager.py              #   BackgroundTaskManager: spawn async tasks
+│   │   ├── types.py                #   TaskRecord, TaskStatus, TaskType
+│   │   ├── local_shell_task.py     #   ShellTask: background shell commands
+│   │   ├── local_agent_task.py     #   AgentTask: background sub-agent processes
+│   │   └── stop_task.py            #   Graceful task termination
+│   │
+│   ├── ui/                         # ── UI Layer ──
+│   │   ├── app.py                  #   run_repl(): interactive mode entry point
+│   │   ├── runtime.py              #   RuntimeBundle: assemble all components for a session
+│   │   ├── backend_host.py         #   JSON-lines backend server for React TUI (stdin/stdout)
+│   │   ├── react_launcher.py       #   Launch React terminal UI subprocess
+│   │   ├── textual_app.py          #   Fallback Textual TUI (pure Python, no Node.js)
+│   │   ├── protocol.py             #   FrontendRequest/Response protocol models
+│   │   ├── permission_dialog.py    #   Interactive permission confirmation dialog
+│   │   ├── input.py                #   Input handling and line reading
+│   │   └── output.py               #   Output formatting and streaming
+│   │
+│   ├── bridge/                     # ── External Session Management ──
+│   │   ├── manager.py              #   BridgeSessionManager: track spawned sessions
+│   │   ├── session_runner.py       #   SessionHandle: subprocess lifecycle
+│   │   ├── types.py                #   Bridge communication types
+│   │   └── work_secret.py          #   Secure session secret handling
+│   │
+│   ├── services/                   # ── Shared Services ──
+│   │   ├── session_storage.py      #   Persist session history to ~/.openharness/sessions/
+│   │   ├── token_estimation.py     #   Rough token count heuristic
+│   │   ├── cron.py                 #   Local cron job registry for scheduled agents
+│   │   ├── compact/                #   Message compaction (context window management)
+│   │   ├── lsp/                    #   Language Server Protocol integration
+│   │   └── oauth/                  #   OAuth flow helpers for MCP auth
+│   │
+│   ├── state/                      # ── Application State ──
+│   │   ├── app_state.py            #   AppState: model, mode, theme, cwd, auth, vim, voice
+│   │   └── store.py                #   AppStateStore: observable state with listener pattern
+│   │
+│   ├── keybindings/                # ── Keyboard Shortcuts ──
+│   │   ├── loader.py               #   Load from ~/.claude/keybindings.json
+│   │   ├── parser.py               #   Parse keybinding JSON format
+│   │   ├── resolver.py             #   Resolve key combos to actions
+│   │   └── default_bindings.py     #   Default keybinding presets
+│   │
+│   ├── output_styles/              # ── Output Customization ──
+│   │   └── loader.py               #   Load custom output styles
+│   │
+│   ├── vim/                        # ── Vim Mode ──
+│   │   └── transitions.py          #   toggle_vim_mode() state helper
+│   │
+│   ├── voice/                      # ── Voice Input ──
+│   │   ├── voice_mode.py           #   VoiceDiagnostics, toggle_voice_mode()
+│   │   ├── keyterms.py             #   Voice command keyword mapping
+│   │   └── stream_stt.py           #   Speech-to-text streaming integration
+│   │
+│   └── types/                      # ── Shared Type Definitions ──
+│       └── __init__.py
+│
+├── frontend/terminal/              # ══════ React + Ink TUI (TypeScript) ══════
+│   ├── package.json                # Dependencies: React 18, Ink 5, TypeScript 5
+│   ├── tsconfig.json               # TypeScript configuration
+│   └── src/
+│       ├── index.tsx               #   Entry point, renders <App/>
+│       ├── App.tsx                  #   Main component: routing, modes, keyboard
+│       ├── types.ts                #   TypeScript interfaces (Config, Transcript, Task...)
+│       ├── hooks/
+│       │   └── useBackendSession.ts    # JSON-lines backend communication hook
+│       └── components/
+│           ├── Composer.tsx         #   Multi-line prompt input with history
+│           ├── CommandPicker.tsx    #   Slash command autocomplete picker
+│           ├── ConversationView.tsx #   Render transcript (messages + tool calls)
+│           ├── TranscriptPane.tsx   #   Scrollable transcript display
+│           ├── ToolCallDisplay.tsx  #   Pretty-print tool invocations and results
+│           ├── StatusBar.tsx        #   Top bar: model, cwd, auth status
+│           ├── Footer.tsx           #   Bottom bar: keybindings
+│           ├── SelectModal.tsx      #   Multi-choice selection modal
+│           ├── PromptInput.tsx      #   Single-line input prompt
+│           ├── SidePanel.tsx        #   Side panel: tasks, memory, sessions
+│           ├── Spinner.tsx          #   Loading spinner animation
+│           ├── ModalHost.tsx        #   Portal for modal dialogs
+│           └── WelcomeBanner.tsx    #   Welcome/splash screen
+│
+├── tests/                          # ══════ Test Suite ══════
+│   ├── conftest.py                 # Shared pytest fixtures
+│   ├── fixtures/
+│   │   └── fake_mcp_server.py      #   Mock MCP server for testing
+│   ├── test_engine/                #   Agent loop, message formatting, cost tracking
+│   ├── test_api/                   #   API client, retry, error translation
+│   ├── test_tools/                 #   Individual tool tests (bash, file, web, mcp...)
+│   ├── test_permissions/           #   Permission checker, mode evaluation
+│   ├── test_hooks/                 #   Hook executor, loader, hot-reload
+│   ├── test_commands/              #   Slash command registry and execution
+│   ├── test_config/                #   Settings loading, path resolution
+│   ├── test_mcp/                   #   MCP client connection
+│   ├── test_skills/                #   Skill loader, bundled skills
+│   ├── test_plugins/               #   Plugin loader, manifest validation
+│   ├── test_memory/                #   Memory search, file management
+│   ├── test_tasks/                 #   Background task manager
+│   ├── test_coordinator/           #   Team registry
+│   ├── test_prompts/               #   System prompt building
+│   ├── test_services/              #   Session storage, cron, token estimation
+│   ├── test_ui/                    #   Backend protocol, Textual app
+│   └── test_bridge/                #   Bridge session management
+│
+└── scripts/                        # ══════ E2E Test Scripts ══════
+    ├── e2e_smoke.py                #   Full smoke test: real API calls, multiple scenarios
+    ├── test_harness_features.py    #   Feature tests: retry, skills, parallel, permissions
+    ├── test_cli_flags.py           #   CLI argument parsing tests
+    ├── test_real_skills_plugins.py #   Real skill/plugin loading tests
+    ├── react_tui_e2e.py            #   React TUI end-to-end tests
+    ├── test_react_tui_redesign.py  #   React TUI redesign validation
+    ├── test_tui_interactions.py    #   Terminal UI interaction tests
+    ├── test_headless_rendering.py  #   Headless mode rendering tests
+    └── local_system_scenarios.py   #   Local filesystem scenario tests
 ```
 
 ### The Agent Loop
 
-The heart of the harness. One loop, endlessly composable:
+The heart of the harness — a **user-driven request-response loop** with an inner autonomous tool-call cycle:
 
-```python
-while True:
-    response = await api.stream(messages, tools)
-    
-    if response.stop_reason != "tool_use":
-        break  # Model is done
-    
-    for tool_call in response.tool_uses:
-        # Permission check → Hook → Execute → Hook → Result
-        result = await harness.execute_tool(tool_call)
-    
-    messages.append(tool_results)
-    # Loop continues — model sees results, decides next action
+```
+┌─────────────────── Outer Loop (User-Driven) ───────────────────┐
+│                                                                 │
+│  User types prompt                                              │
+│    └→ QueryEngine.submit_message(prompt)                        │
+│         └→ run_query(context, messages)                         │
+│                                                                 │
+│  ┌──────────── Inner Loop (LLM-Driven, max 8 turns) ────────┐  │
+│  │                                                            │  │
+│  │  1. api_client.stream_message()                            │  │
+│  │     ├→ yield TextDelta (real-time streaming)               │  │
+│  │     └→ yield MessageComplete                               │  │
+│  │                                                            │  │
+│  │  2. If no tool_uses → break (return to user)               │  │
+│  │                                                            │  │
+│  │  3. Execute tools:                                         │  │
+│  │     Pre-Hook → Permission Check → Pydantic Validate        │  │
+│  │       → tool.execute() → Post-Hook                         │  │
+│  │     (single: sequential / multiple: asyncio.gather)        │  │
+│  │                                                            │  │
+│  │  4. Append ToolResultBlocks → next turn                    │  │
+│  └────────────────────────────────────────────────────────────┘  │
+│                                                                 │
+│  ← Wait for next user input                                    │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 The model decides **what** to do. The harness handles **how** — safely, efficiently, with full observability.
