@@ -9,6 +9,12 @@ The format is based on Keep a Changelog, and this project currently tracks chang
 ### Added
 
 - GitHub Actions CI workflow for Python linting, tests, and frontend TypeScript checks.
+
+### Fixed
+
+- Memory scanner now parses YAML frontmatter (`name`, `description`, `type`) instead of returning raw `---` as description.
+- Memory search matches against body content in addition to metadata, with metadata weighted higher for relevance.
+- Memory search tokenizer handles CJK characters for multilingual queries.
 - `CONTRIBUTING.md` with local setup, validation commands, and PR expectations.
 - `docs/SHOWCASE.md` with concrete OpenHarness usage patterns and demo commands.
 - GitHub issue templates and a pull request template.
