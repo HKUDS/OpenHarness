@@ -282,11 +282,6 @@ export function App({config}: {config: FrontendConfig}): React.JSX.Element {
 			return;
 		}
 
-		// --- Submit on Enter ---
-		if (!showPicker && key.return && input.trim()) {
-			onSubmit(input);
-			return;
-		}
 	});
 
 	const onSubmit = (value: string): void => {

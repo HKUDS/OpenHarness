@@ -17,6 +17,7 @@ The format is based on Keep a Changelog, and this project currently tracks chang
 
 - README now links to contribution docs, changelog, showcase material, and provider compatibility guidance.
 - README quick start now includes a one-command demo and clearer provider compatibility notes.
+- React TUI now avoids duplicate submissions when pressing Enter in the main prompt, and the regression is covered in `scripts/react_tui_e2e.py`.
 
 ## [0.1.0] - 2026-04-01
 
