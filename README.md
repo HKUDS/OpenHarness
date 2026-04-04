@@ -125,24 +125,6 @@ Supports CLI agent integration including OpenClaw, nanobot, Cursor, and more.
 
 ---
 
-## 🚀 44x Lighter Than Claude Code
-
-<table>
-<tr><th></th><th>Claude Code</th><th>OpenHarness</th></tr>
-<tr><td><strong>Lines of Code</strong></td><td>512,664</td><td><strong>11,733</strong> (44x lighter)</td></tr>
-<tr><td><strong>Files</strong></td><td>1,884</td><td><strong>163</strong></td></tr>
-<tr><td><strong>Language</strong></td><td>TypeScript</td><td>Python</td></tr>
-<tr><td><strong>Tools</strong></td><td>~44</td><td>43 (98%)</td></tr>
-<tr><td><strong>Commands</strong></td><td>~88</td><td>54 (61%)</td></tr>
-<tr><td><strong>Skills Compatible</strong></td><td>✅</td><td>✅ anthropics/skills</td></tr>
-<tr><td><strong>Plugin Compatible</strong></td><td>✅</td><td>✅ claude-code/plugins</td></tr>
-<tr><td><strong>Tests</strong></td><td>—</td><td>114 unit + 6 E2E suites</td></tr>
-</table>
-
-Leverages Python's power with pure focus on Harness architecture—stripped of enterprise overhead like telemetry, OAuth complexity, and hundreds of React components.
-
----
-
 ## 🤔 What is an Agent Harness?
 
 An **Agent Harness** is the complete infrastructure that wraps around an LLM to make it a functional agent. The model provides intelligence; the harness provides **hands, eyes, memory, and safety boundaries**.
@@ -230,27 +212,46 @@ oh -p "Fix the bug" --output-format stream-json
 
 ## 🔌 Provider Compatibility
 
-OpenHarness currently detects and adapts to a small set of provider profiles in code. The table below is intentionally conservative and reflects the profiles implemented in `src/openharness/api/provider.py`.
+OpenHarness supports two API formats: **Anthropic** (default) and **OpenAI-compatible** (`--api-format openai`). The OpenAI format covers a wide range of providers.
 
-| Provider profile | Detection signal | Auth kind | Voice mode | Notes |
-|------------------|------------------|-----------|------------|-------|
-| **Anthropic** | Default when no custom `ANTHROPIC_BASE_URL` is set | API key | Not wired in current build | Default Claude-oriented setup |
-| **Moonshot / Kimi** | `ANTHROPIC_BASE_URL` contains `moonshot` or model starts with `kimi` | API key | Not wired in current build | Works through an Anthropic-compatible endpoint |
-| **Vertex-compatible** | Base URL contains `vertex` or `aiplatform` | GCP | Not wired in current build | Good fit for Anthropic-style gateways on Vertex |
-| **Bedrock-compatible** | Base URL contains `bedrock` | AWS | Not wired in current build | Intended for Bedrock-style deployments |
-| **MiniMax** | `ANTHROPIC_BASE_URL` contains `minimax` | API key | Not wired in current build | Works through an Anthropic-compatible endpoint (`/anthropic` path) |
-| **Generic Anthropic-compatible** | Any other explicit `ANTHROPIC_BASE_URL` | API key | Not wired in current build | Useful for proxies and internal gateways |
+### Anthropic Format (default)
 
-**MiniMax example:**
+| Provider profile | Detection signal | Notes |
+|------------------|------------------|-------|
+| **Anthropic** | Default when no custom `ANTHROPIC_BASE_URL` is set | Default Claude-oriented setup |
+| **Moonshot / Kimi** | `ANTHROPIC_BASE_URL` contains `moonshot` or model starts with `kimi` | Anthropic-compatible endpoint |
+| **Vertex-compatible** | Base URL contains `vertex` or `aiplatform` | Anthropic-style gateways on Vertex |
+| **Bedrock-compatible** | Base URL contains `bedrock` | Bedrock-style deployments |
+| **Generic Anthropic-compatible** | Any other explicit `ANTHROPIC_BASE_URL` | Proxies and internal gateways |
+
+### OpenAI Format (`--api-format openai`)
+
+Any provider implementing the OpenAI `/v1/chat/completions` API works out of the box:
+
+| Provider | Base URL | Example models |
+|----------|----------|----------------|
+| **Alibaba DashScope** | `https://dashscope.aliyuncs.com/compatible-mode/v1` | `qwen3.5-flash`, `qwen3-max`, `deepseek-r1` |
+| **DeepSeek** | `https://api.deepseek.com` | `deepseek-chat`, `deepseek-reasoner` |
+| **OpenAI** | `https://api.openai.com/v1` | `gpt-4o`, `gpt-4o-mini` |
+| **GitHub Models** | `https://models.inference.ai.azure.com` | `gpt-4o`, `Meta-Llama-3.1-405B-Instruct` |
+| **SiliconFlow** | `https://api.siliconflow.cn/v1` | `deepseek-ai/DeepSeek-V3` |
+| **Groq** | `https://api.groq.com/openai/v1` | `llama-3.3-70b-versatile` |
+| **Ollama (local)** | `http://localhost:11434/v1` | Any local model |
 
 ```bash
-export ANTHROPIC_BASE_URL=https://api.minimaxi.com/anthropic
-export ANTHROPIC_API_KEY=your_minimax_api_key
-export ANTHROPIC_MODEL=MiniMax-M2.5
+# Example: use DashScope
+uv run oh --api-format openai \
+  --base-url "https://dashscope.aliyuncs.com/compatible-mode/v1" \
+  --api-key "sk-xxx" \
+  --model "qwen3.5-flash"
+
+# Or via environment variables
+export OPENHARNESS_API_FORMAT=openai
+export OPENAI_API_KEY=sk-xxx
+export OPENHARNESS_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+export OPENHARNESS_MODEL=qwen3.5-flash
 uv run oh
 ```
-
-If you are evaluating cross-provider workflows or want a concrete demo path, start with Anthropic or the Kimi example above, then compare behavior against your own compatible endpoint.
 
 ---
 

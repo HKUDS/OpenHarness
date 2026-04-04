@@ -34,6 +34,7 @@ class BackendHostConfig:
     base_url: str | None = None
     system_prompt: str | None = None
     api_key: str | None = None
+    api_format: str | None = None
     api_client: SupportsStreamingMessages | None = None
     restore_messages: list[dict] | None = None
 
@@ -57,6 +58,7 @@ class ReactBackendHost:
             base_url=self._config.base_url,
             system_prompt=self._config.system_prompt,
             api_key=self._config.api_key,
+            api_format=self._config.api_format,
             api_client=self._config.api_client,
             restore_messages=self._config.restore_messages,
             permission_prompt=self._ask_permission,
@@ -285,6 +287,7 @@ async def run_backend_host(
     base_url: str | None = None,
     system_prompt: str | None = None,
     api_key: str | None = None,
+    api_format: str | None = None,
     cwd: str | None = None,
     api_client: SupportsStreamingMessages | None = None,
     restore_messages: list[dict] | None = None,
@@ -298,6 +301,7 @@ async def run_backend_host(
             base_url=base_url,
             system_prompt=system_prompt,
             api_key=api_key,
+            api_format=api_format,
             api_client=api_client,
             restore_messages=restore_messages,
         )

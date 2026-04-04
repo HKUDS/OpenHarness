@@ -230,7 +230,7 @@ async def test_version_context_and_share_commands(tmp_path: Path, monkeypatch):
 
     context_command, context_args = registry.lookup("/context")
     context_result = await context_command.handler(context_args, context)
-    assert "interactive CLI coding tool" in context_result.message
+    assert "OpenHarness" in context_result.message or "interactive agent" in context_result.message
 
     share_command, share_args = registry.lookup("/share")
     share_result = await share_command.handler(share_args, context)

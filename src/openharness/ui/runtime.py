@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Awaitable, Callable
 
 from openharness.api.client import AnthropicApiClient, SupportsStreamingMessages
+from openharness.api.openai_client import OpenAICompatibleClient
 from openharness.api.provider import auth_status, detect_provider
 from openharness.bridge import get_bridge_manager
 from openharness.commands import CommandContext, CommandResult, create_default_command_registry
@@ -94,6 +95,7 @@ async def build_runtime(
     base_url: str | None = None,
     system_prompt: str | None = None,
     api_key: str | None = None,
+    api_format: str | None = None,
     api_client: SupportsStreamingMessages | None = None,
     permission_prompt: PermissionPrompt | None = None,
     ask_user_prompt: AskUserPrompt | None = None,
@@ -105,13 +107,22 @@ async def build_runtime(
         base_url=base_url,
         system_prompt=system_prompt,
         api_key=api_key,
+        api_format=api_format,
     )
     cwd = str(Path.cwd())
     plugins = load_plugins(settings, cwd)
-    resolved_api_client = api_client or AnthropicApiClient(
-        api_key=settings.resolve_api_key(),
-        base_url=settings.base_url,
-    )
+    if api_client:
+        resolved_api_client = api_client
+    elif settings.api_format == "openai":
+        resolved_api_client = OpenAICompatibleClient(
+            api_key=settings.resolve_api_key(),
+            base_url=settings.base_url,
+        )
+    else:
+        resolved_api_client = AnthropicApiClient(
+            api_key=settings.resolve_api_key(),
+            base_url=settings.base_url,
+        )
     mcp_manager = McpClientManager(load_mcp_server_configs(settings, plugins))
     await mcp_manager.connect_all()
     tool_registry = create_default_tool_registry(mcp_manager)

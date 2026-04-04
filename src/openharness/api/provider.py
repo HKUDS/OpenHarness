@@ -28,6 +28,20 @@ def detect_provider(settings: Settings) -> ProviderInfo:
             voice_supported=False,
             voice_reason="voice mode requires a Claude.ai-style authenticated voice backend",
         )
+    if "dashscope" in base_url or model.startswith("qwen"):
+        return ProviderInfo(
+            name="dashscope-openai-compatible",
+            auth_kind="api_key",
+            voice_supported=False,
+            voice_reason="voice mode is not supported for DashScope providers",
+        )
+    if "models.inference.ai.azure.com" in base_url or "github" in base_url:
+        return ProviderInfo(
+            name="github-models-openai-compatible",
+            auth_kind="api_key",
+            voice_supported=False,
+            voice_reason="voice mode is not supported for GitHub Models",
+        )
     if "bedrock" in base_url:
         return ProviderInfo(
             name="bedrock-compatible",

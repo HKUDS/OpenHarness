@@ -45,7 +45,7 @@ class QueryContext:
     max_tokens: int
     permission_prompt: PermissionPrompt | None = None
     ask_user_prompt: AskUserPrompt | None = None
-    max_turns: int = 8
+    max_turns: int = 200
     hook_executor: HookExecutor | None = None
     tool_metadata: dict[str, object] | None = None
 
@@ -54,8 +54,32 @@ async def run_query(
     context: QueryContext,
     messages: list[ConversationMessage],
 ) -> AsyncIterator[tuple[StreamEvent, UsageSnapshot | None]]:
-    """Run the conversation loop until the model stops requesting tools."""
+    """Run the conversation loop until the model stops requesting tools.
+
+    Auto-compaction is checked at the start of each turn.  When the
+    estimated token count exceeds the model's auto-compact threshold,
+    the engine first tries a cheap microcompact (clearing old tool result
+    content) and, if that is not enough, performs a full LLM-based
+    summarization of older messages.
+    """
+    from openharness.services.compact import (
+        AutoCompactState,
+        auto_compact_if_needed,
+    )
+
+    compact_state = AutoCompactState()
+
     for _ in range(context.max_turns):
+        # --- auto-compact check before calling the model ---------------
+        messages, was_compacted = await auto_compact_if_needed(
+            messages,
+            api_client=context.api_client,
+            model=context.model,
+            system_prompt=context.system_prompt,
+            state=compact_state,
+        )
+        # ---------------------------------------------------------------
+
         final_message: ConversationMessage | None = None
         usage = UsageSnapshot()
 
