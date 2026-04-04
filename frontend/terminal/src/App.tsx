@@ -282,11 +282,8 @@ export function App({config}: {config: FrontendConfig}): React.JSX.Element {
 			return;
 		}
 
-		// --- Submit on Enter ---
-		if (!showPicker && key.return && input.trim()) {
-			onSubmit(input);
-			return;
-		}
+		// Note: normal Enter submission is handled by TextInput's onSubmit in
+		// PromptInput.  Do NOT duplicate it here — that causes double requests.
 	});
 
 	const onSubmit = (value: string): void => {
