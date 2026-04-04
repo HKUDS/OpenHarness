@@ -162,6 +162,7 @@ OpenHarness is an open-source Python implementation designed for **researchers, 
 
 ## 📰 What's New
 
+- **2026-04-03** **v0.2.0** — Cron scheduler daemon, auto-compaction, session resume, cost output, MiniMax provider support
 - **2026-04-01** 🎨 **v0.1.0** — Initial **OpenHarness** open-source release featuring complete Harness architecture: 
 
 <p align="center">
@@ -214,11 +215,14 @@ uv run oh             # without activating venv
 ### Non-Interactive Mode (Pipes & Scripts)
 
 ```bash
-# Single prompt → stdout
+# Single prompt → stdout (tool activity + token usage on stderr)
 oh -p "Explain this codebase"
+# stderr: [tool] read_file
+# stderr: [usage] input=1,234 output=567 total=1,801 tokens
 
-# JSON output for programmatic use
+# JSON output includes usage data for cost tracking
 oh -p "List all functions in main.py" --output-format json
+# {"type": "result", "text": "...", "usage": {"input_tokens": 1234, "output_tokens": 567}}
 
 # Stream JSON events in real-time
 oh -p "Fix the bug" --output-format stream-json
@@ -234,7 +238,17 @@ OpenHarness currently detects and adapts to a small set of provider profiles in 
 | **Moonshot / Kimi** | `ANTHROPIC_BASE_URL` contains `moonshot` or model starts with `kimi` | API key | Not wired in current build | Works through an Anthropic-compatible endpoint |
 | **Vertex-compatible** | Base URL contains `vertex` or `aiplatform` | GCP | Not wired in current build | Good fit for Anthropic-style gateways on Vertex |
 | **Bedrock-compatible** | Base URL contains `bedrock` | AWS | Not wired in current build | Intended for Bedrock-style deployments |
+| **MiniMax** | `ANTHROPIC_BASE_URL` contains `minimax` | API key | Not wired in current build | Works through an Anthropic-compatible endpoint (`/anthropic` path) |
 | **Generic Anthropic-compatible** | Any other explicit `ANTHROPIC_BASE_URL` | API key | Not wired in current build | Useful for proxies and internal gateways |
+
+**MiniMax example:**
+
+```bash
+export ANTHROPIC_BASE_URL=https://api.minimaxi.com/anthropic
+export ANTHROPIC_API_KEY=your_minimax_api_key
+export ANTHROPIC_MODEL=MiniMax-M2.5
+uv run oh
+```
 
 If you are evaluating cross-provider workflows or want a concrete demo path, start with Anthropic or the Kimi example above, then compare behavior against your own compatible endpoint.
 
@@ -312,7 +326,7 @@ flowchart LR
 | **Task** | TaskCreate/Get/List/Update/Stop/Output | Background task management |
 | **MCP** | MCPTool, ListMcpResources, ReadMcpResource | Model Context Protocol integration |
 | **Mode** | EnterPlanMode, ExitPlanMode, Worktree | Workflow mode switching |
-| **Schedule** | CronCreate/List/Delete, RemoteTrigger | Scheduled and remote execution |
+| **Schedule** | CronCreate/List/Delete/Toggle, RemoteTrigger | Scheduled job execution with background daemon |
 | **Meta** | Skill, Config, Brief, Sleep, AskUser | Knowledge loading, configuration, interaction |
 
 Every tool has:
@@ -370,6 +384,48 @@ OpenHarness is useful as a lightweight harness layer around Claude-style tooling
 
 For concrete usage ideas instead of generic claims, see [`docs/SHOWCASE.md`](docs/SHOWCASE.md).
 
+### ⏰ Cron Scheduler
+
+Schedule and execute recurring jobs with a background daemon. Jobs use standard 5-field cron expressions and run as shell commands.
+
+```bash
+# Manage the scheduler daemon
+oh cron start              # Start the background scheduler
+oh cron stop               # Stop the scheduler
+oh cron status             # Show scheduler state and job counts
+
+# Manage jobs
+oh cron list               # List all jobs with schedule, last/next run
+oh cron toggle <name> <bool>  # Enable or disable a job
+oh cron history [name]     # Show execution history
+oh cron logs               # Tail the scheduler log
+```
+
+Jobs can also be created by the model via the `cron_create` tool during a session. The scheduler validates cron expressions, tracks execution history in a JSONL log, and recomputes the next run time after each execution. Concurrent jobs execute in parallel.
+
+### 🔄 Auto-Compaction
+
+Long conversations automatically compact when estimated token usage exceeds 80k tokens. The engine replaces older messages with a concise summary while preserving the 6 most recent messages. This prevents context window overflow crashes without requiring manual `/compact` commands.
+
+### 💰 Cost & Usage Tracking
+
+Print mode (`oh -p`) now reports token usage and tool activity:
+
+- **Tool activity** appears on stderr during execution: `[tool] write_file`
+- **Token usage** appears on stderr after completion: `[usage] input=1,234 output=567 total=1,801 tokens`
+- **JSON output** includes structured usage: `{"type": "result", "text": "...", "usage": {"input_tokens": 1234, "output_tokens": 567}}`
+
+### 🔁 Session Resume
+
+Resume previous conversations from the command line:
+
+```bash
+oh --continue              # Resume the most recent session in this directory
+oh --resume <session_id>   # Resume a specific session by ID
+```
+
+Sessions are auto-saved after every turn. The `/resume` slash command is also available inside interactive sessions for browsing and restoring saved sessions.
+
 ### 🛡️ Permissions
 
 Multi-level safety with fine-grained control:
@@ -414,7 +470,7 @@ Permissions: --permission-mode, --dangerously-skip-permissions
 Context:     -s/--system-prompt, --append-system-prompt, --settings
 Advanced:    -d/--debug, --mcp-config, --bare
 
-Subcommands: oh mcp | oh plugin | oh auth
+Subcommands: oh mcp | oh plugin | oh auth | oh cron
 ```
 
 ---
@@ -423,7 +479,7 @@ Subcommands: oh mcp | oh plugin | oh auth
 
 | Suite | Tests | Status |
 |-------|-------|--------|
-| Unit + Integration | 114 | ✅ All passing |
+| Unit + Integration | 153 | ✅ All passing |
 | CLI Flags E2E | 6 | ✅ Real model calls |
 | Harness Features E2E | 9 | ✅ Retry, skills, parallel, permissions |
 | React TUI E2E | 3 | ✅ Welcome, conversation, status |
@@ -432,7 +488,7 @@ Subcommands: oh mcp | oh plugin | oh auth
 
 ```bash
 # Run all tests
-uv run pytest -q                           # 114 unit/integration
+uv run pytest -q                           # 153 unit/integration
 python scripts/test_harness_features.py     # Harness E2E
 python scripts/test_real_skills_plugins.py  # Real plugins E2E
 ```
