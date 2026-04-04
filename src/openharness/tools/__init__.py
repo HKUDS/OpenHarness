@@ -9,6 +9,7 @@ from openharness.tools.config_tool import ConfigTool
 from openharness.tools.cron_create_tool import CronCreateTool
 from openharness.tools.cron_delete_tool import CronDeleteTool
 from openharness.tools.cron_list_tool import CronListTool
+from openharness.tools.cron_toggle_tool import CronToggleTool
 from openharness.tools.enter_plan_mode_tool import EnterPlanModeTool
 from openharness.tools.enter_worktree_tool import EnterWorktreeTool
 from openharness.tools.exit_plan_mode_tool import ExitPlanModeTool
@@ -71,6 +72,7 @@ def create_default_tool_registry(mcp_manager=None) -> ToolRegistry:
         CronCreateTool(),
         CronListTool(),
         CronDeleteTool(),
+        CronToggleTool(),
         RemoteTriggerTool(),
         TaskCreateTool(),
         TaskGetTool(),

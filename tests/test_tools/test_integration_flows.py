@@ -223,7 +223,7 @@ async def test_notebook_and_cron_flow_across_registry(tmp_path: Path, monkeypatc
     assert "flow ok" in (tmp_path / "nb" / "demo.ipynb").read_text(encoding="utf-8")
 
     await cron_create.execute(
-        cron_create.input_model(name="flow", schedule="daily", command="printf 'FLOW_CRON_OK'"),
+        cron_create.input_model(name="flow", schedule="0 0 * * *", command="printf 'FLOW_CRON_OK'"),
         context,
     )
     list_result = await cron_list.execute(cron_list.input_model(), context)

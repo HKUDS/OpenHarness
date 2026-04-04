@@ -225,7 +225,7 @@ async def test_cron_and_remote_trigger_tools(tmp_path: Path, monkeypatch):
     context = ToolExecutionContext(cwd=tmp_path)
 
     create_result = await CronCreateTool().execute(
-        CronCreateToolInput(name="nightly", schedule="daily", command="printf 'CRON_OK'"),
+        CronCreateToolInput(name="nightly", schedule="0 0 * * *", command="printf 'CRON_OK'"),
         context,
     )
     assert create_result.is_error is False

@@ -25,6 +25,7 @@ dependencies = [
     "pyperclip>=1.9.0",
     "pyyaml>=6.0",
     "watchfiles>=0.20.0",
+    "croniter>=2.0.0",
 ]
 
 [project.optional-dependencies]
