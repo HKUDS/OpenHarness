@@ -22,7 +22,6 @@ Paths:
 from __future__ import annotations
 
 import asyncio
-import fcntl
 import json
 import os
 import random
@@ -33,6 +32,8 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterator, Literal
+
+from openharness.swarm.file_lock import file_lock
 
 from openharness.swarm.mailbox import (
     MailboxMessage,
@@ -101,15 +102,9 @@ def _is_read_only(tool_name: str) -> bool:
 
 @contextmanager
 def _file_lock(lock_path: Path) -> Iterator[None]:
-    """Acquire an exclusive POSIX file lock on *lock_path*."""
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-    lock_path.touch(exist_ok=True)
-    with open(lock_path, "r") as lock_file:
-        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
-        try:
-            yield
-        finally:
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+    """Acquire an exclusive file lock on *lock_path*."""
+    with file_lock(lock_path, exclusive=True):
+        yield
 
 
 # ---------------------------------------------------------------------------
