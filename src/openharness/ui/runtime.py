@@ -12,6 +12,7 @@ from openharness.bridge import get_bridge_manager
 from openharness.commands import CommandContext, CommandResult, create_default_command_registry
 from openharness.config import get_config_file_path, load_settings
 from openharness.engine import QueryEngine
+from openharness.engine.messages import ConversationMessage
 from openharness.engine.stream_events import StreamEvent
 from openharness.hooks import HookEvent, HookExecutionContext, HookExecutor, load_hook_registry
 from openharness.hooks.hot_reload import HookReloader
@@ -96,6 +97,7 @@ async def build_runtime(
     api_client: SupportsStreamingMessages | None = None,
     permission_prompt: PermissionPrompt | None = None,
     ask_user_prompt: AskUserPrompt | None = None,
+    restore_messages: list[dict] | None = None,
 ) -> RuntimeBundle:
     """Build the shared runtime for an OpenHarness session."""
     settings = load_settings().merge_cli_overrides(
@@ -160,6 +162,13 @@ async def build_runtime(
         hook_executor=hook_executor,
         tool_metadata={"mcp_manager": mcp_manager, "bridge_manager": bridge_manager},
     )
+    # Restore messages from a saved session if provided
+    if restore_messages:
+        restored = [
+            ConversationMessage.model_validate(m) for m in restore_messages
+        ]
+        engine.load_messages(restored)
+
     from uuid import uuid4
 
     return RuntimeBundle(

@@ -35,6 +35,7 @@ class BackendHostConfig:
     system_prompt: str | None = None
     api_key: str | None = None
     api_client: SupportsStreamingMessages | None = None
+    restore_messages: list[dict] | None = None
 
 
 class ReactBackendHost:
@@ -57,6 +58,7 @@ class ReactBackendHost:
             system_prompt=self._config.system_prompt,
             api_key=self._config.api_key,
             api_client=self._config.api_client,
+            restore_messages=self._config.restore_messages,
             permission_prompt=self._ask_permission,
             ask_user_prompt=self._ask_question,
         )
@@ -285,6 +287,7 @@ async def run_backend_host(
     api_key: str | None = None,
     cwd: str | None = None,
     api_client: SupportsStreamingMessages | None = None,
+    restore_messages: list[dict] | None = None,
 ) -> int:
     """Run the structured React backend host."""
     if cwd:
@@ -296,6 +299,7 @@ async def run_backend_host(
             system_prompt=system_prompt,
             api_key=api_key,
             api_client=api_client,
+            restore_messages=restore_messages,
         )
     )
     return await host.run()

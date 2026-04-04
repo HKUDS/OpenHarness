@@ -38,14 +38,9 @@ async def run_repl(
             system_prompt=system_prompt,
             api_key=api_key,
             api_client=api_client,
+            restore_messages=restore_messages,
         )
         return
-
-    # If restoring a session, load messages into the engine after TUI starts.
-    # For now, pass restore context via environment for the backend host to pick up.
-    if restore_messages:
-        import os
-        os.environ["_OPENHARNESS_RESTORE_MESSAGES"] = json.dumps(restore_messages)
 
     exit_code = await launch_react_tui(
         prompt=prompt,
@@ -55,9 +50,6 @@ async def run_repl(
         system_prompt=system_prompt,
         api_key=api_key,
     )
-
-    if restore_messages:
-        os.environ.pop("_OPENHARNESS_RESTORE_MESSAGES", None)
 
     if exit_code != 0:
         raise SystemExit(exit_code)
@@ -160,7 +152,15 @@ async def run_print_mode(
         )
 
         if output_format == "json":
-            result = {"type": "result", "text": collected_text.strip()}
+            usage = bundle.engine.total_usage
+            result = {
+                "type": "result",
+                "text": collected_text.strip(),
+                "usage": {
+                    "input_tokens": usage.input_tokens,
+                    "output_tokens": usage.output_tokens,
+                },
+            }
             print(json.dumps(result))
 
         # Print usage summary to stderr (visible to user, doesn't pollute stdout)
