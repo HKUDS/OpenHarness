@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import shutil
 from pathlib import Path
 
 from pydantic import BaseModel, Field
@@ -18,6 +20,28 @@ class BashToolInput(BaseModel):
     timeout_seconds: int = Field(default=120, ge=1, le=600)
 
 
+def _shell_exec_args(command: str) -> tuple[str, ...]:
+    """Return argv for asyncio.create_subprocess_exec (bash-like when possible)."""
+    if os.name == "nt":
+        bash = shutil.which("bash")
+        if bash:
+            return (bash, "-lc", command)
+        ps = shutil.which("powershell.exe") or shutil.which("powershell")
+        if ps:
+            return (
+                ps,
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                command,
+            )
+        comspec = os.environ.get("COMSPEC", "cmd.exe")
+        return (comspec, "/c", command)
+    return ("/bin/bash", "-lc", command)
+
+
 class BashTool(BaseTool):
     """Execute a shell command with stdout/stderr capture."""
 
@@ -27,10 +51,9 @@ class BashTool(BaseTool):
 
     async def execute(self, arguments: BashToolInput, context: ToolExecutionContext) -> ToolResult:
         cwd = Path(arguments.cwd).expanduser() if arguments.cwd else context.cwd
+        argv = _shell_exec_args(arguments.command)
         process = await asyncio.create_subprocess_exec(
-            "/bin/bash",
-            "-lc",
-            arguments.command,
+            *argv,
             cwd=str(cwd),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,

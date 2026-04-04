@@ -74,12 +74,13 @@ async def test_glob_and_grep(tmp_path: Path):
 
 @pytest.mark.asyncio
 async def test_bash_tool_runs_command(tmp_path: Path):
+    # Portable across bash, PowerShell, and cmd (no printf / unix-only paths).
     result = await BashTool().execute(
-        BashToolInput(command="printf 'hello'"),
+        BashToolInput(command="echo hello"),
         ToolExecutionContext(cwd=tmp_path),
     )
     assert result.is_error is False
-    assert result.output == "hello"
+    assert result.output.strip() == "hello"
 
 
 @pytest.mark.asyncio
