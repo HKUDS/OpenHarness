@@ -90,3 +90,44 @@ async def test_backend_host_processes_model_turn(tmp_path, monkeypatch):
         and "hello from react backend" in event.item.text
         for event in events
     )
+
+
+@pytest.mark.asyncio
+async def test_backend_host_command_does_not_reset_cli_overrides(tmp_path, monkeypatch):
+    """Regression: slash commands should not snap model/provider back to persisted defaults.
+
+    When the session is launched with CLI overrides (e.g. --provider openai -m 5.4),
+    issuing a command like /fast triggers a UI state refresh. That refresh must
+    preserve the effective session settings, not reload ~/.openharness/settings.json
+    verbatim.
+    """
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("OPENHARNESS_DATA_DIR", str(tmp_path / "data"))
+
+    host = ReactBackendHost(BackendHostConfig(api_client=StaticApiClient("unused")))
+    host._bundle = await build_runtime(
+        api_client=StaticApiClient("unused"),
+        model="5.4",
+        api_format="openai",
+    )
+    events = []
+
+    async def _emit(event):
+        events.append(event)
+
+    host._emit = _emit  # type: ignore[method-assign]
+    await start_runtime(host._bundle)
+    try:
+        # Sanity: the initial session state reflects CLI overrides.
+        assert host._bundle.app_state.get().model == "5.4"
+        assert host._bundle.app_state.get().provider == "openai-compatible"
+
+        # Run a command that triggers sync_app_state.
+        await host._process_line("/fast show")
+
+        # CLI overrides should remain in effect.
+        assert host._bundle.app_state.get().model == "5.4"
+        assert host._bundle.app_state.get().provider == "openai-compatible"
+    finally:
+        await close_runtime(host._bundle)
