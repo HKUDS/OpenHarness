@@ -351,7 +351,7 @@ async def _run_query_loop(
     from openharness.engine.messages import ConversationMessage
 
     messages: list[ConversationMessage] = [
-        ConversationMessage(role="user", content=config.prompt)
+        ConversationMessage.from_user_text(config.prompt)
     ]
 
     async for event, usage in run_query(query_context, messages):
