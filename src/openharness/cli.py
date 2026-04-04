@@ -191,6 +191,21 @@ def cron_list_cmd() -> None:
         print(f"        last: {last}{status_indicator}  next: {job.get('next_run', 'n/a')[:19]}")
 
 
+@cron_app.command("toggle")
+def cron_toggle_cmd(
+    name: str = typer.Argument(..., help="Cron job name"),
+    enabled: bool = typer.Argument(..., help="true to enable, false to disable"),
+) -> None:
+    """Enable or disable a cron job."""
+    from openharness.services.cron import set_job_enabled
+
+    if not set_job_enabled(name, enabled):
+        print(f"Cron job not found: {name}")
+        raise typer.Exit(1)
+    state = "enabled" if enabled else "disabled"
+    print(f"Cron job '{name}' is now {state}")
+
+
 @cron_app.command("history")
 def cron_history_cmd(
     name: str | None = typer.Argument(None, help="Filter by job name"),

@@ -91,6 +91,7 @@ def read_pid() -> int | None:
     try:
         os.kill(pid, 0)
     except OSError:
+        logger.debug("Removed stale scheduler PID file (pid=%d)", pid)
         path.unlink(missing_ok=True)
         return None
     return pid
@@ -166,6 +167,11 @@ async def execute_job(job: dict[str, Any]) -> dict[str, Any]:
             timeout=300,
         )
     except asyncio.TimeoutError:
+        try:
+            process.kill()
+            await process.wait()
+        except Exception:
+            pass
         entry = {
             "name": name,
             "command": command,
@@ -262,7 +268,12 @@ async def run_scheduler_loop(*, once: bool = False) -> None:
             if due:
                 logger.info("Tick: %d job(s) due", len(due))
                 # Execute due jobs concurrently
-                await asyncio.gather(*(execute_job(job) for job in due), return_exceptions=True)
+                results = await asyncio.gather(
+                    *(execute_job(job) for job in due), return_exceptions=True
+                )
+                for result in results:
+                    if isinstance(result, BaseException):
+                        logger.error("Unexpected error executing cron job: %s", result)
 
             if once:
                 break
