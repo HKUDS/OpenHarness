@@ -35,6 +35,8 @@ class TestSettings:
 
     def test_resolve_api_key_missing_raises(self, monkeypatch):
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        monkeypatch.delenv("OPENHARNESS_API_KEY", raising=False)
         s = Settings()
         with pytest.raises(ValueError, match="No API key found"):
             s.resolve_api_key()
@@ -102,6 +104,8 @@ class TestLoadSaveSettings:
     def test_load_applies_env_overrides(self, tmp_path: Path, monkeypatch):
         path = tmp_path / "settings.json"
         path.write_text(json.dumps({"model": "from-file", "base_url": "https://file.example"}))
+        monkeypatch.delenv("OPENHARNESS_API_FORMAT", raising=False)
+        monkeypatch.delenv("OPENHARNESS_PROVIDER", raising=False)
         monkeypatch.setenv("ANTHROPIC_MODEL", "from-env-model")
         monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://env.example/anthropic")
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-env-override")
@@ -111,3 +115,17 @@ class TestLoadSaveSettings:
         assert s.model == "from-env-model"
         assert s.base_url == "https://env.example/anthropic"
         assert s.api_key == "sk-env-override"
+
+    def test_load_supports_legacy_provider_field(self, tmp_path: Path, monkeypatch):
+        path = tmp_path / "settings.json"
+        path.write_text(json.dumps({"provider": "openai"}))
+        monkeypatch.delenv("OPENHARNESS_API_FORMAT", raising=False)
+        monkeypatch.delenv("OPENHARNESS_PROVIDER", raising=False)
+        s = load_settings(path)
+        assert s.api_format == "openai"
+
+    def test_resolve_api_key_openai_format(self, monkeypatch):
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-openai-123")
+        monkeypatch.delenv("OPENHARNESS_API_KEY", raising=False)
+        s = Settings(api_format="openai")
+        assert s.resolve_api_key() == "sk-openai-123"

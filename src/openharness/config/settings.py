@@ -82,19 +82,23 @@ class Settings(BaseModel):
         if self.api_key:
             return self.api_key
 
-        env_key = os.environ.get("ANTHROPIC_API_KEY", "")
+        api_format = (self.api_format or "anthropic").strip().lower()
+        if api_format == "openai":
+            env_key = os.environ.get("OPENAI_API_KEY", "") or os.environ.get("OPENHARNESS_API_KEY", "")
+            if env_key:
+                return env_key
+            raise ValueError(
+                "No API key found. Set OPENAI_API_KEY (or OPENHARNESS_API_KEY) environment "
+                "variable, or configure api_key in ~/.openharness/settings.json"
+            )
+
+        env_key = os.environ.get("ANTHROPIC_API_KEY", "") or os.environ.get("OPENHARNESS_API_KEY", "")
         if env_key:
             return env_key
 
-        # Also check OPENAI_API_KEY for openai-format providers
-        openai_key = os.environ.get("OPENAI_API_KEY", "")
-        if openai_key:
-            return openai_key
-
         raise ValueError(
-            "No API key found. Set ANTHROPIC_API_KEY (or OPENAI_API_KEY for openai-format "
-            "providers) environment variable, or configure api_key in "
-            "~/.openharness/settings.json"
+            "No API key found. Set ANTHROPIC_API_KEY (or OPENHARNESS_API_KEY) environment "
+            "variable, or configure api_key in ~/.openharness/settings.json"
         )
 
     def merge_cli_overrides(self, **overrides: Any) -> Settings:
@@ -106,11 +110,30 @@ class Settings(BaseModel):
 def _apply_env_overrides(settings: Settings) -> Settings:
     """Apply supported environment variable overrides over loaded settings."""
     updates: dict[str, Any] = {}
-    model = os.environ.get("ANTHROPIC_MODEL") or os.environ.get("OPENHARNESS_MODEL")
+
+    api_format = os.environ.get("OPENHARNESS_API_FORMAT")
+    if api_format:
+        updates["api_format"] = api_format
+
+    # Legacy alias (older builds used --provider / OPENHARNESS_PROVIDER)
+    provider = os.environ.get("OPENHARNESS_PROVIDER")
+    if provider and "api_format" not in updates:
+        updates["api_format"] = provider
+
+    resolved_api_format = (updates.get("api_format") or settings.api_format or "anthropic").strip().lower()
+
+    if resolved_api_format == "openai":
+        model = os.environ.get("OPENAI_MODEL") or os.environ.get("OPENHARNESS_MODEL")
+        base_url = os.environ.get("OPENAI_BASE_URL") or os.environ.get("OPENHARNESS_BASE_URL")
+        api_key = os.environ.get("OPENAI_API_KEY") or os.environ.get("OPENHARNESS_API_KEY")
+    else:
+        model = os.environ.get("ANTHROPIC_MODEL") or os.environ.get("OPENHARNESS_MODEL")
+        base_url = os.environ.get("ANTHROPIC_BASE_URL") or os.environ.get("OPENHARNESS_BASE_URL")
+        api_key = os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("OPENHARNESS_API_KEY")
+
     if model:
         updates["model"] = model
 
-    base_url = os.environ.get("ANTHROPIC_BASE_URL") or os.environ.get("OPENHARNESS_BASE_URL")
     if base_url:
         updates["base_url"] = base_url
 
@@ -118,13 +141,8 @@ def _apply_env_overrides(settings: Settings) -> Settings:
     if max_tokens:
         updates["max_tokens"] = int(max_tokens)
 
-    api_key = os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("OPENAI_API_KEY")
     if api_key:
         updates["api_key"] = api_key
-
-    api_format = os.environ.get("OPENHARNESS_API_FORMAT")
-    if api_format:
-        updates["api_format"] = api_format
 
     if not updates:
         return settings
@@ -147,6 +165,8 @@ def load_settings(config_path: Path | None = None) -> Settings:
 
     if config_path.exists():
         raw = json.loads(config_path.read_text(encoding="utf-8"))
+        if isinstance(raw, dict) and "api_format" not in raw and "provider" in raw:
+            raw["api_format"] = raw.get("provider")
         return _apply_env_overrides(Settings.model_validate(raw))
 
     return _apply_env_overrides(Settings())
