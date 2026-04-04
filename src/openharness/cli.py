@@ -514,6 +514,12 @@ def main(
         help="Anthropic-compatible API base URL",
         rich_help_panel="System & Context",
     ),
+    provider: str | None = typer.Option(
+        None,
+        "--provider",
+        help="Provider: anthropic (default) or openai (alias for --api-format)",
+        rich_help_panel="System & Context",
+    ),
     api_key: str | None = typer.Option(
         None,
         "--api-key",
@@ -571,6 +577,17 @@ def main(
 
     from openharness.ui.app import run_print_mode, run_repl
 
+    if provider is not None:
+        normalized_provider = provider.strip().lower()
+        if normalized_provider not in {"anthropic", "openai"}:
+            print("Error: --provider must be 'anthropic' or 'openai'", file=sys.stderr)
+            raise typer.Exit(1)
+        if api_format is None:
+            api_format = normalized_provider
+        elif api_format.strip().lower() != normalized_provider:
+            print("Error: --provider and --api-format disagree", file=sys.stderr)
+            raise typer.Exit(1)
+
     # Handle --continue and --resume flags
     if continue_session or resume is not None:
         from openharness.services.session_storage import (
@@ -624,6 +641,7 @@ def main(
                 base_url=base_url,
                 system_prompt=session_data.get("system_prompt") or system_prompt,
                 api_key=api_key,
+                api_format=api_format,
                 restore_messages=session_data.get("messages"),
             )
         )

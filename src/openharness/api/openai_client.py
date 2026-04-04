@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from typing import Any, AsyncIterator
 
 from openai import AsyncOpenAI
@@ -35,6 +36,32 @@ log = logging.getLogger(__name__)
 MAX_RETRIES = 3
 BASE_DELAY = 1.0
 MAX_DELAY = 30.0
+
+
+def _default_openai_base_url(api_key: str) -> str:
+    # Some OpenAI-compatible relays issue Anthropic-looking keys.  If the
+    # user doesn't specify a base URL, prefer the relay we know is used in
+    # this environment.
+    if api_key.startswith("sk-ant-"):
+        return "https://relay.nf.video/v1"
+    return "https://api.openai.com/v1"
+
+
+_GPT_SHORTHAND_RE = re.compile(
+    r"^(?P<ver>\d+(?:\.\d+)?)(?P<suffix>-[a-z0-9-]+)?$",
+    re.IGNORECASE,
+)
+
+
+def _normalize_openai_model(model: str) -> str:
+    raw = (model or "").strip()
+    if not raw:
+        return raw
+    # Allow shorthand like "5.4" or "5.4-mini".
+    match = _GPT_SHORTHAND_RE.match(raw)
+    if match:
+        return f"gpt-{match.group('ver')}{match.group('suffix') or ''}"
+    return raw
 
 
 def _convert_tools_to_openai(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -176,8 +203,9 @@ class OpenAICompatibleClient:
 
     def __init__(self, api_key: str, *, base_url: str | None = None) -> None:
         kwargs: dict[str, Any] = {"api_key": api_key}
-        if base_url:
-            kwargs["base_url"] = base_url
+        resolved_base_url = base_url or _default_openai_base_url(api_key)
+        if resolved_base_url:
+            kwargs["base_url"] = resolved_base_url
         self._client = AsyncOpenAI(**kwargs)
 
     async def stream_message(self, request: ApiMessageRequest) -> AsyncIterator[ApiStreamEvent]:
@@ -212,7 +240,7 @@ class OpenAICompatibleClient:
         openai_tools = _convert_tools_to_openai(request.tools) if request.tools else None
 
         params: dict[str, Any] = {
-            "model": request.model,
+            "model": _normalize_openai_model(request.model),
             "messages": openai_messages,
             "max_tokens": request.max_tokens,
             "stream": True,

@@ -27,9 +27,10 @@ def detect_provider(settings: Settings) -> ProviderInfo:
             voice_supported=False,
             voice_reason="voice mode is not supported for GitHub Copilot",
         )
-    if settings.api_format == "openai":
-        base_url = (settings.base_url or "").lower()
-        model = settings.model.lower()
+    api_format = (settings.api_format or "anthropic").strip().lower()
+    base_url = (settings.base_url or "").lower()
+    model = settings.model.lower()
+    if api_format == "openai":
         if "dashscope" in base_url or model.startswith("qwen"):
             return ProviderInfo(
                 name="dashscope-openai-compatible",
@@ -50,8 +51,6 @@ def detect_provider(settings: Settings) -> ProviderInfo:
             voice_supported=False,
             voice_reason="voice mode is not wired for OpenAI-compatible providers in this build",
         )
-    base_url = (settings.base_url or "").lower()
-    model = settings.model.lower()
     if "moonshot" in base_url or model.startswith("kimi"):
         return ProviderInfo(
             name="moonshot-anthropic-compatible",
@@ -113,6 +112,8 @@ def auth_status(settings: Settings) -> str:
         if auth_info.enterprise_url:
             return f"configured (enterprise: {auth_info.enterprise_url})"
         return "configured"
-    if settings.api_key:
+    try:
+        settings.resolve_api_key()
         return "configured"
-    return "missing"
+    except ValueError:
+        return "missing"
