@@ -14,7 +14,12 @@ class FileReadToolInput(BaseModel):
 
     path: str = Field(description="Path of the file to read")
     offset: int = Field(default=0, ge=0, description="Zero-based starting line")
-    limit: int = Field(default=200, ge=1, le=2000, description="Number of lines to return")
+    limit: int = Field(
+        default=10,
+        ge=1,
+        le=10,
+        description="Number of lines to return (max 10)",
+    )
 
 
 class FileReadTool(BaseTool):
