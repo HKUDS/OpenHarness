@@ -297,7 +297,7 @@ export function App({config}: {config: FrontendConfig}): React.JSX.Element {
 			setModalInput('');
 			return;
 		}
-		if (!value.trim() || session.busy) {
+		if (!value.trim() || session.busy || !session.ready) {
 			return;
 		}
 		// Check if it's an interactive command
@@ -337,7 +337,7 @@ export function App({config}: {config: FrontendConfig}): React.JSX.Element {
 				<ConversationView
 					items={session.transcript}
 					assistantBuffer={session.assistantBuffer}
-					showWelcome={true}
+					showWelcome={session.ready}
 				/>
 			</Box>
 
@@ -365,11 +365,17 @@ export function App({config}: {config: FrontendConfig}): React.JSX.Element {
 				<CommandPicker hints={commandHints} selectedIndex={pickerIndex} />
 			) : null}
 
-			{/* Status bar */}
-			<StatusBar status={session.status} tasks={session.tasks} />
+			{/* Status bar (only after backend is ready) */}
+			{session.ready ? (
+				<StatusBar status={session.status} tasks={session.tasks} />
+			) : null}
 
-			{/* Input */}
-			{session.modal || selectModal ? null : (
+			{/* Input — show loading indicator until backend is ready */}
+			{!session.ready ? (
+				<Box>
+					<Text color="yellow">Connecting to backend...</Text>
+				</Box>
+			) : session.modal || selectModal ? null : (
 				<PromptInput
 					busy={session.busy}
 					input={input}
@@ -380,8 +386,8 @@ export function App({config}: {config: FrontendConfig}): React.JSX.Element {
 				/>
 			)}
 
-			{/* Keyboard hints */}
-			{!session.modal && !session.busy && !selectModal ? (
+			{/* Keyboard hints (only after backend is ready) */}
+			{session.ready && !session.modal && !session.busy && !selectModal ? (
 				<Box>
 					<Text dimColor>
 						<Text color="cyan">enter</Text> send{'  '}

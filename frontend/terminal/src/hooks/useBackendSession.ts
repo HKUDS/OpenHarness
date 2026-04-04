@@ -27,6 +27,7 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 	const [modal, setModal] = useState<Record<string, unknown> | null>(null);
 	const [selectRequest, setSelectRequest] = useState<{title: string; submitPrefix: string; options: SelectOptionPayload[]} | null>(null);
 	const [busy, setBusy] = useState(false);
+	const [ready, setReady] = useState(false);
 	const childRef = useRef<ChildProcessWithoutNullStreams | null>(null);
 	const sentInitialPrompt = useRef(false);
 
@@ -69,6 +70,7 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 		const child = spawn(command, args, {
 			stdio: ['pipe', 'pipe', 'inherit'],
 			env: process.env,
+			detached: true,
 		});
 		childRef.current = child;
 
@@ -88,11 +90,29 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 			onExit(code);
 		});
 
+		// Ensure child processes are killed on parent exit (prevents stale processes)
+		const killChild = (): void => {
+			if (!child.killed) {
+				// Kill process group to ensure Python backend and its children all die
+				try {
+					if (child.pid) {
+						process.kill(-child.pid, 'SIGTERM');
+					}
+				} catch {
+					child.kill('SIGTERM');
+				}
+			}
+		};
+		process.on('exit', killChild);
+		process.on('SIGINT', killChild);
+		process.on('SIGTERM', killChild);
+
 		return () => {
 			reader.close();
-			if (!child.killed) {
-				child.kill();
-			}
+			killChild();
+			process.removeListener('exit', killChild);
+			process.removeListener('SIGINT', killChild);
+			process.removeListener('SIGTERM', killChild);
 			if (assistantFlushTimerRef.current) {
 				clearTimeout(assistantFlushTimerRef.current);
 				assistantFlushTimerRef.current = null;
@@ -102,6 +122,7 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 
 	const handleEvent = (event: BackendEvent): void => {
 		if (event.type === 'ready') {
+			setReady(true);
 			setStatus(event.state ?? {});
 			setTasks(event.tasks ?? []);
 			setCommands(event.commands ?? []);
@@ -216,11 +237,12 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 			modal,
 			selectRequest,
 			busy,
+			ready,
 			setModal,
 			setSelectRequest,
 			setBusy,
 			sendRequest,
 		}),
-		[assistantBuffer, bridgeSessions, busy, commands, mcpServers, modal, selectRequest, status, tasks, transcript]
+		[assistantBuffer, bridgeSessions, busy, commands, mcpServers, modal, ready, selectRequest, status, tasks, transcript]
 	);
 }
