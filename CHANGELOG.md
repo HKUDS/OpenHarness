@@ -8,6 +8,7 @@ The format is based on Keep a Changelog, and this project currently tracks chang
 
 ### Added
 
+- `diagnose` skill: trace agent run failures and regressions using structured evidence from run artifacts.
 - GitHub Actions CI workflow for Python linting, tests, and frontend TypeScript checks.
 - `CONTRIBUTING.md` with local setup, validation commands, and PR expectations.
 - `docs/SHOWCASE.md` with concrete OpenHarness usage patterns and demo commands.
