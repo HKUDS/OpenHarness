@@ -22,8 +22,14 @@ async def run_repl(
     api_key: str | None = None,
     api_client: SupportsStreamingMessages | None = None,
     backend_only: bool = False,
+    restore_messages: list[dict] | None = None,
 ) -> None:
-    """Run the default OpenHarness interactive application (React TUI)."""
+    """Run the default OpenHarness interactive application (React TUI).
+
+    Args:
+        restore_messages: Optional list of serialized messages to restore
+            from a saved session (via --continue or --resume).
+    """
     if backend_only:
         await run_backend_host(
             cwd=cwd,
@@ -35,6 +41,12 @@ async def run_repl(
         )
         return
 
+    # If restoring a session, load messages into the engine after TUI starts.
+    # For now, pass restore context via environment for the backend host to pick up.
+    if restore_messages:
+        import os
+        os.environ["_OPENHARNESS_RESTORE_MESSAGES"] = json.dumps(restore_messages)
+
     exit_code = await launch_react_tui(
         prompt=prompt,
         cwd=cwd,
@@ -43,6 +55,10 @@ async def run_repl(
         system_prompt=system_prompt,
         api_key=api_key,
     )
+
+    if restore_messages:
+        os.environ.pop("_OPENHARNESS_RESTORE_MESSAGES", None)
+
     if exit_code != 0:
         raise SystemExit(exit_code)
 
@@ -120,7 +136,9 @@ async def run_print_mode(
                     print(json.dumps(obj), flush=True)
                     events_list.append(obj)
             elif isinstance(event, ToolExecutionStarted):
-                if output_format == "stream-json":
+                if output_format == "text":
+                    print(f"[tool] {event.tool_name}", file=sys.stderr)
+                elif output_format == "stream-json":
                     obj = {"type": "tool_started", "tool_name": event.tool_name, "tool_input": event.tool_input}
                     print(json.dumps(obj), flush=True)
                     events_list.append(obj)
@@ -144,5 +162,14 @@ async def run_print_mode(
         if output_format == "json":
             result = {"type": "result", "text": collected_text.strip()}
             print(json.dumps(result))
+
+        # Print usage summary to stderr (visible to user, doesn't pollute stdout)
+        usage = bundle.engine.total_usage
+        if usage.input_tokens > 0 or usage.output_tokens > 0:
+            total = usage.input_tokens + usage.output_tokens
+            print(
+                f"\n[usage] input={usage.input_tokens:,} output={usage.output_tokens:,} total={total:,} tokens",
+                file=sys.stderr,
+            )
     finally:
         await close_runtime(bundle)

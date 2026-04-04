@@ -5,6 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import AsyncIterator
 
+import logging
+
 from openharness.api.client import SupportsStreamingMessages
 from openharness.engine.cost_tracker import CostTracker
 from openharness.engine.messages import ConversationMessage
@@ -12,7 +14,14 @@ from openharness.engine.query import AskUserPrompt, PermissionPrompt, QueryConte
 from openharness.engine.stream_events import StreamEvent
 from openharness.hooks import HookExecutor
 from openharness.permissions.checker import PermissionChecker
+from openharness.services.compact import compact_messages, estimate_conversation_tokens
 from openharness.tools.base import ToolRegistry
+
+logger = logging.getLogger(__name__)
+
+# Auto-compact when estimated tokens exceed this threshold.
+# Conservative default — most models support at least 128k tokens.
+AUTO_COMPACT_TOKEN_THRESHOLD = 80_000
 
 
 class QueryEngine:
@@ -78,9 +87,22 @@ class QueryEngine:
         """Replace the in-memory conversation history."""
         self._messages = list(messages)
 
+    def _auto_compact_if_needed(self) -> None:
+        """Compact conversation history if estimated tokens exceed the threshold."""
+        estimated = estimate_conversation_tokens(self._messages)
+        if estimated > AUTO_COMPACT_TOKEN_THRESHOLD:
+            before = len(self._messages)
+            self._messages = compact_messages(self._messages, preserve_recent=6)
+            after = len(self._messages)
+            logger.info(
+                "Auto-compacted conversation: %d -> %d messages (~%d tokens)",
+                before, after, estimated,
+            )
+
     async def submit_message(self, prompt: str) -> AsyncIterator[StreamEvent]:
         """Append a user message and execute the query loop."""
         self._messages.append(ConversationMessage.from_user_text(prompt))
+        self._auto_compact_if_needed()
         context = QueryContext(
             api_client=self._api_client,
             tool_registry=self._tool_registry,

@@ -458,6 +458,64 @@ def main(
 
     from openharness.ui.app import run_print_mode, run_repl
 
+    # Handle --continue and --resume flags
+    if continue_session or resume is not None:
+        from openharness.services.session_storage import (
+            list_session_snapshots,
+            load_session_by_id,
+            load_session_snapshot,
+        )
+
+        session_data = None
+        if continue_session:
+            session_data = load_session_snapshot(cwd)
+            if session_data is None:
+                print("No previous session found in this directory.", file=sys.stderr)
+                raise typer.Exit(1)
+            print(f"Continuing session: {session_data.get('summary', '(untitled)')[:60]}")
+        elif resume == "" or resume is None:
+            # --resume with no value: show session picker
+            sessions = list_session_snapshots(cwd, limit=10)
+            if not sessions:
+                print("No saved sessions found.", file=sys.stderr)
+                raise typer.Exit(1)
+            print("Saved sessions:")
+            for i, s in enumerate(sessions, 1):
+                print(f"  {i}. [{s['session_id']}] {s.get('summary', '?')[:50]} ({s['message_count']} msgs)")
+            choice = typer.prompt("Enter session number or ID")
+            try:
+                idx = int(choice) - 1
+                if 0 <= idx < len(sessions):
+                    session_data = load_session_by_id(cwd, sessions[idx]["session_id"])
+                else:
+                    print("Invalid selection.", file=sys.stderr)
+                    raise typer.Exit(1)
+            except ValueError:
+                session_data = load_session_by_id(cwd, choice)
+            if session_data is None:
+                print(f"Session not found: {choice}", file=sys.stderr)
+                raise typer.Exit(1)
+        else:
+            session_data = load_session_by_id(cwd, resume)
+            if session_data is None:
+                print(f"Session not found: {resume}", file=sys.stderr)
+                raise typer.Exit(1)
+
+        # Pass restored session to the REPL
+        asyncio.run(
+            run_repl(
+                prompt=None,
+                cwd=cwd,
+                model=session_data.get("model") or model,
+                backend_only=backend_only,
+                base_url=base_url,
+                system_prompt=session_data.get("system_prompt") or system_prompt,
+                api_key=api_key,
+                restore_messages=session_data.get("messages"),
+            )
+        )
+        return
+
     if print_mode is not None:
         prompt = print_mode.strip()
         if not prompt:
