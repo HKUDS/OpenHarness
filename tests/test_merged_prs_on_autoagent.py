@@ -9,7 +9,6 @@ Run: python tests/test_merged_prs_on_autoagent.py
 from __future__ import annotations
 
 import asyncio
-import json
 import os
 import sys
 import tempfile
@@ -156,7 +155,6 @@ async def task_memory_research_autoagent():
     print("  Task 2: PR#12 — Research AutoAgent → save to memory → search → use")
     print("=" * 70)
 
-    from openharness.memory.manager import add_memory_entry, list_memory_files
     from openharness.memory.search import find_relevant_memories
     from openharness.memory.scan import scan_memory_files
     import openharness.memory.paths as mp
@@ -418,7 +416,7 @@ async def task_cron_autoagent_maintenance():
 
     from openharness.services.cron import (
         load_cron_jobs, upsert_cron_job, delete_cron_job,
-        get_cron_job, validate_cron_expression, set_job_enabled,
+        get_cron_job, set_job_enabled,
         mark_job_run, next_run_time,
     )
     import openharness.services.cron as cron_mod
