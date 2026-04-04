@@ -46,6 +46,7 @@ async def run_repl(
         base_url=base_url,
         system_prompt=system_prompt,
         api_key=api_key,
+        api_format=api_format,
     )
     if exit_code != 0:
         raise SystemExit(exit_code)

@@ -19,8 +19,30 @@ class ProviderInfo:
 
 def detect_provider(settings: Settings) -> ProviderInfo:
     """Infer the active provider and rough capability set."""
+    api_format = (settings.api_format or "anthropic").strip().lower()
     base_url = (settings.base_url or "").lower()
     model = settings.model.lower()
+    if api_format == "openai":
+        if "dashscope" in base_url or model.startswith("qwen"):
+            return ProviderInfo(
+                name="dashscope-openai-compatible",
+                auth_kind="api_key",
+                voice_supported=False,
+                voice_reason="voice mode is not supported for DashScope providers",
+            )
+        if "models.inference.ai.azure.com" in base_url or "github" in base_url:
+            return ProviderInfo(
+                name="github-models-openai-compatible",
+                auth_kind="api_key",
+                voice_supported=False,
+                voice_reason="voice mode is not supported for GitHub Models",
+            )
+        return ProviderInfo(
+            name="openai-compatible",
+            auth_kind="api_key",
+            voice_supported=False,
+            voice_reason="voice mode is not wired for OpenAI-compatible providers in this build",
+        )
     if "moonshot" in base_url or model.startswith("kimi"):
         return ProviderInfo(
             name="moonshot-anthropic-compatible",
@@ -73,7 +95,8 @@ def detect_provider(settings: Settings) -> ProviderInfo:
 
 def auth_status(settings: Settings) -> str:
     """Return a compact auth status string."""
-    if settings.api_key:
+    try:
+        settings.resolve_api_key()
         return "configured"
-    return "missing"
-
+    except ValueError:
+        return "missing"

@@ -7,6 +7,7 @@ import json
 from openharness.api.openai_client import (
     _convert_messages_to_openai,
     _convert_tools_to_openai,
+    _normalize_openai_model,
 )
 from openharness.engine.messages import (
     ConversationMessage,
@@ -167,3 +168,14 @@ class TestConvertMessagesToOpenai:
         assert len(result) == 2
         assert result[0]["tool_call_id"] == "c1"
         assert result[1]["tool_call_id"] == "c2"
+
+
+class TestNormalizeOpenaiModel:
+    def test_numeric_shorthand(self):
+        assert _normalize_openai_model("5.4") == "gpt-5.4"
+
+    def test_numeric_shorthand_with_suffix(self):
+        assert _normalize_openai_model("5.4-mini") == "gpt-5.4-mini"
+
+    def test_passthrough(self):
+        assert _normalize_openai_model("gpt-4.1") == "gpt-4.1"
