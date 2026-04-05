@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Awaitable, Callable
@@ -131,16 +132,27 @@ async def build_runtime(
         from openharness.api.copilot_client import COPILOT_DEFAULT_MODEL
         copilot_model = settings.model if settings.model != "claude-sonnet-4-20250514" else COPILOT_DEFAULT_MODEL
         resolved_api_client = CopilotClient(model=copilot_model)
-    elif settings.api_format == "openai":
-        resolved_api_client = OpenAICompatibleClient(
-            api_key=settings.resolve_api_key(),
-            base_url=settings.base_url,
-        )
     else:
-        resolved_api_client = AnthropicApiClient(
-            api_key=settings.resolve_api_key(),
-            base_url=settings.base_url,
-        )
+        try:
+            resolved_key = settings.resolve_api_key()
+        except ValueError:
+            print(
+                "Error: No API key configured.\n"
+                "  Run `oh auth login` to set up authentication, or set the\n"
+                "  ANTHROPIC_API_KEY (or OPENAI_API_KEY) environment variable.",
+                file=sys.stderr,
+            )
+            raise SystemExit(1)
+        if settings.api_format == "openai":
+            resolved_api_client = OpenAICompatibleClient(
+                api_key=resolved_key,
+                base_url=settings.base_url,
+            )
+        else:
+            resolved_api_client = AnthropicApiClient(
+                api_key=resolved_key,
+                base_url=settings.base_url,
+            )
     mcp_manager = McpClientManager(load_mcp_server_configs(settings, plugins))
     await mcp_manager.connect_all()
     tool_registry = create_default_tool_registry(mcp_manager)
