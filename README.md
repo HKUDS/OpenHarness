@@ -150,6 +150,7 @@ OpenHarness is an open-source Python implementation designed for **researchers, 
   <strong>Start here:</strong>
   <a href="#-quick-start">Quick Start</a> ·
   <a href="#-provider-compatibility">Provider Compatibility</a> ·
+  <a href="README_PROVIDERS.md">LLM Providers</a> ·
   <a href="docs/SHOWCASE.md">Showcase</a> ·
   <a href="CONTRIBUTING.md">Contributing</a> ·
   <a href="CHANGELOG.md">Changelog</a>
@@ -242,7 +243,54 @@ oh -p "Fix the bug" --output-format stream-json
 
 ## 🔌 Provider Compatibility
 
+OpenHarness supports a wide variety of LLM providers through its extensible provider registry system. The system automatically detects providers based on API keys, base URLs, and model names.
+
+**📖 [Complete Provider Guide](README_PROVIDERS.md)** | **🚀 [Interactive Demo](scripts/demo_providers.py)**
+
 OpenHarness supports three API formats: **Anthropic** (default), **OpenAI-compatible** (`--api-format openai`), and **GitHub Copilot** (`--api-format copilot`). The OpenAI format covers a wide range of providers.
+
+### Quick Provider Setup
+
+```bash
+# OpenRouter (100+ models)
+export OPENROUTER_API_KEY="sk-or-v1-..."
+oh --model anthropic/claude-3-haiku
+
+# DeepSeek
+export DEEPSEEK_API_KEY="your-key"
+oh --model deepseek-chat
+
+# Groq (fast inference)
+export GROQ_API_KEY="gsk_..."
+oh --model llama3-70b-8192
+
+# Ollama (local)
+oh --base-url http://localhost:11434/v1 --model llama2
+```
+
+### Adding New Providers
+
+To add support for a new LLM provider:
+
+1. Edit `src/openharness/api/registry.py`
+2. Add a `ProviderSpec` to the `PROVIDERS` tuple
+3. Test with `python scripts/demo_providers.py`
+
+Example:
+```python
+ProviderSpec(
+    name="myprovider",
+    keywords=("myprovider", "myai"),
+    env_key="MYPROVIDER_API_KEY",
+    display_name="MyProvider",
+    backend_type="openai_compat",
+    default_base_url="https://api.myprovider.com/v1",
+    detect_by_key_prefix="mp_",  # optional
+    detect_by_base_keyword="myprovider",  # optional
+),
+```
+
+### Anthropic Format (default)
 
 ### Anthropic Format (default)
 
