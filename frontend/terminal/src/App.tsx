@@ -8,6 +8,7 @@ import {PromptInput} from './components/PromptInput.js';
 import {SelectModal, type SelectOption} from './components/SelectModal.js';
 import {StatusBar} from './components/StatusBar.js';
 import {useBackendSession} from './hooks/useBackendSession.js';
+import {ThemeProvider, useTheme} from './theme/ThemeContext.js';
 import type {FrontendConfig} from './types.js';
 
 const rawReturnSubmit = process.env.OPENHARNESS_FRONTEND_RAW_RETURN === '1';
@@ -37,7 +38,17 @@ type SelectModalState = {
 } | null;
 
 export function App({config}: {config: FrontendConfig}): React.JSX.Element {
+	const initialTheme = String((config as Record<string, unknown>).theme ?? 'default');
+	return (
+		<ThemeProvider initialTheme={initialTheme}>
+			<AppInner config={config} />
+		</ThemeProvider>
+	);
+}
+
+function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 	const {exit} = useApp();
+	const {theme, setThemeName} = useTheme();
 	const [input, setInput] = useState('');
 	const [modalInput, setModalInput] = useState('');
 	const [history, setHistory] = useState<string[]>([]);
@@ -103,6 +114,13 @@ export function App({config}: {config: FrontendConfig}): React.JSX.Element {
 	// Intercept special commands that need interactive UI
 	const handleCommand = (cmd: string): boolean => {
 		const trimmed = cmd.trim();
+
+		// /theme set <name> → switch theme locally
+		const themeMatch = /^\/theme\s+set\s+(\S+)$/.exec(trimmed);
+		if (themeMatch) {
+			setThemeName(themeMatch[1]);
+			return true;
+		}
 
 		// /permissions → show mode picker
 		if (trimmed === '/permissions' || trimmed === '/permissions show') {
@@ -373,7 +391,7 @@ export function App({config}: {config: FrontendConfig}): React.JSX.Element {
 			{/* Input — show loading indicator until backend is ready */}
 			{!session.ready ? (
 				<Box>
-					<Text color="yellow">Connecting to backend...</Text>
+					<Text color={theme.colors.warning}>Connecting to backend...</Text>
 				</Box>
 			) : session.modal || selectModal ? null : (
 				<PromptInput
@@ -390,10 +408,10 @@ export function App({config}: {config: FrontendConfig}): React.JSX.Element {
 			{session.ready && !session.modal && !session.busy && !selectModal ? (
 				<Box>
 					<Text dimColor>
-						<Text color="cyan">enter</Text> send{'  '}
-						<Text color="cyan">/</Text> commands{'  '}
-						<Text color="cyan">{'\u2191\u2193'}</Text> history{'  '}
-						<Text color="cyan">ctrl+c</Text> exit
+						<Text color={theme.colors.primary}>enter</Text> send{'  '}
+						<Text color={theme.colors.primary}>/</Text> commands{'  '}
+						<Text color={theme.colors.primary}>{'\u2191\u2193'}</Text> history{'  '}
+						<Text color={theme.colors.primary}>ctrl+c</Text> exit
 					</Text>
 				</Box>
 			) : null}

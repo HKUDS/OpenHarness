@@ -1,24 +1,28 @@
 import React from 'react';
 import {Box, Text} from 'ink';
 
+import {useTheme} from '../theme/ThemeContext.js';
+
 const VERSION = '0.1.0';
 
 export function WelcomeBanner(): React.JSX.Element {
+	const {theme} = useTheme();
+
 	return (
 		<Box flexDirection="column" marginBottom={1}>
 			<Box flexDirection="column" paddingX={0}>
-				<Text color="cyan" bold>{'  OpenHarness'}</Text>
+				<Text color={theme.colors.primary} bold>{'  OpenHarness'}</Text>
 				<Text dimColor>{'  AI-powered coding assistant  v'}{VERSION}</Text>
 				<Text> </Text>
 				<Text>
 					<Text dimColor>{'  '}</Text>
-					<Text color="cyan">/help</Text>
+					<Text color={theme.colors.primary}>/help</Text>
 					<Text dimColor> commands</Text>
 					<Text dimColor>{'  '}|{'  '}</Text>
-					<Text color="cyan">/model</Text>
+					<Text color={theme.colors.primary}>/model</Text>
 					<Text dimColor> switch</Text>
 					<Text dimColor>{'  '}|{'  '}</Text>
-					<Text color="cyan">Ctrl+C</Text>
+					<Text color={theme.colors.primary}>Ctrl+C</Text>
 					<Text dimColor> exit</Text>
 				</Text>
 			</Box>

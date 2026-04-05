@@ -2,6 +2,7 @@ import React from 'react';
 import {Box, Text} from 'ink';
 import TextInput from 'ink-text-input';
 
+import {useTheme} from '../theme/ThemeContext.js';
 import {Spinner} from './Spinner.js';
 
 const noop = (): void => {};
@@ -21,6 +22,8 @@ export function PromptInput({
 	toolName?: string;
 	suppressSubmit?: boolean;
 }): React.JSX.Element {
+	const {theme} = useTheme();
+
 	if (busy) {
 		return (
 			<Box>
@@ -31,7 +34,7 @@ export function PromptInput({
 
 	return (
 		<Box>
-			<Text color="cyan" bold>{'> '}</Text>
+			<Text color={theme.colors.primary} bold>{'> '}</Text>
 			<TextInput value={input} onChange={setInput} onSubmit={suppressSubmit ? noop : onSubmit} />
 		</Box>
 	);

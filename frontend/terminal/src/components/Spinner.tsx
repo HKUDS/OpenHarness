@@ -1,7 +1,8 @@
 import React, {useEffect, useState} from 'react';
 import {Text} from 'ink';
 
-const FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+import {useTheme} from '../theme/ThemeContext.js';
+
 const VERBS = [
 	'Thinking',
 	'Processing',
@@ -14,15 +15,17 @@ const VERBS = [
 ];
 
 export function Spinner({label}: {label?: string}): React.JSX.Element {
+	const {theme} = useTheme();
+	const frames = theme.icons.spinner;
 	const [frame, setFrame] = useState(0);
 	const [verbIndex, setVerbIndex] = useState(0);
 
 	useEffect(() => {
 		const timer = setInterval(() => {
-			setFrame((f) => (f + 1) % FRAMES.length);
+			setFrame((f) => (f + 1) % frames.length);
 		}, 80);
 		return () => clearInterval(timer);
-	}, []);
+	}, [frames.length]);
 
 	useEffect(() => {
 		const timer = setInterval(() => {
@@ -35,7 +38,7 @@ export function Spinner({label}: {label?: string}): React.JSX.Element {
 
 	return (
 		<Text>
-			<Text color="cyan">{FRAMES[frame]}</Text>
+			<Text color={theme.colors.primary}>{frames[frame]}</Text>
 			<Text dimColor> {verb}</Text>
 		</Text>
 	);

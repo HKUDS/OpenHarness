@@ -1,17 +1,20 @@
 import React from 'react';
 import {Box, Text} from 'ink';
 
+import {useTheme} from '../theme/ThemeContext.js';
 import type {TranscriptItem} from '../types.js';
 
 export function ToolCallDisplay({item}: {item: TranscriptItem}): React.JSX.Element {
+	const {theme} = useTheme();
+
 	if (item.role === 'tool') {
 		const toolName = item.tool_name ?? 'tool';
 		const summary = summarizeInput(toolName, item.tool_input, item.text);
 		return (
 			<Box marginLeft={2} flexDirection="column">
 				<Text>
-					<Text color="cyan" bold>{'  \u23F5 '}</Text>
-					<Text color="cyan" bold>{toolName}</Text>
+					<Text color={theme.colors.accent} bold>{theme.icons.tool}</Text>
+					<Text color={theme.colors.accent} bold>{toolName}</Text>
 					<Text dimColor> {summary}</Text>
 				</Text>
 			</Box>
@@ -22,7 +25,7 @@ export function ToolCallDisplay({item}: {item: TranscriptItem}): React.JSX.Eleme
 		const lines = item.text.split('\n');
 		const maxLines = 12;
 		const display = lines.length > maxLines ? [...lines.slice(0, maxLines), `... (${lines.length - maxLines} more lines)`] : lines;
-		const color = item.is_error ? 'red' : undefined;
+		const color = item.is_error ? theme.colors.error : undefined;
 		return (
 			<Box marginLeft={4} flexDirection="column">
 				{display.map((line, i) => (

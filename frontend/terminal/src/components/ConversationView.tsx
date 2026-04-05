@@ -1,6 +1,7 @@
 import React from 'react';
 import {Box, Text} from 'ink';
 
+import {useTheme} from '../theme/ThemeContext.js';
 import type {TranscriptItem} from '../types.js';
 import {ToolCallDisplay} from './ToolCallDisplay.js';
 import {WelcomeBanner} from './WelcomeBanner.js';
@@ -14,6 +15,7 @@ export function ConversationView({
 	assistantBuffer: string;
 	showWelcome: boolean;
 }): React.JSX.Element {
+	const {theme} = useTheme();
 	// Show the most recent items that fit the viewport
 	const visible = items.slice(-40);
 
@@ -22,12 +24,12 @@ export function ConversationView({
 			{showWelcome && items.length === 0 ? <WelcomeBanner /> : null}
 
 			{visible.map((item, index) => (
-				<MessageRow key={index} item={item} />
+				<MessageRow key={index} item={item} theme={theme} />
 			))}
 
 			{assistantBuffer ? (
 				<Box flexDirection="row" marginTop={0}>
-					<Text color="green" bold>{'\u23FA '}</Text>
+					<Text color={theme.colors.success} bold>{theme.icons.assistant}</Text>
 					<Text>{assistantBuffer}</Text>
 				</Box>
 			) : null}
@@ -35,13 +37,13 @@ export function ConversationView({
 	);
 }
 
-function MessageRow({item}: {item: TranscriptItem}): React.JSX.Element {
+function MessageRow({item, theme}: {item: TranscriptItem; theme: ReturnType<typeof useTheme>['theme']}): React.JSX.Element {
 	switch (item.role) {
 		case 'user':
 			return (
 				<Box marginTop={1} marginBottom={0}>
 					<Text>
-						<Text color="white" bold>{'> '}</Text>
+						<Text color={theme.colors.secondary} bold>{theme.icons.user}</Text>
 						<Text>{item.text}</Text>
 					</Text>
 				</Box>
@@ -51,7 +53,7 @@ function MessageRow({item}: {item: TranscriptItem}): React.JSX.Element {
 			return (
 				<Box marginTop={1} marginBottom={0} flexDirection="column">
 					<Text>
-						<Text color="green" bold>{'\u23FA '}</Text>
+						<Text color={theme.colors.success} bold>{theme.icons.assistant}</Text>
 						<Text>{item.text}</Text>
 					</Text>
 				</Box>
@@ -65,8 +67,8 @@ function MessageRow({item}: {item: TranscriptItem}): React.JSX.Element {
 			return (
 				<Box marginTop={0}>
 					<Text>
-						<Text color="yellow">{'\u2139 '}</Text>
-						<Text color="yellow">{item.text}</Text>
+						<Text color={theme.colors.warning}>{theme.icons.system}</Text>
+						<Text color={theme.colors.warning}>{item.text}</Text>
 					</Text>
 				</Box>
 			);

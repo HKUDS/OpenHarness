@@ -1,11 +1,13 @@
 import React from 'react';
 import {Box, Text} from 'ink';
 
+import {useTheme} from '../theme/ThemeContext.js';
 import type {TaskSnapshot} from '../types.js';
 
 const SEP = ' \u2502 ';
 
 export function StatusBar({status, tasks}: {status: Record<string, unknown>; tasks: TaskSnapshot[]}): React.JSX.Element {
+	const {theme} = useTheme();
 	const model = String(status.model ?? 'unknown');
 	const mode = String(status.permission_mode ?? 'default');
 	const taskCount = tasks.length;
@@ -18,7 +20,7 @@ export function StatusBar({status, tasks}: {status: Record<string, unknown>; tas
 			<Text dimColor>{'─'.repeat(60)}</Text>
 			<Box flexDirection="row">
 				<Text>
-					<Text color="cyan" dimColor>model: {model}</Text>
+					<Text color={theme.colors.primary} dimColor>model: {model}</Text>
 					<Text dimColor>{SEP}</Text>
 					{inputTokens > 0 || outputTokens > 0 ? (
 						<>
