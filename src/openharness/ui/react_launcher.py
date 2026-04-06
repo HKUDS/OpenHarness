@@ -24,6 +24,38 @@ def _resolve_npm() -> str:
     return shutil.which("npm") or "npm"
 
 
+def _resolve_tsx(frontend_dir: Path) -> tuple[str, ...]:
+    """Resolve the tsx command to invoke directly, bypassing ``npm exec``.
+
+    On Windows / WSL the ``npm exec -- tsx`` wrapper chain often spawns
+    intermediate ``cmd.exe`` / shell processes that break TTY stdin
+    inheritance.  Calling the ``tsx`` binary directly preserves the TTY so
+    that Ink's ``useInput`` (which requires raw-mode stdin) keeps working.
+
+    Returns a tuple of command parts, e.g. ``("path/to/tsx",)`` or
+    ``("npm", "exec", "--", "tsx")`` as last-resort fallback.
+    """
+    # 1. Prefer the locally-installed binary
+    bin_dir = frontend_dir / "node_modules" / ".bin"
+    if sys.platform == "win32":
+        for name in ("tsx.cmd", "tsx.ps1", "tsx"):
+            candidate = bin_dir / name
+            if candidate.exists():
+                return (str(candidate),)
+    else:
+        candidate = bin_dir / "tsx"
+        if candidate.exists():
+            return (str(candidate),)
+
+    # 2. Fall back to a globally-installed tsx
+    global_tsx = shutil.which("tsx")
+    if global_tsx:
+        return (global_tsx,)
+
+    # 3. Last resort — go through npm exec (may break TTY on Windows/WSL)
+    return (_resolve_npm(), "exec", "--", "tsx")
+
+
 def get_frontend_dir() -> Path:
     """Return the React terminal frontend directory.
 
@@ -121,11 +153,9 @@ async def launch_react_tui(
             "theme": _resolve_theme(),
         }
     )
+    tsx_cmd = _resolve_tsx(frontend_dir)
     process = await asyncio.create_subprocess_exec(
-        npm,
-        "exec",
-        "--",
-        "tsx",
+        *tsx_cmd,
         "src/index.tsx",
         cwd=str(frontend_dir),
         env=env,
