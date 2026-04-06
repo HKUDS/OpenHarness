@@ -19,7 +19,6 @@ The format is based on Keep a Changelog, and this project currently tracks chang
 
 ### Fixed
 
-- Show a clear error message and exit cleanly when no API key is configured, instead of crashing with a raw `ValueError` traceback.
 - Shell-escape `$ARGUMENTS` substitution in command hooks to prevent shell injection from payload values containing metacharacters like `$(...)` or backticks.
 - Swarm `_READ_ONLY_TOOLS` now uses actual registered tool names (snake_case) instead of PascalCase, fixing read-only auto-approval in `handle_permission_request`.
 - Memory scanner now parses YAML frontmatter (`name`, `description`, `type`) instead of returning raw `---` as description.
