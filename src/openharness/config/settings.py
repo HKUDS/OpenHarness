@@ -83,6 +83,8 @@ class ProviderProfile(BaseModel):
     default_model: str
     base_url: str | None = None
     last_model: str | None = None
+    credential_slot: str | None = None
+    allowed_models: list[str] = Field(default_factory=list)
 
     @property
     def resolved_model(self) -> str:
@@ -145,7 +147,7 @@ def default_provider_profiles() -> dict[str, ProviderProfile]:
     """Return the built-in provider workflow catalog."""
     return {
         "claude-api": ProviderProfile(
-            label="Claude API",
+            label="Anthropic-Compatible API",
             provider="anthropic",
             api_format="anthropic",
             auth_source="anthropic_api_key",
@@ -159,7 +161,7 @@ def default_provider_profiles() -> dict[str, ProviderProfile]:
             default_model="claude-sonnet-4-6",
         ),
         "openai-compatible": ProviderProfile(
-            label="OpenAI Compatible",
+            label="OpenAI-Compatible API",
             provider="openai",
             api_format="openai",
             auth_source="openai_api_key",
@@ -185,6 +187,18 @@ def default_provider_profiles() -> dict[str, ProviderProfile]:
 def builtin_provider_profile_names() -> set[str]:
     """Return the names of built-in provider profiles."""
     return set(default_provider_profiles())
+
+
+def display_label_for_profile(profile_name: str, profile: ProviderProfile) -> str:
+    """Return the user-facing label for a profile.
+
+    Built-in profiles always use the current built-in catalog label so old
+    persisted settings don't keep stale wording in menus.
+    """
+    builtin = default_provider_profiles().get(profile_name)
+    if builtin is not None:
+        return builtin.label
+    return profile.label
 
 
 def is_claude_family_provider(provider: str) -> bool:
@@ -254,6 +268,23 @@ def auth_source_provider_name(auth_source: str) -> str:
         "vertex_api_key": "vertex",
     }
     return mapping.get(auth_source, auth_source)
+
+
+def auth_source_uses_api_key(auth_source: str) -> bool:
+    """Return True when the auth source is backed by a user-supplied API key."""
+    return auth_source.endswith("_api_key")
+
+
+def credential_storage_provider_name(profile_name: str, profile: ProviderProfile) -> str:
+    """Return the storage namespace used for this profile's credential.
+
+    Built-in API-key flows continue to use provider-level storage by default.
+    Custom compatible profiles can set ``credential_slot`` to bind their own key.
+    """
+    del profile_name
+    if auth_source_uses_api_key(profile.auth_source) and profile.credential_slot:
+        return f"profile:{profile.credential_slot}"
+    return auth_source_provider_name(profile.auth_source)
 
 
 def default_auth_source_for_provider(provider: str, api_format: str | None = None) -> str:
@@ -545,7 +576,7 @@ class Settings(BaseModel):
             )
 
         storage_provider = auth_source_provider_name(auth_source)
-        explicit_key = self.api_key
+        explicit_key = "" if profile.credential_slot else self.api_key
         if explicit_key:
             return ResolvedAuth(
                 provider=provider or storage_provider,
@@ -554,6 +585,20 @@ class Settings(BaseModel):
                 source="settings_or_env",
                 state="configured",
             )
+
+        from openharness.auth.storage import load_credential
+
+        storage_provider = credential_storage_provider_name(self.resolve_profile()[0], profile)
+        if profile.credential_slot:
+            stored = load_credential(storage_provider, "api_key")
+            if stored:
+                return ResolvedAuth(
+                    provider=provider or auth_source_provider_name(auth_source),
+                    auth_kind="api_key",
+                    value=stored,
+                    source=f"file:{storage_provider}",
+                    state="configured",
+                )
 
         env_var = {
             "anthropic_api_key": "ANTHROPIC_API_KEY",
@@ -571,12 +616,10 @@ class Settings(BaseModel):
                     state="configured",
                 )
 
-        from openharness.auth.storage import load_credential
-
         stored = load_credential(storage_provider, "api_key")
         if stored:
             return ResolvedAuth(
-                provider=provider or storage_provider,
+                provider=provider or auth_source_provider_name(auth_source),
                 auth_kind="api_key",
                 value=stored,
                 source=f"file:{storage_provider}",

@@ -177,6 +177,7 @@ async def test_provider_command_switches_profile_and_requests_runtime_refresh(tm
                         "default_model": "kimi-k2.5",
                         "last_model": "kimi-k2.5",
                         "base_url": "https://api.moonshot.cn/anthropic",
+                        "allowed_models": ["kimi-k2.5"],
                     }
                 }
             }
@@ -195,6 +196,37 @@ async def test_provider_command_switches_profile_and_requests_runtime_refresh(tm
     assert loaded.active_profile == "kimi-anthropic"
     assert loaded.base_url == "https://api.moonshot.cn/anthropic"
     assert loaded.model == "kimi-k2.5"
+
+
+@pytest.mark.asyncio
+async def test_model_command_rejects_values_outside_profile_allowlist(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
+    save_settings(
+        Settings().model_copy(
+            update={
+                "active_profile": "kimi-anthropic",
+                "profiles": {
+                    "kimi-anthropic": {
+                        "label": "Kimi Anthropic",
+                        "provider": "anthropic",
+                        "api_format": "anthropic",
+                        "auth_source": "anthropic_api_key",
+                        "default_model": "kimi-k2.5",
+                        "last_model": "kimi-k2.5",
+                        "base_url": "https://api.moonshot.cn/anthropic",
+                        "allowed_models": ["kimi-k2.5"],
+                    }
+                },
+            }
+        )
+    )
+    registry = create_default_command_registry()
+    command, args = registry.lookup("/model claude-opus-4-6")
+    assert command is not None
+
+    result = await command.handler(args, CommandContext(engine=_make_engine(tmp_path), cwd=str(tmp_path)))
+
+    assert "is not allowed for profile 'kimi-anthropic'" in result.message
 
 
 @pytest.mark.asyncio

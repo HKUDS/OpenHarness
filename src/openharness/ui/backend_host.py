@@ -557,7 +557,7 @@ class ReactBackendHost:
             return
 
         if command == "model":
-            options = self._model_select_options(current_model, active_profile.provider)
+            options = self._model_select_options(current_model, active_profile.provider, active_profile.allowed_models)
             await self._emit(
                 BackendEvent(
                     type="select_request",
@@ -569,7 +569,17 @@ class ReactBackendHost:
 
         await self._emit(BackendEvent(type="error", message=f"No selector available for /{command}"))
 
-    def _model_select_options(self, current_model: str, provider: str) -> list[dict[str, object]]:
+    def _model_select_options(self, current_model: str, provider: str, allowed_models: list[str] | None = None) -> list[dict[str, object]]:
+        if allowed_models:
+            return [
+                {
+                    "value": value,
+                    "label": value,
+                    "description": "Allowed for this profile",
+                    "active": value == current_model,
+                }
+                for value in allowed_models
+            ]
         provider_name = provider.lower()
         if provider_name in {"anthropic", "anthropic_claude"}:
             return [

@@ -8,8 +8,11 @@ from typing import Any
 from openharness.config.settings import (
     ProviderProfile,
     auth_source_provider_name,
+    auth_source_uses_api_key,
     builtin_provider_profile_names,
+    credential_storage_provider_name,
     default_auth_source_for_provider,
+    display_label_for_profile,
     display_model_setting,
 )
 from openharness.auth.storage import (
@@ -244,20 +247,30 @@ class AuthManager:
         """Return the available provider profiles and whether their auth is configured."""
         active = self.get_active_profile()
         auth_sources = self.get_auth_source_statuses()
-        return {
-            name: {
-                "label": profile.label,
+        statuses: dict[str, Any] = {}
+        for name, profile in self.list_profiles().items():
+            source_status = auth_sources.get(profile.auth_source, {})
+            configured = bool(source_status.get("configured"))
+            auth_state = str(source_status.get("state", "missing"))
+            if auth_source_uses_api_key(profile.auth_source):
+                storage_provider = credential_storage_provider_name(name, profile)
+                configured = bool(load_credential(storage_provider, "api_key")) or configured
+                if not configured and name == active and getattr(self.settings, "api_key", ""):
+                    configured = True
+                auth_state = "configured" if configured else "missing"
+            statuses[name] = {
+                "label": display_label_for_profile(name, profile),
                 "provider": profile.provider,
                 "api_format": profile.api_format,
                 "auth_source": profile.auth_source,
-                "configured": bool(auth_sources.get(profile.auth_source, {}).get("configured")),
-                "auth_state": str(auth_sources.get(profile.auth_source, {}).get("state", "missing")),
+                "configured": configured,
+                "auth_state": auth_state,
                 "active": name == active,
                 "base_url": profile.base_url,
                 "model": display_model_setting(profile),
+                "credential_slot": profile.credential_slot,
             }
-            for name, profile in self.list_profiles().items()
-        }
+        return statuses
 
     def save_settings(self) -> None:
         """Persist the in-memory settings."""
@@ -294,6 +307,8 @@ class AuthManager:
         auth_source: str | None = None,
         default_model: str | None = None,
         last_model: str | None = None,
+        credential_slot: str | None = None,
+        allowed_models: list[str] | None = None,
     ) -> None:
         """Update a profile in-place."""
         profiles = self.settings.merged_profiles()
@@ -310,6 +325,8 @@ class AuthManager:
             "auth_source": auth_source or current.auth_source or default_auth_source_for_provider(next_provider, next_format),
             "default_model": default_model or current.default_model,
             "last_model": last_model if last_model is not None else current.last_model,
+            "credential_slot": credential_slot if credential_slot is not None else current.credential_slot,
+            "allowed_models": allowed_models if allowed_models is not None else current.allowed_models,
         }
         profiles[name] = current.model_copy(update=updates)
         updated = self.settings.model_copy(update={"profiles": profiles})
@@ -366,11 +383,40 @@ class AuthManager:
             except Exception as exc:
                 log.warning("Could not sync api_key to settings: %s", exc)
 
+    def store_profile_credential(self, profile_name: str, key: str, value: str) -> None:
+        """Store a credential using the active storage namespace for a profile."""
+        profile = self.list_profiles().get(profile_name)
+        if profile is None:
+            raise ValueError(f"Unknown provider profile: {profile_name!r}")
+        storage_provider = credential_storage_provider_name(profile_name, profile)
+        store_credential(storage_provider, key, value)
+        if key == "api_key" and profile_name == self.get_active_profile():
+            try:
+                updated = self.settings.model_copy(update={"api_key": value})
+                self._settings = updated.materialize_active_profile()
+                self.save_settings()
+            except Exception as exc:
+                log.warning("Could not sync api_key to settings: %s", exc)
+
     def clear_credential(self, provider: str) -> None:
         """Remove all stored credentials for the given provider."""
         clear_provider_credentials(provider)
         # Also clear api_key in settings if this is the active provider.
         if provider == auth_source_provider_name(self.settings.resolve_profile()[1].auth_source):
+            try:
+                updated = self.settings.model_copy(update={"api_key": ""})
+                self._settings = updated.materialize_active_profile()
+                self.save_settings()
+            except Exception as exc:
+                log.warning("Could not clear api_key from settings: %s", exc)
+
+    def clear_profile_credential(self, profile_name: str) -> None:
+        """Remove credentials stored for a specific profile."""
+        profile = self.list_profiles().get(profile_name)
+        if profile is None:
+            raise ValueError(f"Unknown provider profile: {profile_name!r}")
+        clear_provider_credentials(credential_storage_provider_name(profile_name, profile))
+        if profile_name == self.get_active_profile():
             try:
                 updated = self.settings.model_copy(update={"api_key": ""})
                 self._settings = updated.materialize_active_profile()

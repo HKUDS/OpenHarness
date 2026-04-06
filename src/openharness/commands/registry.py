@@ -713,14 +713,14 @@ def create_default_command_registry() -> CommandRegistry:
                     "Usage: /login API_KEY"
                 )
             )
-        manager.store_credential(profile.provider, "api_key", api_key)
+        manager.store_profile_credential(profile_name, "api_key", api_key)
         return CommandResult(message="Stored API key in ~/.openharness/settings.json")
 
     async def _logout_handler(_: str, context: CommandContext) -> CommandResult:
         del context
         settings = load_settings()
-        provider = settings.resolve_profile()[1].provider
-        AuthManager(settings).clear_credential(provider)
+        profile_name = settings.resolve_profile()[0]
+        AuthManager(settings).clear_profile_credential(profile_name)
         return CommandResult(message="Cleared stored API key.")
 
     async def _feedback_handler(args: str, context: CommandContext) -> CommandResult:
@@ -1045,6 +1045,9 @@ def create_default_command_registry() -> CommandRegistry:
         else:
             model_name = None
         if model_name:
+            if profile.allowed_models and model_name.lower() != "default" and model_name not in profile.allowed_models:
+                allowed = ", ".join(profile.allowed_models)
+                return CommandResult(message=f"Model '{model_name}' is not allowed for profile '{active_profile}'. Allowed models: {allowed}")
             if model_name.lower() == "default":
                 manager.update_profile(active_profile, last_model="")
                 message = "Model reset to default."

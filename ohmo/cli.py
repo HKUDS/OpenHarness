@@ -135,21 +135,57 @@ def _select_from_menu(
     return selected[0]
 
 
+def _format_provider_profile_label(info: dict[str, object]) -> str:
+    label = str(info["label"])
+    if bool(info["configured"]):
+        return label
+    return f"{label} (missing)"
+
+
 def _prompt_provider_profile(workspace: str | Path) -> str:
     settings = load_settings()
     statuses = AuthManager(settings).get_profile_statuses()
-    options = [
-        (
-            name,
-            f"{info['label']} [{info['provider']}]"
-            + ("" if info["configured"] else " (missing auth)"),
-        )
-        for name, info in statuses.items()
-    ]
+    default_value = load_gateway_config(workspace).provider_profile
+    hints = {
+        "claude-api": ("Claude / Kimi / GLM / MiniMax", "fg:#7aa2f7"),
+        "openai-compatible": ("OpenAI / OpenRouter", "fg:#9ece6a"),
+    }
+
+    if _can_use_questionary():
+        import questionary
+
+        choices = []
+        for name, info in statuses.items():
+            label = str(info["label"])
+            missing = "" if bool(info["configured"]) else " (missing)"
+            hint = hints.get(name)
+            if hint is None:
+                title = label if not missing else [("", label), ("fg:#d3869b", missing)]
+            else:
+                hint_text, hint_style = hint
+                title = [
+                    ("", f"{label}  "),
+                    (hint_style, hint_text),
+                ]
+                if missing:
+                    title.extend([("", "  "), ("fg:#d3869b", missing.strip())])
+            choices.append(questionary.Choice(title=title, value=name, checked=(name == default_value)))
+        result = questionary.select("Choose provider profile for ohmo:", choices=choices, default=default_value).ask()
+        if result is None:
+            raise typer.Abort()
+        return str(result)
+
+    options = []
+    for name, info in statuses.items():
+        label = _format_provider_profile_label(info)
+        hint = hints.get(name)
+        if hint is not None:
+            label = f"{label} ({hint[0]})"
+        options.append((name, label))
     return _select_from_menu(
         "Choose provider profile for ohmo:",
         options,
-        default_value=load_gateway_config(workspace).provider_profile,
+        default_value=default_value,
     )
 
 

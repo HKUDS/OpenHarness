@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from openharness.auth.storage import store_credential
 from openharness.config.settings import (
     ProviderProfile,
     Settings,
@@ -220,6 +221,30 @@ class TestLoadSaveSettings:
         materialized = settings.materialize_active_profile()
 
         assert materialized.model == "claude-opus-4-6"
+
+    def test_resolve_auth_prefers_profile_scoped_credential_for_custom_compatible_profile(self, tmp_path: Path, monkeypatch):
+        monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path))
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-global-env")
+        store_credential("profile:kimi-anthropic", "api_key", "sk-profile-specific", use_keyring=False)
+        settings = Settings(
+            active_profile="kimi-anthropic",
+            profiles={
+                "kimi-anthropic": ProviderProfile(
+                    label="Kimi Anthropic",
+                    provider="anthropic",
+                    api_format="anthropic",
+                    auth_source="anthropic_api_key",
+                    default_model="kimi-k2.5",
+                    base_url="https://api.moonshot.cn/anthropic",
+                    credential_slot="kimi-anthropic",
+                )
+            },
+        )
+
+        resolved = settings.resolve_auth()
+
+        assert resolved.value == "sk-profile-specific"
+        assert resolved.source == "file:profile:kimi-anthropic"
 
 
 def test_normalize_anthropic_model_name_matches_hermes_behavior():
