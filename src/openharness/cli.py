@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sys
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -38,11 +39,13 @@ mcp_app = typer.Typer(name="mcp", help="Manage MCP servers")
 plugin_app = typer.Typer(name="plugin", help="Manage plugins")
 auth_app = typer.Typer(name="auth", help="Manage authentication")
 cron_app = typer.Typer(name="cron", help="Manage cron scheduler and jobs")
+evidence_app = typer.Typer(name="evidence", help="Manage run evidence archives")
 
 app.add_typer(mcp_app)
 app.add_typer(plugin_app)
 app.add_typer(auth_app)
 app.add_typer(cron_app)
+app.add_typer(evidence_app)
 
 
 # ---- mcp subcommands ----
@@ -253,6 +256,102 @@ def cron_logs_cmd(
     tail = content.splitlines()[-lines:]
     for line in tail:
         print(line)
+
+
+# ---- evidence subcommands ----
+
+@evidence_app.command("list")
+def evidence_list() -> None:
+    """List all runs with evidence."""
+    from openharness.evidence import EvidenceStore
+
+    store = EvidenceStore()
+    runs = store.list_runs()
+    if not runs:
+        print("No runs with evidence found.")
+        return
+
+    print(f"Found {len(runs)} runs:")
+    for run_id in runs:
+        summary = store.get_run_summary(run_id)
+        evidence_count = summary["total_records"]
+        print(f"  {run_id} ({evidence_count} records)")
+
+
+@evidence_app.command("summary")
+def evidence_summary(
+    run_id: str = typer.Argument(..., help="Run ID to summarize"),
+) -> None:
+    """Show detailed summary of evidence for a run."""
+    from openharness.evidence import EvidenceStore
+
+    store = EvidenceStore()
+    summary = store.get_run_summary(run_id)
+
+    print(f"Run: {run_id}")
+    print(f"Total Records: {summary['total_records']}")
+
+    if summary['time_range']['start'] and summary['time_range']['end']:
+        duration = summary['time_range']['end'] - summary['time_range']['start']
+        print(f"Duration: {duration:.2f} seconds")
+        print(f"Time Range: {time.ctime(summary['time_range']['start'])} - {time.ctime(summary['time_range']['end'])}")
+
+    print("\nEvidence Counts:")
+    for evidence_type, count in summary['evidence_counts'].items():
+        print(f"  {evidence_type}: {count}")
+
+
+@evidence_app.command("export")
+def evidence_export(
+    run_id: str = typer.Argument(..., help="Run ID to export"),
+    output: str | None = typer.Option(None, "--output", "-o", help="Output file path"),
+    format: str = typer.Option("json", "--format", "-f", help="Export format (json, archive)"),
+) -> None:
+    """Export evidence for a run."""
+    from pathlib import Path
+    from openharness.evidence import EvidenceArchiver
+
+    archiver = EvidenceArchiver()
+    output_path = Path(output) if output else None
+
+    if format == "json":
+        result_path = archiver.export_run_to_json(run_id, output_path)
+        print(f"Exported to: {result_path}")
+    elif format == "archive":
+        result_path = archiver.create_run_archive(run_id, output_path)
+        print(f"Archived to: {result_path}")
+    else:
+        print(f"Unsupported format: {format}", file=sys.stderr)
+        raise typer.Exit(1)
+
+
+@evidence_app.command("report")
+def evidence_report(
+    run_id: str = typer.Argument(..., help="Run ID to report on"),
+    output: str | None = typer.Option(None, "--output", "-o", help="Output file path"),
+) -> None:
+    """Generate a human-readable report for a run."""
+    from pathlib import Path
+    from openharness.evidence import EvidenceArchiver
+
+    archiver = EvidenceArchiver()
+    output_path = Path(output) if output else None
+
+    result_path = archiver.create_run_report(run_id, output_path)
+    print(f"Report generated: {result_path}")
+
+
+@evidence_app.command("cleanup")
+def evidence_cleanup(
+    days: int = typer.Option(30, "--days", "-d", help="Remove evidence older than this many days"),
+) -> None:
+    """Clean up old evidence archives and run data."""
+    from openharness.evidence import EvidenceArchiver
+
+    archiver = EvidenceArchiver()
+    results = archiver.cleanup_archives(days)
+
+    print(f"Cleaned up {results['removed_runs']} old runs and {results['removed_archives']} old archives")
 
 
 # ---- auth subcommands ----
