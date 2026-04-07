@@ -8,6 +8,7 @@ The format is based on Keep a Changelog, and this project currently tracks chang
 
 ### Added
 
+- `git` tool: structured, schema-safe git operations (status, diff, log, show, blame, branch_list, add, commit, push, pull, branch_create, branch_delete, checkout, stash, tag) with built-in safety constraints replacing raw shell git commands.
 - `diagnose` skill: trace agent run failures and regressions using structured evidence from run artifacts.
 - OpenAI-compatible API client (`--api-format openai`) supporting any provider that implements the OpenAI `/v1/chat/completions` format, including Alibaba DashScope, DeepSeek, GitHub Models, Groq, Together AI, Ollama, and more.
 - `OPENHARNESS_API_FORMAT` environment variable for selecting the API format.
