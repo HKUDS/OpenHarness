@@ -15,7 +15,6 @@ import asyncio
 import json
 import os
 import sys
-import tempfile
 import time
 from pathlib import Path
 
@@ -186,10 +185,17 @@ async def prepare_workspace() -> Path:
     return WORKSPACE_DIR
 
 
+import pytest
+
 # ---------------------------------------------------------------------------
-# Test Scenarios
+# Test Scenarios (not pytest tests, called from main())
+# ---------------------------------------------------------------------------
+# These are E2E tests that require real API credentials and should be run
+# via: python tests/test_workflow/test_e2e_real_api.py
 # ---------------------------------------------------------------------------
 
+@pytest.mark.skip(reason="E2E test requiring real API key, run directly with python")
+@pytest.mark.skip(reason="E2E test requiring real API, run directly with python")
 async def test_workflow_engine_basic(workspace: Path) -> dict:
     """
     Scenario 1: Basic Workflow Engine execution
@@ -242,7 +248,7 @@ nodes:
     assert result.status == NodeStatus.COMPLETED, f"Node failed: {result.error_message}"
     assert len(result.output) > 20, f"Output too short ({len(result.output)} chars): {result.output[:100]}"
 
-    print(f"\n✅ TEST 1 PASSED")
+    print("\n✅ TEST 1 PASSED")
     print(f"   Duration: {duration:.1f}s")
     print(f"   Tokens: {result.input_tokens + result.output_tokens}")
     print(f"   Output length: {len(result.output)} chars")
@@ -255,6 +261,7 @@ nodes:
     }
 
 
+@pytest.mark.skip(reason="E2E test requiring real API, run directly with python")
 async def test_workflow_parallel(workspace: Path) -> dict:
     """
     Scenario 2: Parallel node execution
@@ -311,9 +318,9 @@ nodes:
     assert results["count-python"].status == NodeStatus.COMPLETED
     assert results["find-main-files"].status == NodeStatus.COMPLETED
 
-    print(f"\n✅ TEST 2 PASSED")
+    print("\n✅ TEST 2 PASSED")
     print(f"   Duration: {duration:.1f}s")
-    print(f"   Both nodes completed in parallel")
+    print("   Both nodes completed in parallel")
 
     return {
         "test": "parallel_execution",
@@ -322,6 +329,7 @@ nodes:
     }
 
 
+@pytest.mark.skip(reason="E2E test requiring real API, run directly with python")
 async def test_workflow_with_dependencies(workspace: Path) -> dict:
     """
     Scenario 3: Multi-turn workflow with dependencies
@@ -385,7 +393,7 @@ nodes:
     assert results["identify-risks"].status == NodeStatus.COMPLETED
     assert len(results["identify-risks"].output) > 50, f"Risk analysis too brief ({len(results['identify-risks'].output)} chars)"
 
-    print(f"\n✅ TEST 3 PASSED")
+    print("\n✅ TEST 3 PASSED")
     print(f"   Duration: {duration:.1f}s")
     print(f"   Architecture analysis: {len(results['find-architecture'].output)} chars")
     print(f"   Risk analysis: {len(results['identify-risks'].output)} chars")
@@ -397,6 +405,7 @@ nodes:
     }
 
 
+@pytest.mark.skip(reason="E2E test requiring real API, run directly with python")
 async def test_workflow_failure_recovery(workspace: Path) -> dict:
     """
     Scenario 4: Failure propagation
@@ -451,7 +460,7 @@ nodes:
     duration = time.time() - start
 
     # Print detailed results for debugging
-    print(f"\nNode results:")
+    print("\nNode results:")
     for nid, r in results.items():
         print(f"  {nid}: {r.status.value}")
         if r.error_message:
@@ -463,7 +472,7 @@ nodes:
     assert "will-fail" in results
     assert "should-skip" in results or "will-fail" in results
 
-    print(f"\n✅ TEST 4 PASSED")
+    print("\n✅ TEST 4 PASSED")
     print(f"   Duration: {duration:.1f}s")
     print(f"   'will-fail': {results['will-fail'].status.value}")
     if "should-skip" in results:

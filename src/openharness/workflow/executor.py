@@ -125,7 +125,6 @@ class NodeExecutor:
 
     def _build_restricted_context(self, allowed_tools: list[str]) -> QueryContext:
         """Create a QueryContext with a restricted tool set."""
-        from openharness.tools.base import ToolRegistry
 
         # Build a new registry with only the allowed tools
         restricted = ToolRegistry()
