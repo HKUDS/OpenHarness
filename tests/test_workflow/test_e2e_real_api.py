@@ -53,8 +53,11 @@ from openharness.workflow.types import NodeStatus
 # ---------------------------------------------------------------------------
 
 MINIMAX_API_KEY = os.environ.get("MINIMAX_API_KEY", "")
-MINIMAX_API_HOST = os.environ.get("MINIMAX_API_HOST", "https://api.minimaxi.com/v1")
-MODEL = "MiniMax-M2.7"
+# OpenAI-compatible client expects full base URL including /v1
+MINIMAX_API_HOST = os.environ.get("MINIMAX_API_HOST", "https://api.minimaxi.com")
+if not MINIMAX_API_HOST.endswith("/v1"):
+    MINIMAX_API_HOST = MINIMAX_API_HOST.rstrip("/") + "/v1"
+MODEL = "MiniMax-M2.5"
 
 # Use AutoAgent repo as unfamiliar workspace
 WORKSPACE_URL = "https://github.com/HKUDS/AutoAgent"
@@ -232,7 +235,8 @@ nodes:
 """
 
     dag = load_workflow(workflow_yaml)
-    query_ctx = make_query_context(make_engine("You are a code analyst.", workspace))
+    qe = make_engine("You are a code analyst.", workspace)
+    query_ctx = make_query_context(qe)
     engine = WorkflowEngine(
         query_ctx,
         output_dir=Path("/tmp/workflow-traces"),
@@ -563,4 +567,6 @@ async def main():
 
 
 if __name__ == "__main__":
+    import logging
+    logging.basicConfig(level=logging.INFO, format='%(name)s - %(levelname)s - %(message)s')
     asyncio.run(main())

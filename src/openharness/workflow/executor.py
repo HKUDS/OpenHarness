@@ -14,6 +14,7 @@ from openharness.engine.query import QueryContext, run_query
 from openharness.engine.stream_events import (
     AssistantTextDelta,
     AssistantTurnComplete,
+    ErrorEvent,
 )
 from openharness.tools.base import ToolRegistry
 
@@ -70,6 +71,12 @@ class NodeExecutor:
                         output_tokens=total_usage.output_tokens + usage.output_tokens,
                     )
 
+                if isinstance(event, ErrorEvent):
+                    result.output = f"Error: {event.message}"
+                    result.status = NodeStatus.FAILED
+                    result.error_message = event.message
+                    continue
+
                 if isinstance(event, AssistantTextDelta):
                     result.output += event.text
                 elif isinstance(event, AssistantTurnComplete):
@@ -125,7 +132,6 @@ class NodeExecutor:
 
     def _build_restricted_context(self, allowed_tools: list[str]) -> QueryContext:
         """Create a QueryContext with a restricted tool set."""
-
         # Build a new registry with only the allowed tools
         restricted = ToolRegistry()
         for tool_name in allowed_tools:
