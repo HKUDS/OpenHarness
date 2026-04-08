@@ -12,6 +12,7 @@ from openharness.api.usage import UsageSnapshot
 from openharness.engine.messages import ConversationMessage
 from openharness.engine.query import QueryContext, run_query
 from openharness.engine.stream_events import (
+    AssistantTextDelta,
     AssistantTurnComplete,
 )
 from openharness.tools.base import ToolRegistry
@@ -69,8 +70,14 @@ class NodeExecutor:
                         output_tokens=total_usage.output_tokens + usage.output_tokens,
                     )
 
-                if isinstance(event, AssistantTurnComplete):
-                    result.output = event.message_text or result.output
+                if isinstance(event, AssistantTextDelta):
+                    result.output += event.text
+                elif isinstance(event, AssistantTurnComplete):
+                    # Extract text from the message if output is still empty
+                    if not result.output and event.message.content:
+                        for block in event.message.content:
+                            if hasattr(block, 'text'):
+                                result.output += block.text
 
             result.status = NodeStatus.COMPLETED
             result.input_tokens = total_usage.input_tokens
@@ -118,9 +125,7 @@ class NodeExecutor:
 
     def _build_restricted_context(self, allowed_tools: list[str]) -> QueryContext:
         """Create a QueryContext with a restricted tool set."""
-        from copy import deepcopy
-
-        ctx = deepcopy(self._query_context)
+        from openharness.tools.base import ToolRegistry
 
         # Build a new registry with only the allowed tools
         restricted = ToolRegistry()
@@ -131,5 +136,20 @@ class NodeExecutor:
             else:
                 log.warning("Tool '%s' not found in registry, skipping", tool_name)
 
-        ctx.tool_registry = restricted
+        # Build a new QueryContext with the restricted tool registry
+        # We can't deepcopy because of unpicklable objects (HTTP clients, locks)
+        ctx = QueryContext(
+            api_client=self._query_context.api_client,
+            tool_registry=restricted,
+            permission_checker=self._query_context.permission_checker,
+            cwd=self._query_context.cwd,
+            model=self._query_context.model,
+            system_prompt=self._query_context.system_prompt,
+            max_tokens=self._query_context.max_tokens,
+            permission_prompt=self._query_context.permission_prompt,
+            ask_user_prompt=self._query_context.ask_user_prompt,
+            max_turns=self._query_context.max_turns,
+            hook_executor=self._query_context.hook_executor,
+            tool_metadata=self._query_context.tool_metadata,
+        )
         return ctx

@@ -27,23 +27,22 @@ def load_workflow(source: str | Path) -> WorkflowDAG:
         FileNotFoundError: If source is a path and the file doesn't exist.
         ValueError: If the YAML structure is invalid.
     """
-    path = Path(source)
-    # Check if it's an existing file
-    if path.exists():
-        yaml_content = path.read_text(encoding="utf-8")
-    elif isinstance(source, Path):
-        # Explicit Path object that doesn't exist
-        raise FileNotFoundError(f"Workflow file not found: {path}")
-    elif isinstance(source, str):
-        # For strings, only treat as path if it clearly looks like one
-        # (starts with / or ./, or ends with .yaml/.yml AND contains /)
-        is_path = (
-            source.startswith(("/", "./", "../")) or
-            (source.endswith((".yaml", ".yml")) and "/" in source)
-        )
-        if is_path:
-            raise FileNotFoundError(f"Workflow file not found: {path}")
+    # First, try to parse as YAML to check if it's content or a path
+    # If the string contains newlines or YAML markers, treat as content
+    if isinstance(source, str) and ("\n" in source or ":" in source):
         yaml_content = source
+    elif isinstance(source, Path):
+        if not source.exists():
+            raise FileNotFoundError(f"Workflow file not found: {source}")
+        yaml_content = source.read_text(encoding="utf-8")
+    elif isinstance(source, str):
+        path = Path(source)
+        if path.exists():
+            yaml_content = path.read_text(encoding="utf-8")
+        elif source.startswith(("/", "./", "../")) or (source.endswith((".yaml", ".yml")) and "/" in source):
+            raise FileNotFoundError(f"Workflow file not found: {path}")
+        else:
+            yaml_content = source
     else:
         yaml_content = str(source)
 
