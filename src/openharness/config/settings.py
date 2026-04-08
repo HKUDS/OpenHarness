@@ -13,7 +13,7 @@ import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -45,6 +45,14 @@ class MemorySettings(BaseModel):
     enabled: bool = True
     max_files: int = 5
     max_entrypoint_lines: int = 200
+    # PowerMem: local = Markdown files only; powermem_* = semantic retrieval;
+    # hybrid = Markdown relevance + PowerMem.
+    backend: Literal["local", "powermem_http", "powermem_sdk", "hybrid"] = "local"
+    powermem_base_url: str = ""
+    powermem_api_key: str = ""
+    powermem_user_id: str | None = None
+    powermem_agent_id: str | None = None
+    powermem_run_id: str | None = None
 
 
 class SandboxNetworkSettings(BaseModel):
@@ -704,6 +712,28 @@ def _apply_env_overrides(settings: Settings) -> Settings:
         sandbox_updates["fail_if_unavailable"] = _parse_bool_env(sandbox_fail)
     if sandbox_updates:
         updates["sandbox"] = settings.sandbox.model_copy(update=sandbox_updates)
+
+    mem_backend = os.environ.get("OPENHARNESS_MEMORY_BACKEND")
+    mem_url = os.environ.get("OPENHARNESS_POWERMEM_BASE_URL")
+    mem_key = os.environ.get("OPENHARNESS_POWERMEM_API_KEY")
+    mem_user = os.environ.get("OPENHARNESS_POWERMEM_USER_ID")
+    mem_agent = os.environ.get("OPENHARNESS_POWERMEM_AGENT_ID")
+    mem_run = os.environ.get("OPENHARNESS_POWERMEM_RUN_ID")
+    memory_updates: dict[str, Any] = {}
+    if mem_backend:
+        memory_updates["backend"] = mem_backend.strip().lower()
+    if mem_url:
+        memory_updates["powermem_base_url"] = mem_url.strip().rstrip("/")
+    if mem_key is not None:
+        memory_updates["powermem_api_key"] = mem_key
+    if mem_user is not None:
+        memory_updates["powermem_user_id"] = mem_user or None
+    if mem_agent is not None:
+        memory_updates["powermem_agent_id"] = mem_agent or None
+    if mem_run is not None:
+        memory_updates["powermem_run_id"] = mem_run or None
+    if memory_updates:
+        updates["memory"] = settings.memory.model_copy(update=memory_updates)
 
     if not updates:
         return settings

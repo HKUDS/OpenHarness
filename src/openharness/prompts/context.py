@@ -7,6 +7,7 @@ from pathlib import Path
 from openharness.config.paths import get_project_issue_file, get_project_pr_comments_file
 from openharness.config.settings import Settings
 from openharness.memory import find_relevant_memories, load_memory_prompt
+from openharness.memory.powermem_client import search_powermem_for_prompt
 from openharness.prompts.claudemd import load_claude_md_prompt
 from openharness.prompts.system_prompt import build_system_prompt
 from openharness.skills.loader import load_skill_registry
@@ -78,24 +79,34 @@ def build_runtime_system_prompt(
             sections.append(memory_section)
 
         if latest_user_prompt:
-            relevant = find_relevant_memories(
-                latest_user_prompt,
-                cwd,
-                max_results=settings.memory.max_files,
-            )
-            if relevant:
-                lines = ["# Relevant Memories"]
-                for header in relevant:
-                    content = header.path.read_text(encoding="utf-8", errors="replace").strip()
-                    lines.extend(
-                        [
-                            "",
-                            f"## {header.path.name}",
-                            "```md",
-                            content[:8000],
-                            "```",
-                        ]
-                    )
-                sections.append("\n".join(lines))
+            mem = settings.memory
+            if mem.backend in ("local", "hybrid"):
+                relevant = find_relevant_memories(
+                    latest_user_prompt,
+                    cwd,
+                    max_results=mem.max_files,
+                )
+                if relevant:
+                    lines = ["# Relevant Memories"]
+                    for header in relevant:
+                        content = header.path.read_text(encoding="utf-8", errors="replace").strip()
+                        lines.extend(
+                            [
+                                "",
+                                f"## {header.path.name}",
+                                "```md",
+                                content[:8000],
+                                "```",
+                            ]
+                        )
+                    sections.append("\n".join(lines))
+
+            if mem.backend in ("powermem_http", "powermem_sdk", "hybrid"):
+                pm_hits = search_powermem_for_prompt(latest_user_prompt, mem)
+                if pm_hits:
+                    lines = ["# PowerMem Retrieval"]
+                    for label, text in pm_hits:
+                        lines.extend(["", f"## {label}", "```md", text[:8000], "```"])
+                    sections.append("\n".join(lines))
 
     return "\n\n".join(section for section in sections if section.strip())

@@ -32,6 +32,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+powermem = [
+    "powermem>=1.1.0",
+]
 dev = [
     "pexpect>=4.9.0",
     "pytest>=8.0.0",
