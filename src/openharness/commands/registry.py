@@ -49,6 +49,7 @@ from openharness.services import (
 )
 from openharness.services.session_storage import get_project_session_dir, load_session_snapshot
 from openharness.skills import load_skill_registry
+from openharness.skills.runtime import activate_skill, apply_skill_overrides
 from openharness.tasks import get_task_manager
 
 if TYPE_CHECKING:
@@ -77,6 +78,19 @@ class CommandContext:
     cwd: str = "."
     tool_registry: ToolRegistry | None = None
     app_state: AppStateStore | None = None
+
+
+def _refresh_engine_prompt(context: CommandContext, latest_user_prompt: str | None = None) -> Settings:
+    settings = apply_skill_overrides(load_settings(), context.engine.active_skill)
+    context.engine.set_model(settings.model)
+    context.engine.set_system_prompt(
+        build_runtime_system_prompt(
+            settings,
+            cwd=context.cwd,
+            latest_user_prompt=latest_user_prompt,
+        )
+    )
+    return settings
 
 
 CommandHandler = Callable[[str, CommandContext], Awaitable[CommandResult]]
@@ -666,8 +680,31 @@ def create_default_command_registry() -> CommandRegistry:
         lines = ["Available skills:"]
         for skill in skills:
             source = f" [{skill.source}]"
-            lines.append(f"- {skill.name}{source}: {skill.description}")
+            flags: list[str] = []
+            if skill.user_invocable:
+                flags.append("slash")
+            if skill.model_invocable:
+                flags.append("tool")
+            suffix = f" ({', '.join(flags)})" if flags else ""
+            lines.append(f"- {skill.name}{source}{suffix}: {skill.description}")
         return CommandResult(message="\n".join(lines))
+
+    def _make_skill_command(skill_name: str, skill_description: str):
+        async def _handler(args: str, context: CommandContext) -> CommandResult:
+            del args
+            active_skill = activate_skill(skill_name, context.cwd)
+            if active_skill is None:
+                return CommandResult(message=f"Skill not found: {skill_name}")
+            context.engine.set_active_skill(active_skill)
+            settings = _refresh_engine_prompt(context)
+            return CommandResult(
+                message=(
+                    f"Activated skill /{skill_name} using model {settings.model}.\n\n"
+                    f"{active_skill.definition.instructions}"
+                )
+            )
+
+        return SlashCommand(skill_name, skill_description, _handler)
 
     async def _config_handler(args: str, context: CommandContext) -> CommandResult:
         del context
@@ -1317,4 +1354,12 @@ def create_default_command_registry() -> CommandRegistry:
     registry.register(SlashCommand("upgrade", "Show upgrade instructions", _upgrade_handler))
     registry.register(SlashCommand("agents", "List or inspect agent and teammate tasks", _agents_handler))
     registry.register(SlashCommand("tasks", "Manage background tasks", _tasks_handler))
+
+    skill_registry = load_skill_registry(Path.cwd())
+    built_in_names = {command.name for command in registry._commands.values()}
+    for skill in skill_registry.list_user_invocable():
+        normalized = skill.name.strip().lower()
+        if normalized in built_in_names or normalized in {alias.strip().lower() for alias in skill.aliases}:
+            continue
+        registry.register(_make_skill_command(skill.name, skill.description))
     return registry

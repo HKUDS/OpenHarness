@@ -10,12 +10,13 @@ from openharness.memory import find_relevant_memories, load_memory_prompt
 from openharness.prompts.claudemd import load_claude_md_prompt
 from openharness.prompts.system_prompt import build_system_prompt
 from openharness.skills.loader import load_skill_registry
+from openharness.skills.runtime import ActiveSkillContext, build_active_skill_section
 
 
 def _build_skills_section(cwd: str | Path) -> str | None:
     """Build a system prompt section listing available skills."""
     registry = load_skill_registry(cwd)
-    skills = registry.list_skills()
+    skills = registry.list_model_invocable()
     if not skills:
         return None
     lines = [
@@ -36,6 +37,7 @@ def build_runtime_system_prompt(
     *,
     cwd: str | Path,
     latest_user_prompt: str | None = None,
+    active_skill: ActiveSkillContext | None = None,
 ) -> str:
     """Build the runtime system prompt with project instructions and memory."""
     sections = [build_system_prompt(custom_prompt=settings.system_prompt, cwd=str(cwd))]
@@ -55,6 +57,9 @@ def build_runtime_system_prompt(
     skills_section = _build_skills_section(cwd)
     if skills_section:
         sections.append(skills_section)
+
+    if active_skill is not None:
+        sections.append(build_active_skill_section(active_skill))
 
     claude_md = load_claude_md_prompt(cwd)
     if claude_md:

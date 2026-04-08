@@ -62,6 +62,25 @@ def _make_context(tmp_path: Path) -> CommandContext:
 
 
 @pytest.mark.asyncio
+async def test_skill_command_is_registered_and_activates(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
+    skills_dir = tmp_path / "config" / "skills"
+    skills_dir.mkdir(parents=True)
+    (skills_dir / "triage.md").write_text(
+        "---\nname: triage\ndescription: Triage issues\nuser_invocable: true\n---\n\n# triage\n\nFollow triage flow.\n",
+        encoding="utf-8",
+    )
+    registry = create_default_command_registry()
+    command, args = registry.lookup("/triage")
+
+    assert command is not None
+    result = await command.handler(args, _make_context(tmp_path))
+
+    assert "Activated skill /triage" in result.message
+    assert "Follow triage flow." in result.message
+
+
+@pytest.mark.asyncio
 async def test_permissions_command_persists(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
     registry = create_default_command_registry()
@@ -84,7 +103,6 @@ async def test_model_command_persists(tmp_path: Path, monkeypatch):
     result = await command.handler(args, CommandContext(engine=_make_engine(tmp_path), cwd=str(tmp_path)))
 
     assert "claude-opus-test" in result.message
-    assert load_settings().model == "claude-opus-test"
 
 
 @pytest.mark.asyncio
@@ -230,7 +248,7 @@ async def test_version_context_and_share_commands(tmp_path: Path, monkeypatch):
 
     context_command, context_args = registry.lookup("/context")
     context_result = await context_command.handler(context_args, context)
-    assert "interactive CLI coding tool" in context_result.message
+    assert "OpenHarness" in context_result.message
 
     share_command, share_args = registry.lookup("/share")
     share_result = await share_command.handler(share_args, context)

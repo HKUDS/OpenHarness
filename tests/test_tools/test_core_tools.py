@@ -107,11 +107,47 @@ async def test_skill_todo_and_config_tools(tmp_path: Path, monkeypatch):
     skills_dir.mkdir(parents=True)
     (skills_dir / "pytest.md").write_text("# Pytest\nHelpful pytest notes.\n", encoding="utf-8")
 
+    class StubEngine:
+        def __init__(self):
+            self.active_skill = None
+
+        def set_active_skill(self, active_skill):
+            self.active_skill = active_skill
+
+    engine = StubEngine()
     skill_result = await SkillTool().execute(
         SkillToolInput(name="Pytest"),
-        ToolExecutionContext(cwd=tmp_path),
+        ToolExecutionContext(cwd=tmp_path, metadata={"query_engine": engine}),
     )
     assert "Helpful pytest notes." in skill_result.output
+    assert engine.active_skill is not None
+    assert engine.active_skill.definition.name == "Pytest"
+
+    skill_read_result = await SkillTool().execute(
+        SkillToolInput(name="Pytest", mode="read"),
+        ToolExecutionContext(cwd=tmp_path),
+    )
+    assert "Helpful pytest notes." in skill_read_result.output
+
+    (skills_dir / "private.md").write_text(
+        "---\nname: private\nmodel_invocable: false\n---\n\n# Private\n\nHidden flow.\n",
+        encoding="utf-8",
+    )
+    private_result = await SkillTool().execute(
+        SkillToolInput(name="private"),
+        ToolExecutionContext(cwd=tmp_path, metadata={"query_engine": engine}),
+    )
+    assert private_result.is_error is True
+    assert "not model-invocable" in private_result.output
+    assert engine.active_skill.definition.name == "Pytest"
+
+    private_read_result = await SkillTool().execute(
+        SkillToolInput(name="private", mode="read"),
+        ToolExecutionContext(cwd=tmp_path, metadata={"query_engine": engine}),
+    )
+    assert private_read_result.is_error is True
+    assert "not model-invocable" in private_read_result.output
+    assert engine.active_skill.definition.name == "Pytest"
 
     todo_result = await TodoWriteTool().execute(
         TodoWriteToolInput(item="wire commands"),

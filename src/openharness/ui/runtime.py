@@ -20,6 +20,7 @@ from openharness.mcp.config import load_mcp_server_configs
 from openharness.permissions import PermissionChecker
 from openharness.plugins import load_plugins
 from openharness.prompts import build_runtime_system_prompt
+from openharness.skills.runtime import apply_skill_overrides
 from openharness.state import AppState, AppStateStore
 from openharness.services.session_storage import save_session_snapshot
 from openharness.tools import ToolRegistry, create_default_tool_registry
@@ -160,6 +161,7 @@ async def build_runtime(
         hook_executor=hook_executor,
         tool_metadata={"mcp_manager": mcp_manager, "bridge_manager": bridge_manager},
     )
+    engine._tool_metadata["query_engine"] = engine
     from uuid import uuid4
 
     return RuntimeBundle(
@@ -253,16 +255,25 @@ async def handle_line(
         sync_app_state(bundle)
         return not result.should_exit
 
-    settings = bundle.current_settings()
+    settings = apply_skill_overrides(bundle.current_settings(), bundle.engine.active_skill)
+    bundle.engine.set_model(settings.model)
     bundle.engine.set_system_prompt(
-        build_runtime_system_prompt(settings, cwd=bundle.cwd, latest_user_prompt=line)
+        build_runtime_system_prompt(
+            settings,
+            cwd=bundle.cwd,
+            latest_user_prompt=line,
+        )
     )
     async for event in bundle.engine.submit_message(line):
         await render_event(event)
     save_session_snapshot(
         cwd=bundle.cwd,
         model=settings.model,
-        system_prompt=build_runtime_system_prompt(settings, cwd=bundle.cwd, latest_user_prompt=line),
+        system_prompt=build_runtime_system_prompt(
+            settings,
+            cwd=bundle.cwd,
+            latest_user_prompt=line,
+        ),
         messages=bundle.engine.messages,
         usage=bundle.engine.total_usage,
         session_id=bundle.session_id,

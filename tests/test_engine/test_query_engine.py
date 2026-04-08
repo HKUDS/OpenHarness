@@ -36,9 +36,10 @@ class FakeApiClient:
 
     def __init__(self, responses: list[_FakeResponse]) -> None:
         self._responses = list(responses)
+        self.requests = []
 
     async def stream_message(self, request):
-        del request
+        self.requests.append(request)
         response = self._responses.pop(0)
         for block in response.message.content:
             if isinstance(block, TextBlock) and block.text:
@@ -249,3 +250,67 @@ async def test_query_engine_executes_ask_user_tool(tmp_path: Path):
     assert tool_results[0].output == "green"
     assert isinstance(events[-1], AssistantTurnComplete)
     assert events[-1].message.text == "Picked green."
+
+
+@pytest.mark.asyncio
+async def test_query_engine_applies_skill_activation_within_same_run(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
+    skills_dir = tmp_path / "config" / "skills"
+    skills_dir.mkdir(parents=True)
+    (skills_dir / "triage.md").write_text(
+        "---\nname: triage\nmodel_override: claude-skill\nallowed_tools: [read_file]\n---\n\n# Triage\n\nUse triage flow.\n",
+        encoding="utf-8",
+    )
+
+    api_client = FakeApiClient(
+        [
+            _FakeResponse(
+                message=ConversationMessage(
+                    role="assistant",
+                    content=[
+                        ToolUseBlock(
+                            id="toolu_skill",
+                            name="skill",
+                            input={"name": "triage"},
+                        )
+                    ],
+                ),
+                usage=UsageSnapshot(input_tokens=1, output_tokens=1),
+            ),
+            _FakeResponse(
+                message=ConversationMessage(
+                    role="assistant",
+                    content=[TextBlock(text="Activated triage.")],
+                ),
+                usage=UsageSnapshot(input_tokens=1, output_tokens=1),
+            ),
+        ]
+    )
+    engine = QueryEngine(
+        api_client=api_client,
+        tool_registry=create_default_tool_registry(),
+        permission_checker=PermissionChecker(PermissionSettings(allowed_tools=["skill"])),
+        cwd=tmp_path,
+        model="claude-test",
+        system_prompt="system",
+        tool_metadata={},
+    )
+    engine._tool_metadata["query_engine"] = engine
+
+    events = [event async for event in engine.submit_message("activate triage")]
+
+    assert isinstance(events[-1], AssistantTurnComplete)
+    assert len(api_client.requests) == 2
+    assert api_client.requests[0].model == "claude-test"
+    assert any(
+        isinstance(event, ToolExecutionCompleted)
+        and event.is_error is False
+        and "Use triage flow." in event.output
+        for event in events
+    )
+    assert api_client.requests[1].model == "claude-skill"
+    assert any(tool["name"] == "read_file" for tool in api_client.requests[1].tools)
+    assert all(tool["name"] != "skill" for tool in api_client.requests[1].tools)
+    assert "# Active Skill" in api_client.requests[1].system_prompt
+    assert engine.active_skill is not None
+    assert engine.active_skill.definition.name == "triage"

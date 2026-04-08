@@ -24,6 +24,7 @@ from openharness.engine.stream_events import (
 )
 from openharness.hooks import HookEvent, HookExecutor
 from openharness.permissions.checker import PermissionChecker
+from openharness.skills.runtime import build_effective_system_prompt, filter_tool_registry
 from openharness.tools.base import ToolExecutionContext
 from openharness.tools.base import ToolRegistry
 
@@ -50,6 +51,25 @@ class QueryContext:
     tool_metadata: dict[str, object] | None = None
 
 
+def _build_turn_request(context: QueryContext) -> ApiMessageRequest:
+    """Build the next model request from the latest runtime state."""
+    engine = context.tool_metadata.get("query_engine") if context.tool_metadata else None
+    active_skill = getattr(engine, "active_skill", None)
+    model = active_skill.model_override if active_skill is not None and active_skill.model_override else context.model
+    system_prompt = build_effective_system_prompt(context.system_prompt, active_skill)
+    tool_registry = filter_tool_registry(
+        context.tool_registry,
+        active_skill.allowed_tools if active_skill is not None else None,
+    )
+    return ApiMessageRequest(
+        model=model,
+        messages=[],
+        system_prompt=system_prompt,
+        max_tokens=context.max_tokens,
+        tools=tool_registry.to_api_schema(),
+    )
+
+
 async def run_query(
     context: QueryContext,
     messages: list[ConversationMessage],
@@ -70,28 +90,29 @@ async def run_query(
     compact_state = AutoCompactState()
 
     for _ in range(context.max_turns):
+        request = _build_turn_request(context)
+
         # --- auto-compact check before calling the model ---------------
         messages, was_compacted = await auto_compact_if_needed(
             messages,
             api_client=context.api_client,
-            model=context.model,
-            system_prompt=context.system_prompt,
+            model=request.model,
+            system_prompt=request.system_prompt,
             state=compact_state,
         )
         # ---------------------------------------------------------------
 
         final_message: ConversationMessage | None = None
         usage = UsageSnapshot()
+        request = ApiMessageRequest(
+            model=request.model,
+            messages=messages,
+            system_prompt=request.system_prompt,
+            max_tokens=request.max_tokens,
+            tools=request.tools,
+        )
 
-        async for event in context.api_client.stream_message(
-            ApiMessageRequest(
-                model=context.model,
-                messages=messages,
-                system_prompt=context.system_prompt,
-                max_tokens=context.max_tokens,
-                tools=context.tool_registry.to_api_schema(),
-            )
-        ):
+        async for event in context.api_client.stream_message(request):
             if isinstance(event, ApiTextDeltaEvent):
                 yield AssistantTextDelta(text=event.text), None
                 continue

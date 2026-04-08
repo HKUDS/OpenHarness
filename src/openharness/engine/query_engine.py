@@ -12,6 +12,7 @@ from openharness.engine.query import AskUserPrompt, PermissionPrompt, QueryConte
 from openharness.engine.stream_events import StreamEvent
 from openharness.hooks import HookExecutor
 from openharness.permissions.checker import PermissionChecker
+from openharness.skills.runtime import ActiveSkillContext
 from openharness.tools.base import ToolRegistry
 
 
@@ -46,6 +47,7 @@ class QueryEngine:
         self._tool_metadata = tool_metadata or {}
         self._messages: list[ConversationMessage] = []
         self._cost_tracker = CostTracker()
+        self._active_skill: ActiveSkillContext | None = None
 
     @property
     def messages(self) -> list[ConversationMessage]:
@@ -73,6 +75,15 @@ class QueryEngine:
     def set_permission_checker(self, checker: PermissionChecker) -> None:
         """Update the active permission checker for future turns."""
         self._permission_checker = checker
+
+    def set_active_skill(self, active_skill: ActiveSkillContext | None) -> None:
+        """Update the active skill scope for future turns."""
+        self._active_skill = active_skill
+
+    @property
+    def active_skill(self) -> ActiveSkillContext | None:
+        """Return the currently active skill context."""
+        return self._active_skill
 
     def load_messages(self, messages: list[ConversationMessage]) -> None:
         """Replace the in-memory conversation history."""
