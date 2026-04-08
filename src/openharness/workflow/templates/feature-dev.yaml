@@ -1,0 +1,140 @@
+name: feature-dev
+description: "End-to-end feature development: plan, implement, test, and document"
+version: "1.0.0"
+
+variables:
+  feature_description: ""
+  target_module: ""
+
+nodes:
+  - id: planning
+    agent_type: general
+    prompt: |
+      Plan the implementation for the following feature:
+
+      ${feature_description}
+
+      Target module: ${target_module}
+
+      Provide:
+      1. Design overview (architecture, data flow, interfaces)
+      2. Implementation steps in dependency order
+      3. List of files to create/modify
+      4. Edge cases and error handling considerations
+      5. Testing strategy
+
+      Be specific and actionable. Each step should be implementable by a coder agent.
+    retry:
+      max_attempts: 2
+    timeout_seconds: 120
+
+  - id: implementation
+    agent_type: coder
+    depends_on:
+      - planning
+    prompt: |
+      Implement the feature according to this plan:
+
+      Plan:
+      ${planning_output}
+
+      Feature Description:
+      ${feature_description}
+
+      Follow the implementation steps. Create or modify files in ${target_module}.
+      Write clean, well-documented code with proper error handling.
+    tools:
+      - read_file
+      - write_file
+      - edit
+      - glob
+      - grep
+      - bash
+    retry:
+      max_attempts: 3
+      backoff_multiplier: 2.0
+      initial_delay_ms: 3000
+    timeout_seconds: 600
+    continue_on_failure: false
+
+  - id: unit-tests
+    agent_type: tester
+    depends_on:
+      - implementation
+    prompt: |
+      Write comprehensive unit tests for the newly implemented feature.
+
+      Implementation Output:
+      ${implementation_output}
+
+      Requirements:
+      1. Test all public functions and edge cases
+      2. Include error handling tests
+      3. Aim for >80% code coverage
+      4. Use the project's existing test framework and conventions
+
+      Place tests in the appropriate test directory.
+    tools:
+      - read_file
+      - write_file
+      - edit
+      - glob
+      - grep
+      - bash
+    retry:
+      max_attempts: 2
+    timeout_seconds: 300
+
+  - id: run-tests
+    agent_type: tester
+    depends_on:
+      - unit-tests
+    prompt: |
+      Run the test suite and report the results.
+
+      Execute the project's test command and show:
+      1. Full test output
+      2. Pass/fail summary
+      3. Any failures with detailed context
+
+      If tests fail, categorize them as:
+      - Implementation bugs (need fixing)
+      - Test issues (need test correction)
+      - Flakey tests (need investigation)
+    tools:
+      - bash
+      - read_file
+      - glob
+    retry:
+      max_attempts: 1
+    timeout_seconds: 180
+    continue_on_failure: true
+
+  - id: documentation
+    agent_type: writer
+    depends_on:
+      - implementation
+    prompt: |
+      Generate documentation for the new feature based on the implementation.
+
+      Implementation Output:
+      ${implementation_output}
+
+      Plan:
+      ${planning_output}
+
+      Create or update:
+      1. API documentation (if applicable)
+      2. Usage examples in README or docs/
+      3. Inline code comments for complex logic
+      4. Migration guide (if this is a breaking change)
+
+      Write clear, user-facing documentation. Focus on "how to use" not "how it works internally".
+    tools:
+      - read_file
+      - write_file
+      - edit
+      - glob
+    retry:
+      max_attempts: 2
+    timeout_seconds: 180
