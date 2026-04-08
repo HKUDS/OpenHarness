@@ -1,0 +1,108 @@
+name: test-and-docs
+description: "Run tests, fix failures, and update documentation"
+version: "1.0.0"
+
+variables:
+  test_command: "pytest"
+  docs_path: ""
+
+nodes:
+  - id: run-tests
+    agent_type: tester
+    prompt: |
+      Run the following test command and report all results:
+
+      Command: ${test_command}
+
+      Show:
+      1. Full test output (stdout + stderr)
+      2. Summary: passed/failed/skipped counts
+      3. For each failure: file, line number, and failure message
+    tools:
+      - bash
+      - read_file
+      - glob
+    retry:
+      max_attempts: 1
+    timeout_seconds: 300
+    continue_on_failure: true
+
+  - id: fix-failures
+    agent_type: debugger
+    depends_on:
+      - run-tests
+    prompt: |
+      The following tests failed. Analyze the failures and fix the underlying issues.
+
+      Test Output:
+      ${run-tests_output}
+
+      For each failure:
+      1. Identify root cause (bug in code vs. incorrect test)
+      2. Fix the root cause (not the symptom)
+      3. Verify the fix doesn't break other tests
+
+      Prioritize:
+      - Bugs in implementation over test issues
+      - Systemic issues (shared fixtures, config) over individual test fixes
+    tools:
+      - read_file
+      - write_file
+      - edit
+      - grep
+      - glob
+    retry:
+      max_attempts: 3
+      backoff_multiplier: 2.0
+    timeout_seconds: 300
+    continue_on_failure: true
+
+  - id: verify-fixes
+    agent_type: tester
+    depends_on:
+      - fix-failures
+    prompt: |
+      Re-run the test suite to verify all fixes work.
+
+      Command: ${test_command}
+
+      Report:
+      1. Full test output
+      2. Final pass/fail status
+      3. Any remaining failures
+    tools:
+      - bash
+    retry:
+      max_attempts: 1
+    timeout_seconds: 300
+
+  - id: update-docs
+    agent_type: writer
+    depends_on:
+      - verify-fixes
+    prompt: |
+      Update the project documentation based on recent code changes.
+
+      ${docs_path:+Docs target directory: ${docs_path}}
+
+      Review the test outputs and fix outputs to understand what changed:
+
+      Test Results:
+      ${run-tests_output}
+
+      Fix Results:
+      ${fix-failures_output}
+
+      Update:
+      1. Any API changes in documentation
+      2. Changelog entries for bug fixes
+      3. Examples if behavior changed
+      4. README if setup or usage changed
+    tools:
+      - read_file
+      - write_file
+      - edit
+      - glob
+    retry:
+      max_attempts: 2
+    timeout_seconds: 180

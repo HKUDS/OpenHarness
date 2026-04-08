@@ -10,6 +10,8 @@ from typing import Optional
 
 import typer
 
+from openharness.commands.workflow import workflow_app
+
 __version__ = "0.1.2"
 
 
@@ -1385,3 +1387,10 @@ def main(
             permission_mode=permission_mode,
         )
     )
+
+
+# ---------------------------------------------------------------------------
+# Workflow subcommands
+# ---------------------------------------------------------------------------
+
+app.add_typer(workflow_app)

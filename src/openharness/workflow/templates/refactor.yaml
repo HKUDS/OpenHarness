@@ -1,0 +1,75 @@
+name: code-refactor
+description: "Analyze code, refactor for clarity and simplicity, then verify correctness"
+version: "1.0.0"
+
+variables:
+  target_path: ""
+  refactoring_goal: "Improve readability, reduce complexity, and follow best practices"
+
+nodes:
+  - id: code-analysis
+    agent_type: reviewer
+    prompt: |
+      Analyze the code at ${target_path} and provide:
+      1. Current complexity metrics (cyclomatic, nesting depth, function length)
+      2. Identified code smells (long functions, duplicate logic, unclear names)
+      3. Specific refactoring recommendations prioritized by impact
+
+      Goal: ${refactoring_goal}
+
+      Provide a structured analysis with file:line references.
+    retry:
+      max_attempts: 2
+      backoff_multiplier: 2.0
+    timeout_seconds: 120
+
+  - id: refactor-implementation
+    agent_type: coder
+    depends_on:
+      - code-analysis
+    prompt: |
+      Based on the following analysis, refactor the code at ${target_path}:
+
+      Analysis Results:
+      ${code-analysis_output}
+
+      Apply the recommended changes while preserving all existing behavior.
+      Ensure the code remains functionally equivalent.
+
+      Goal: ${refactoring_goal}
+    tools:
+      - read_file
+      - write_file
+      - edit
+      - glob
+      - grep
+    retry:
+      max_attempts: 3
+      backoff_multiplier: 2.0
+      initial_delay_ms: 2000
+    timeout_seconds: 300
+    continue_on_failure: false
+
+  - id: code-review
+    agent_type: reviewer
+    depends_on:
+      - refactor-implementation
+    prompt: |
+      Review the refactored code at ${target_path}. Compare with the analysis:
+
+      Original Analysis:
+      ${code-analysis_output}
+
+      Refactoring Output:
+      ${refactor-implementation_output}
+
+      Verify:
+      1. All identified issues were addressed
+      2. No new bugs or regressions were introduced
+      3. Code style and naming are consistent
+      4. No functionality was accidentally changed
+
+      Provide a pass/fail verdict with reasoning.
+    retry:
+      max_attempts: 2
+    timeout_seconds: 120

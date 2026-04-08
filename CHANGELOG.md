@@ -8,6 +8,11 @@ The format is based on Keep a Changelog, and this project currently tracks chang
 
 ### Added
 
+- Workflow DAG engine: multi-agent orchestration with dependency-aware, parallel-capable node execution. Built-in templates for code refactoring, feature development, and test-fix workflows.
+- `oh workflow` CLI subcommands: `list`, `show`, `run`, `export` for managing and executing workflow DAGs.
+- YAML workflow definition parser with variable interpolation and retry policy configuration.
+- Workflow execution tracing with JSON, Graphviz DOT, and interactive HTML report exports.
+- Automatic failure propagation: downstream nodes are skipped when upstream dependencies fail (unless `continue_on_failure: true`).
 - `diagnose` skill: trace agent run failures and regressions using structured evidence from run artifacts.
 - OpenAI-compatible API client (`--api-format openai`) supporting any provider that implements the OpenAI `/v1/chat/completions` format, including Alibaba DashScope, DeepSeek, GitHub Models, Groq, Together AI, Ollama, and more.
 - `OPENHARNESS_API_FORMAT` environment variable for selecting the API format.
