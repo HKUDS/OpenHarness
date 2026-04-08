@@ -18,12 +18,12 @@ def _version_callback(value: bool) -> None:
         print(f"openharness {__version__}")
         raise typer.Exit()
 
-
+ # 主应用
 app = typer.Typer(
     name="openharness",
     help=(
         "Oh my Harness! An AI-powered coding assistant.\n\n"
-        "Starts an interactive session by default, use -p/--print for non-interactive output."
+        "Starts an interactive session by default, use -p/--print for non-interactive output."   #默认情况下会启动一个交互式会话，若需非交互式输出，请使用 -p 或 --print 参数。
     ),
     add_completion=False,
     rich_markup_mode="rich",
@@ -34,13 +34,13 @@ app = typer.Typer(
 # ---------------------------------------------------------------------------
 # Subcommands
 # ---------------------------------------------------------------------------
-
+# 子命令组
 mcp_app = typer.Typer(name="mcp", help="Manage MCP servers")
 plugin_app = typer.Typer(name="plugin", help="Manage plugins")
 auth_app = typer.Typer(name="auth", help="Manage authentication")
 provider_app = typer.Typer(name="provider", help="Manage provider profiles")
 cron_app = typer.Typer(name="cron", help="Manage cron scheduler and jobs")
-
+# 将子命令添加到主应用
 app.add_typer(mcp_app)
 app.add_typer(plugin_app)
 app.add_typer(auth_app)
@@ -67,7 +67,7 @@ def mcp_list() -> None:
         transport = cfg.get("transport", cfg.get("command", "unknown"))
         print(f"  {name}: {transport}")
 
-
+ # 定义命令: openharness mcp add
 @mcp_app.command("add")
 def mcp_add(
     name: str = typer.Argument(..., help="Server name"),
@@ -1079,7 +1079,21 @@ def provider_remove(
     print(f"Removed provider profile: {name}", flush=True)
 
 # ---------------------------------------------------------------------------
-# Main command
+# Main command  默认进入这个方法
+#   调用链路
+#
+#   openharness 命令
+#       ↓
+#   __main__.py: app()
+#       ↓
+#   cli.py: app() (Typer 实例)
+#       ↓
+#   @app.callback() → main()  👈 默认入口点
+#       ↓
+#   根据参数调用：
+#       ├── 有 -p/--print → run_print_mode() (一次性输出)
+#       └── 无参数         → run_repl() (交互式会话)
+
 # ---------------------------------------------------------------------------
 
 @app.callback(invoke_without_command=True)
@@ -1089,7 +1103,7 @@ def main(
         False,
         "--version",
         "-v",
-        help="Show version and exit",
+        help="Show version and exit",           #显示版本并退出
         callback=_version_callback,
         is_eager=True,
     ),
@@ -1098,21 +1112,21 @@ def main(
         False,
         "--continue",
         "-c",
-        help="Continue the most recent conversation in the current directory",
+        help="Continue the most recent conversation in the current directory",  #继续当前目录中的最新对话。
         rich_help_panel="Session",
     ),
     resume: str | None = typer.Option(
         None,
         "--resume",
         "-r",
-        help="Resume a conversation by session ID, or open picker",
+        help="Resume a conversation by session ID, or open picker",  #通过会话 ID 恢复对话，或者打开选择器
         rich_help_panel="Session",
     ),
     name: str | None = typer.Option(
         None,
         "--name",
         "-n",
-        help="Set a display name for this session",
+        help="Set a display name for this session",  #为本次会话设置一个显示名称
         rich_help_panel="Session",
     ),
     # --- Model & Effort ---
@@ -1120,25 +1134,25 @@ def main(
         None,
         "--model",
         "-m",
-        help="Model alias (e.g. 'sonnet', 'opus') or full model ID",
+        help="Model alias (e.g. 'sonnet', 'opus') or full model ID",    #模型别名（例如“sonnet”、“opus”）或完整模型标识符
         rich_help_panel="Model & Effort",
     ),
     effort: str | None = typer.Option(
         None,
         "--effort",
-        help="Effort level for the session (low, medium, high, max)",
+        help="Effort level for the session (low, medium, high, max)",   #本次会话的努力程度（低、中、高、最高）
         rich_help_panel="Model & Effort",
     ),
     verbose: bool = typer.Option(
         False,
         "--verbose",
-        help="Override verbose mode setting from config",
+        help="Override verbose mode setting from config",       #覆盖配置文件中的详细模式设置
         rich_help_panel="Model & Effort",
     ),
     max_turns: int | None = typer.Option(
         None,
         "--max-turns",
-        help="Maximum number of agentic turns (enforced by default in --print; optional cap for interactive mode)",
+        help="Maximum number of agentic turns (enforced by default in --print; optional cap for interactive mode)",     #代理操作的最大轮数（默认情况下在 --print 模式中强制执行；在交互模式中可选地设置上限）
         rich_help_panel="Model & Effort",
     ),
     # --- Output ---
@@ -1146,38 +1160,38 @@ def main(
         None,
         "--print",
         "-p",
-        help="Print response and exit. Pass your prompt as the value: -p 'your prompt'",
+        help="Print response and exit. Pass your prompt as the value: -p 'your prompt'",        #打印响应并退出。将提示信息作为值传递：-p '您的提示信息'
         rich_help_panel="Output",
     ),
     output_format: str | None = typer.Option(
         None,
         "--output-format",
-        help="Output format with --print: text (default), json, or stream-json",
+        help="Output format with --print: text (default), json, or stream-json",    #使用“--print”选项时的输出格式：文本（默认）、JSON 或流式 JSON
         rich_help_panel="Output",
     ),
     # --- Permissions ---
     permission_mode: str | None = typer.Option(
         None,
         "--permission-mode",
-        help="Permission mode: default, plan, or full_auto",
+        help="Permission mode: default, plan, or full_auto",    #权限模式：默认、计划或全自动
         rich_help_panel="Permissions",
     ),
     dangerously_skip_permissions: bool = typer.Option(
         False,
         "--dangerously-skip-permissions",
-        help="Bypass all permission checks (only for sandboxed environments)",
+        help="Bypass all permission checks (only for sandboxed environments)",  #跳过所有权限检查（仅适用于沙盒环境）
         rich_help_panel="Permissions",
     ),
     allowed_tools: Optional[list[str]] = typer.Option(
         None,
         "--allowed-tools",
-        help="Comma or space-separated list of tool names to allow",
+        help="Comma or space-separated list of tool names to allow",        #以逗号或空格分隔的工具名称列表，用于启用该功能。
         rich_help_panel="Permissions",
     ),
     disallowed_tools: Optional[list[str]] = typer.Option(
         None,
         "--disallowed-tools",
-        help="Comma or space-separated list of tool names to deny",
+        help="Comma or space-separated list of tool names to deny",     #以逗号或空格分隔的要拒绝使用的工具名称列表
         rich_help_panel="Permissions",
     ),
     # --- System & Context ---
@@ -1185,19 +1199,19 @@ def main(
         None,
         "--system-prompt",
         "-s",
-        help="Override the default system prompt",
+        help="Override the default system prompt",      #覆盖默认的系统提示信息
         rich_help_panel="System & Context",
     ),
     append_system_prompt: str | None = typer.Option(
         None,
         "--append-system-prompt",
-        help="Append text to the default system prompt",
+        help="Append text to the default system prompt",    #将附加文本添加到默认系统提示中
         rich_help_panel="System & Context",
     ),
     settings_file: str | None = typer.Option(
         None,
         "--settings",
-        help="Path to a JSON settings file or inline JSON string",
+        help="Path to a JSON settings file or inline JSON string",  #指向 JSON 设置文件的路径或嵌入式的 JSON 字符串
         rich_help_panel="System & Context",
     ),
     base_url: str | None = typer.Option(
@@ -1216,7 +1230,7 @@ def main(
     bare: bool = typer.Option(
         False,
         "--bare",
-        help="Minimal mode: skip hooks, plugins, MCP, and auto-discovery",
+        help="Minimal mode: skip hooks, plugins, MCP, and auto-discovery",  #最小模式：跳过钩子、插件、MCP 以及自动发现功能
         rich_help_panel="System & Context",
     ),
     api_format: str | None = typer.Option(
@@ -1228,7 +1242,7 @@ def main(
     theme: str | None = typer.Option(
         None,
         "--theme",
-        help="TUI theme: default, dark, minimal, cyberpunk, solarized, or custom name",
+        help="TUI theme: default, dark, minimal, cyberpunk, solarized, or custom name",     #TUI 主题：默认、暗黑、极简、赛博朋克、太阳化、或自定义名称
         rich_help_panel="System & Context",
     ),
     # --- Advanced ---
@@ -1236,29 +1250,29 @@ def main(
         False,
         "--debug",
         "-d",
-        help="Enable debug logging",
+        help="Enable debug logging",        #启用调试日志记录
         rich_help_panel="Advanced",
     ),
     mcp_config: Optional[list[str]] = typer.Option(
         None,
         "--mcp-config",
-        help="Load MCP servers from JSON files or strings",
+        help="Load MCP servers from JSON files or strings",     #从 JSON 文件或字符串中加载 MCP 服务器
         rich_help_panel="Advanced",
     ),
     cwd: str = typer.Option(
         str(Path.cwd()),
         "--cwd",
-        help="Working directory for the session",
+        help="Working directory for the session",       #本次会话的工作目录
         hidden=True,
     ),
     backend_only: bool = typer.Option(
         False,
         "--backend-only",
-        help="Run the structured backend host for the React terminal UI",
+        help="Run the structured backend host for the React terminal UI",  #启动专门的后端服务器模式
         hidden=True,
     ),
 ) -> None:
-    """Start an interactive session or run a single prompt."""
+    """Start an interactive session or run a single prompt."""  #启动交互式会话或运行单个提示。
     if ctx.invoked_subcommand is not None:
         return
 

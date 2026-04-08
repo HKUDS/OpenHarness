@@ -26,7 +26,7 @@ async def run_repl(
     backend_only: bool = False,
     restore_messages: list[dict] | None = None,
 ) -> None:
-    """Run the default OpenHarness interactive application (React TUI)."""
+    """Run the default OpenHarness interactive application (React TUI)."""  #运行默认的 OpenHarness 交互式应用程序（React 用户界面）
     if backend_only:
         await run_backend_host(
             cwd=cwd,

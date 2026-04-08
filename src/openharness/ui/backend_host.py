@@ -67,7 +67,7 @@ class ReactBackendHost:
         self._question_requests: dict[str, asyncio.Future[str]] = {}
         self._busy = False
         self._running = True
-        # Track last tool input per name for rich event emission
+        # Track last tool input per name for rich event emission  按名称跟踪每次工具输入信息，以便生成详细事件记录
         self._last_tool_inputs: dict[str, dict] = {}
 
     async def run(self) -> int:
