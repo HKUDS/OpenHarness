@@ -18,6 +18,8 @@ import sys
 import time
 from pathlib import Path
 
+import pytest
+
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
@@ -184,8 +186,6 @@ async def prepare_workspace() -> Path:
 
     return WORKSPACE_DIR
 
-
-import pytest
 
 # ---------------------------------------------------------------------------
 # Test Scenarios (not pytest tests, called from main())
