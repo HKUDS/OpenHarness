@@ -57,7 +57,7 @@ MINIMAX_API_KEY = os.environ.get("MINIMAX_API_KEY", "")
 MINIMAX_API_HOST = os.environ.get("MINIMAX_API_HOST", "https://api.minimaxi.com")
 if not MINIMAX_API_HOST.endswith("/v1"):
     MINIMAX_API_HOST = MINIMAX_API_HOST.rstrip("/") + "/v1"
-MODEL = "MiniMax-M2.5"
+MODEL = "MiniMax-M2.7"
 
 # Use AutoAgent repo as unfamiliar workspace
 WORKSPACE_URL = "https://github.com/HKUDS/AutoAgent"
@@ -132,7 +132,7 @@ def make_engine(system_prompt: str, cwd: Path) -> QueryEngine:
         model=MODEL,
         system_prompt=system_prompt,
         max_tokens=4096,
-        max_turns=50,  # Generous for real exploration
+        max_turns=50,
     )
 
 
@@ -158,7 +158,6 @@ async def run_prompt(engine: QueryEngine, prompt: str) -> dict:
     events = []
     async for event in engine.submit_message(prompt):
         events.append(event)
-        # Print progress
         if isinstance(event, AssistantTextDelta):
             print(event.text, end="", flush=True)
         elif isinstance(event, ToolExecutionStarted):
@@ -197,7 +196,6 @@ async def prepare_workspace() -> Path:
 # via: python tests/test_workflow/test_e2e_real_api.py
 # ---------------------------------------------------------------------------
 
-@pytest.mark.skip(reason="E2E test requiring real API key, run directly with python")
 @pytest.mark.skip(reason="E2E test requiring real API, run directly with python")
 async def test_workflow_engine_basic(workspace: Path) -> dict:
     """
@@ -250,7 +248,7 @@ nodes:
     assert "analyze-structure" in results
     result = results["analyze-structure"]
     assert result.status == NodeStatus.COMPLETED, f"Node failed: {result.error_message}"
-    assert len(result.output) > 20, f"Output too short ({len(result.output)} chars): {result.output[:100]}"
+    assert len(result.output) > 20, f"Output too short ({len(result.output)} chars)"
 
     print("\n✅ TEST 1 PASSED")
     print(f"   Duration: {duration:.1f}s")
@@ -567,6 +565,4 @@ async def main():
 
 
 if __name__ == "__main__":
-    import logging
-    logging.basicConfig(level=logging.INFO, format='%(name)s - %(levelname)s - %(message)s')
     asyncio.run(main())
