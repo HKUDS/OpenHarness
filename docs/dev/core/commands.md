@@ -95,7 +95,7 @@ class CommandRegistry:
 ```
 
 命令解析：
-```
+```text
 /command arg1 arg2
      │      │
      │      └── args
@@ -192,7 +192,7 @@ class CommandRegistry:
 
 ## 命令处理流程
 
-```
+```text
 用户输入: /command arg1 arg2
                 │
                 ▼

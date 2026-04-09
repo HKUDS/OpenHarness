@@ -277,7 +277,7 @@ class ReadMcpResourceTool(BaseTool):
 
 假设连接了 filesystem MCP 服务器：
 
-```
+```text
 Available tools:
 - mcp_filesystem_read_file   # 读取文件
 - mcp_filesystem_write_file  # 写入文件

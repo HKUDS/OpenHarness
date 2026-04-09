@@ -82,7 +82,7 @@ flowchart TB
 
 **职责**: Agent 循环的核心实现
 
-```
+```text
 src/openharness/engine/
 ├── query_engine.py    # QueryEngine 主类
 ├── query.py           # run_query 循环实现
@@ -104,7 +104,7 @@ src/openharness/engine/
 
 **职责**: 提供 Agent 可调用的工具
 
-```
+```text
 src/openharness/tools/
 ├── base.py           # BaseTool 基类（含 ToolRegistry 工具注册表）
 ├── __init__.py       # 工具初始化
@@ -120,7 +120,7 @@ src/openharness/tools/
 
 **职责**: 按需加载的知识模块
 
-```
+```text
 src/openharness/skills/
 ├── loader.py        # 技能加载器
 ├── registry.py       # 技能注册表
@@ -132,7 +132,7 @@ src/openharness/skills/
 
 **职责**: 扩展系统功能
 
-```
+```text
 src/openharness/plugins/
 ├── loader.py        # 插件加载器
 ├── schemas.py       # 插件清单 Schema
@@ -143,7 +143,7 @@ src/openharness/plugins/
 
 **职责**: 工具执行安全控制
 
-```
+```text
 src/openharness/permissions/
 ├── checker.py       # 权限检查器
 └── modes.py        # 权限模式
@@ -153,7 +153,7 @@ src/openharness/permissions/
 
 **职责**: 生命周期事件处理
 
-```
+```text
 src/openharness/hooks/
 ├── executor.py      # 钩子执行器
 ├── loader.py        # 钩子加载器
@@ -166,7 +166,7 @@ src/openharness/hooks/
 
 **职责**: Slash commands 实现
 
-```
+```text
 src/openharness/commands/
 ├── __init__.py       # 命令初始化
 └── registry.py       # 命令注册表（含所有 slash command 定义）
@@ -176,7 +176,7 @@ src/openharness/commands/
 
 **职责**: MCP 客户端集成
 
-```
+```text
 src/openharness/mcp/
 ├── client.py        # MCP 客户端管理器
 ├── config.py        # 配置处理
@@ -187,7 +187,7 @@ src/openharness/mcp/
 
 **职责**: 持久化记忆和上下文压缩
 
-```
+```text
 src/openharness/memory/
 ├── memdir.py        # 记忆目录
 ├── manager.py       # 记忆管理器
@@ -198,7 +198,7 @@ src/openharness/memory/
 
 **职责**: 后台任务管理
 
-```
+```text
 src/openharness/tasks/
 ├── manager.py       # 任务管理器
 ├── types.py         # 任务类型
@@ -210,7 +210,7 @@ src/openharness/tasks/
 
 **职责**: 多 Agent 协调
 
-```
+```text
 src/openharness/coordinator/
 ├── coordinator_mode.py  # 协调者模式
 └── agent_definitions.py # Agent 定义
@@ -220,7 +220,7 @@ src/openharness/coordinator/
 
 **职责**: 系统提示词构建
 
-```
+```text
 src/openharness/prompts/
 ├── system_prompt.py     # 基础提示词
 ├── environment.py        # 环境信息
@@ -232,7 +232,7 @@ src/openharness/prompts/
 
 **职责**: 配置管理
 
-```
+```text
 src/openharness/config/
 ├── settings.py      # 设置模型和加载
 ├── paths.py         # 路径管理
@@ -243,7 +243,7 @@ src/openharness/config/
 
 ### Agent 执行流程
 
-```
+```text
 用户输入
     ↓
 RuntimeBundle 初始化
@@ -271,7 +271,7 @@ run_query() 循环
 
 ### 工具执行流程
 
-```
+```text
 工具调用请求
     ↓
 ToolRegistry.get(tool_name)
@@ -356,7 +356,7 @@ registry.register(MyTool())
 
 ## 部署架构
 
-```
+```text
 ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
 │   CLI/oh    │     │   React UI  │     │   脚本/API  │
 └──────┬──────┘     └──────┬──────┘     └──────┬──────┘

@@ -199,7 +199,7 @@ oh provider list
 ```
 
 输出示例：
-```
+```text
 * claude-api: Claude API [ready]
     auth=anthropic_api_key model=claude-sonnet-4-20250514 base_url=(default)
   kimi: Moonshot Kimi [ready]
@@ -241,7 +241,7 @@ oh auth status
 ```
 
 输出：
-```
+```text
 Auth sources:
 Anthropic API key         configured   local      <-- active
 OpenAI API key            configured   local

@@ -84,7 +84,7 @@ class PluginCommandDefinition:
 
 插件从以下位置发现：
 
-```python
+```text
 # 用户插件目录
 ~/.openharness/plugins/
 
@@ -111,7 +111,7 @@ def load_plugins(settings, cwd, extra_roots=None):
 
 标准插件结构：
 
-```
+```text
 my-plugin/
   plugin.json                    ← 插件清单
   skills/
@@ -127,7 +127,7 @@ my-plugin/
 
 或使用 Claude Code 兼容格式：
 
-```
+```text
 my-plugin/
   .claude-plugin/
     plugin.json
