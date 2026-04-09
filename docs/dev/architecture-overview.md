@@ -10,8 +10,7 @@ OpenHarness 是一个开源的 Python Agent Harness —— 围绕 LLM 构建功�
 
 ## 系统架构
 
-```
-mermaid
+```mermaid
 flowchart TB
     subgraph Client["客户端层"]
         CLI[CLI: oh]
@@ -107,12 +106,12 @@ src/openharness/engine/
 
 ```
 src/openharness/tools/
-├── base.py           # BaseTool 基类
-├── registry.py       # 工具注册表
+├── base.py           # BaseTool 基类（含 ToolRegistry 工具注册表）
+├── __init__.py       # 工具初始化
 ├── bash_tool.py      # Bash 执行
-├── file_*.py        # 文件操作
-├── web_*.py         # Web 操作
-├── task_*.py        # 任务管理
+├── file_*.py        # 文件操作（edit/read/write/glob/grep）
+├── web_*.py         # Web 操作（fetch/search）
+├── task_*.py        # 任务管理（create/get/list/update/stop/output）
 ├── mcp_tool.py      # MCP 包装
 └── ... (40+ 工具)
 ```
@@ -169,10 +168,8 @@ src/openharness/hooks/
 
 ```
 src/openharness/commands/
-├── manager.py       # 命令管理器
-├── paths.py         # 路径处理
-├── scan.py          # 命令扫描
-└── types.py         # 类型定义
+├── __init__.py       # 命令初始化
+└── registry.py       # 命令注册表（含所有 slash command 定义）
 ```
 
 ### 8. MCP（Model Context Protocol）

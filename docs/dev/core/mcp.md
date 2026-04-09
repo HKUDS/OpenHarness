@@ -4,8 +4,7 @@ OpenHarness 内置 MCP（Model Context Protocol）客户端，支持连接 stdio
 
 ## 架构总览
 
-```
-mermaid
+```mermaid
 flowchart TB
     McpClientManager --> McpStdioServerConfig
     McpClientManager --> McpHttpServerConfig

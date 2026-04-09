@@ -4,8 +4,7 @@
 
 ## 架构总览
 
-```
-mermaid
+```mermaid
 flowchart LR
     SkillRegistry --> SkillDefinition
     SkillRegistry --> load_skill_registry
