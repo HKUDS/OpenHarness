@@ -42,15 +42,15 @@ ClearHandler = Callable[[], Awaitable[None]]
 
 @dataclass
 class RuntimeBundle:
-    """Shared runtime objects for one interactive session."""
+    """Shared runtime objects for one interactive session."""   # 容纳所有运行时对象
 
-    api_client: SupportsStreamingMessages
-    cwd: str
-    mcp_manager: McpClientManager
-    tool_registry: ToolRegistry
-    app_state: AppStateStore
-    hook_executor: HookExecutor
-    engine: QueryEngine
+    api_client: SupportsStreamingMessages   # API 客户端
+    cwd: str                                # 工作目录
+    mcp_manager: McpClientManager           # MCP 服务管理器
+    tool_registry: ToolRegistry             # 工具注册表
+    app_state: AppStateStore                # 应用状态存储 管理状态变化并通知观察者
+    hook_executor: HookExecutor             # 钩子执行器
+    engine: QueryEngine                     # 查询引擎
     commands: object
     external_api_client: bool
     enforce_max_turns: bool = True
@@ -171,7 +171,7 @@ async def build_runtime(
     enforce_max_turns: bool = True,
     session_backend: SessionBackend | None = None,
 ) -> RuntimeBundle:
-    """Build the shared runtime for an OpenHarness session."""
+    """Build the shared runtime for an OpenHarness session."""      #构建会话运行时环境。
     settings_overrides: dict[str, Any] = {
         "model": model,
         "max_turns": max_turns,

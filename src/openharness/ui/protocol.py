@@ -63,7 +63,7 @@ class TaskSnapshot(BaseModel):
 
 
 class BackendEvent(BaseModel):
-    """One event sent from the Python backend to the React frontend.""" # 从 Python 后端发送的一次事件传到了 React 前端。
+    """One event sent from the Python backend to the React frontend.""" # 从 Python 后端发送的一次事件传到了 React 前端。 消息对象封装
 
     type: Literal[
         "ready",
