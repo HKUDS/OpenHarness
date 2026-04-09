@@ -1,5 +1,4 @@
 import asyncio
-import contextlib
 import logging
 from types import SimpleNamespace
 from datetime import datetime
@@ -10,7 +9,6 @@ import pytest
 from openharness.api.usage import UsageSnapshot
 from openharness.channels.bus.events import InboundMessage
 from openharness.channels.bus.queue import MessageBus
-from openharness.commands import CommandResult
 from openharness.engine.messages import ConversationMessage, ImageBlock, TextBlock
 from openharness.engine.stream_events import AssistantTextDelta, ToolExecutionStarted
 
@@ -162,7 +160,6 @@ async def test_runtime_pool_stream_message_emits_progress_and_tool_hint(tmp_path
             engine=FakeEngine(),
             session_id="sess123",
             current_settings=lambda: SimpleNamespace(model="gpt-5.4"),
-            commands=SimpleNamespace(lookup=lambda raw: None),
         )
 
     async def fake_start_runtime(bundle):
@@ -205,7 +202,6 @@ async def test_runtime_pool_stream_message_uses_english_progress_for_english_inp
             engine=FakeEngine(),
             session_id="sess123",
             current_settings=lambda: SimpleNamespace(model="gpt-5.4"),
-            commands=SimpleNamespace(lookup=lambda raw: None),
         )
 
     async def fake_start_runtime(bundle):
@@ -257,7 +253,6 @@ async def test_runtime_pool_includes_media_paths_in_prompt(tmp_path, monkeypatch
             engine=FakeEngine(),
             session_id="sess123",
             current_settings=lambda: SimpleNamespace(model="gpt-5.4"),
-            commands=SimpleNamespace(lookup=lambda raw: None),
         )
 
     async def fake_start_runtime(bundle):
@@ -354,87 +349,6 @@ async def test_gateway_bridge_logs_inbound_and_final(caplog):
 
 
 @pytest.mark.asyncio
-async def test_gateway_bridge_stop_command_cancels_current_session():
-    bus = MessageBus()
-    cancelled = asyncio.Event()
-    release = asyncio.Event()
-
-    class FakeRuntimePool:
-        async def stream_message(self, message, session_key):
-            try:
-                yield SimpleNamespace(kind="progress", text="🤔 想一想…", metadata={"_progress": True, "_session_key": session_key})
-                await release.wait()
-                yield SimpleNamespace(kind="final", text="Done", metadata={"_session_key": session_key})
-            except asyncio.CancelledError:
-                cancelled.set()
-                raise
-
-    bridge = OhmoGatewayBridge(bus=bus, runtime_pool=FakeRuntimePool())
-    task = asyncio.create_task(bridge.run())
-    try:
-        await bus.publish_inbound(
-            InboundMessage(channel="feishu", sender_id="u1", chat_id="c1", content="long task")
-        )
-        first = await asyncio.wait_for(bus.consume_outbound(), timeout=1.0)
-        assert first.metadata["_progress"] is True
-        await bus.publish_inbound(
-            InboundMessage(channel="feishu", sender_id="u1", chat_id="c1", content="/stop")
-        )
-        stopped = await asyncio.wait_for(bus.consume_outbound(), timeout=1.0)
-        await asyncio.wait_for(cancelled.wait(), timeout=1.0)
-    finally:
-        bridge.stop()
-        task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await task
-
-    assert stopped.content == "⏹️ 已停止当前正在运行的任务。"
-
-
-@pytest.mark.asyncio
-async def test_gateway_bridge_new_message_interrupts_same_session():
-    bus = MessageBus()
-    first_cancelled = asyncio.Event()
-    second_started = asyncio.Event()
-
-    class FakeRuntimePool:
-        async def stream_message(self, message, session_key):
-            if message.content == "first":
-                try:
-                    yield SimpleNamespace(kind="progress", text="🤔 想一想…", metadata={"_progress": True, "_session_key": session_key})
-                    await asyncio.Event().wait()
-                except asyncio.CancelledError:
-                    first_cancelled.set()
-                    raise
-            else:
-                second_started.set()
-                yield SimpleNamespace(kind="final", text="second-done", metadata={"_session_key": session_key})
-
-    bridge = OhmoGatewayBridge(bus=bus, runtime_pool=FakeRuntimePool())
-    task = asyncio.create_task(bridge.run())
-    try:
-        await bus.publish_inbound(
-            InboundMessage(channel="feishu", sender_id="u1", chat_id="c1", content="first")
-        )
-        await asyncio.wait_for(bus.consume_outbound(), timeout=1.0)
-        await bus.publish_inbound(
-            InboundMessage(channel="feishu", sender_id="u1", chat_id="c1", content="second")
-        )
-        interrupted = await asyncio.wait_for(bus.consume_outbound(), timeout=1.0)
-        final = await asyncio.wait_for(bus.consume_outbound(), timeout=1.0)
-        await asyncio.wait_for(first_cancelled.wait(), timeout=1.0)
-        await asyncio.wait_for(second_started.wait(), timeout=1.0)
-    finally:
-        bridge.stop()
-        task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await task
-
-    assert interrupted.content == "⏹️ 已停止上一条正在处理的任务，继续看你的最新消息。"
-    assert final.content == "second-done"
-
-
-@pytest.mark.asyncio
 async def test_runtime_pool_logs_session_lifecycle(tmp_path, monkeypatch, caplog):
     workspace = tmp_path / ".ohmo-home"
     initialize_workspace(workspace)
@@ -455,7 +369,6 @@ async def test_runtime_pool_logs_session_lifecycle(tmp_path, monkeypatch, caplog
             engine=FakeEngine(),
             session_id="sess123",
             current_settings=lambda: SimpleNamespace(model="gpt-5.4"),
-            commands=SimpleNamespace(lookup=lambda raw: None),
         )
 
     async def fake_start_runtime(bundle):
@@ -474,125 +387,3 @@ async def test_runtime_pool_logs_session_lifecycle(tmp_path, monkeypatch, caplog
     assert "ohmo runtime tool start" in caplog.text
     assert "ohmo runtime saved snapshot" in caplog.text
     assert "ohmo runtime processing complete" in caplog.text
-
-
-@pytest.mark.asyncio
-async def test_runtime_pool_stream_message_handles_slash_command_and_refresh_runtime(tmp_path, monkeypatch):
-    workspace = tmp_path / ".ohmo-home"
-    initialize_workspace(workspace)
-    build_calls: list[dict[str, object]] = []
-    close_calls: list[str] = []
-
-    class FakeEngine:
-        def __init__(self):
-            self.messages = [ConversationMessage.from_user_text("before")]
-            self.total_usage = UsageSnapshot()
-            self.system_prompts: list[str] = []
-
-        def set_system_prompt(self, prompt):
-            self.system_prompts.append(prompt)
-
-        async def submit_message(self, content):
-            yield AssistantTextDelta(text="done")
-
-    class FakeCommand:
-        async def handler(self, args, context):
-            assert args == ""
-            return CommandResult(message="Permission mode set to plan", refresh_runtime=True)
-
-    async def fake_build_runtime(**kwargs):
-        build_calls.append(kwargs)
-        engine = FakeEngine()
-        return SimpleNamespace(
-            engine=engine,
-            session_id="sess123",
-            current_settings=lambda: SimpleNamespace(model="gpt-5.4"),
-            commands=SimpleNamespace(lookup=lambda raw: (FakeCommand(), "") if raw == "/plan" else None),
-            hook_summary=lambda: "",
-            mcp_summary=lambda: "",
-            plugin_summary=lambda: "",
-            cwd=str(tmp_path),
-            tool_registry=None,
-            app_state=None,
-            session_backend=None,
-            extra_skill_dirs=(),
-            extra_plugin_roots=(),
-            enforce_max_turns=False,
-        )
-
-    async def fake_start_runtime(bundle):
-        return None
-
-    async def fake_close_runtime(bundle):
-        close_calls.append(bundle.session_id)
-
-    monkeypatch.setattr("ohmo.gateway.runtime.build_runtime", fake_build_runtime)
-    monkeypatch.setattr("ohmo.gateway.runtime.start_runtime", fake_start_runtime)
-    monkeypatch.setattr("ohmo.gateway.runtime.close_runtime", fake_close_runtime)
-
-    pool = OhmoSessionRuntimePool(cwd=tmp_path, workspace=workspace, provider_profile="codex")
-    message = InboundMessage(channel="feishu", sender_id="u1", chat_id="c1", content="/plan")
-    updates = [u async for u in pool.stream_message(message, "feishu:c1")]
-
-    assert [u.text for u in updates] == ["Permission mode set to plan"]
-    assert len(build_calls) == 2
-    assert close_calls == ["sess123"]
-    assert build_calls[1]["restore_messages"] == [ConversationMessage.from_user_text("before").model_dump(mode="json")]
-
-
-@pytest.mark.asyncio
-async def test_runtime_pool_stream_message_handles_plugin_command_submit_prompt(tmp_path, monkeypatch):
-    workspace = tmp_path / ".ohmo-home"
-    initialize_workspace(workspace)
-    submitted: list[object] = []
-
-    class FakeEngine:
-        messages = []
-        total_usage = UsageSnapshot()
-        model = "gpt-5.4"
-
-        def set_system_prompt(self, prompt):
-            return None
-
-        def set_model(self, model):
-            self.model = model
-
-        async def submit_message(self, content):
-            submitted.append(content)
-            yield AssistantTextDelta(text="plugin-done")
-
-    class FakeCommand:
-        async def handler(self, args, context):
-            assert args == "hello"
-            return CommandResult(submit_prompt="plugin expanded prompt")
-
-    async def fake_build_runtime(**kwargs):
-        return SimpleNamespace(
-            engine=FakeEngine(),
-            session_id="sess123",
-            current_settings=lambda: SimpleNamespace(model="gpt-5.4"),
-            commands=SimpleNamespace(lookup=lambda raw: (FakeCommand(), "hello") if raw == "/plugin-cmd hello" else None),
-            hook_summary=lambda: "",
-            mcp_summary=lambda: "",
-            plugin_summary=lambda: "",
-            cwd=str(tmp_path),
-            tool_registry=None,
-            app_state=None,
-            session_backend=None,
-            extra_skill_dirs=(),
-            extra_plugin_roots=(),
-            enforce_max_turns=False,
-        )
-
-    async def fake_start_runtime(bundle):
-        return None
-
-    monkeypatch.setattr("ohmo.gateway.runtime.build_runtime", fake_build_runtime)
-    monkeypatch.setattr("ohmo.gateway.runtime.start_runtime", fake_start_runtime)
-
-    pool = OhmoSessionRuntimePool(cwd=tmp_path, workspace=workspace, provider_profile="codex")
-    message = InboundMessage(channel="feishu", sender_id="u1", chat_id="c1", content="/plugin-cmd hello")
-    updates = [u async for u in pool.stream_message(message, "feishu:c1")]
-
-    assert submitted == ["plugin expanded prompt"]
-    assert updates[-1].text == "plugin-done"

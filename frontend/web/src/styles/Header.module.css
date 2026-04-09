@@ -161,6 +161,27 @@
   color: var(--text-secondary);
 }
 
+/* Theme Button */
+.themeButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.themeButton:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
 /* Divider */
 .divider {
   width: 1px;

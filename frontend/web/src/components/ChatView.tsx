@@ -1,5 +1,5 @@
 import React, { useRef, useEffect } from 'react';
-import { Send, Bot, User, AlertCircle, Wrench, Paperclip, Maximize2, Minimize2, ChevronDown, ChevronUp, Sparkles, Brain } from 'lucide-react';
+import { Send, Bot, User, AlertCircle, Wrench, Paperclip, Maximize2, Minimize2, ChevronDown, ChevronUp, Sparkles, Brain, Plus } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { FileUpload } from './FileUpload';
 import { ModelSelector } from './ModelSelector';
@@ -17,7 +17,12 @@ export function ChatView() {
     expandedMessages,
     toggleMessageExpand,
     isResizingInput,
-    setIsResizingInput
+    setIsResizingInput,
+    setShowFileUpload,
+    createNewChat,
+    currentChatId,
+    chatSessions,
+    clearMessages
   } = useAppStore();
   
   const [input, setInput] = React.useState('');
@@ -66,12 +71,14 @@ export function ChatView() {
 
   const handleResizeStart = (e: React.MouseEvent) => {
     e.preventDefault();
+    e.stopPropagation();
     setIsResizingInput(true);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!input.trim() || isBusy || !submitPrompt) return;
+    // Don't submit if resizing, busy, or no input
+    if (isResizingInput || !input.trim() || isBusy || !submitPrompt) return;
     
     submitPrompt(input.trim());
     setInput('');
@@ -89,6 +96,11 @@ export function ChatView() {
       hour: '2-digit', 
       minute: '2-digit' 
     });
+  };
+
+  const formatResponseTime = (ms: number) => {
+    if (ms < 1000) return `${ms}ms`;
+    return `${(ms / 1000).toFixed(1)}s`;
   };
 
   const getRoleIcon = (role: string) => {
@@ -114,6 +126,32 @@ export function ChatView() {
 
   return (
     <div className={styles.chatView}>
+      {/* Chat Header with New Chat Button */}
+      <div className={styles.chatHeader}>
+        <div className={styles.chatHeaderInfo}>
+          <span className={styles.chatTitle}>
+            {currentChatId 
+              ? chatSessions.find(c => c.id === currentChatId)?.name || 'Chat'
+              : 'New Chat'
+            }
+          </span>
+          <span className={styles.chatMessageCount}>
+            {messages.length} messages
+          </span>
+        </div>
+        <button
+          className={styles.newChatButton}
+          onClick={() => {
+            clearMessages();
+            createNewChat();
+          }}
+          title="Start a new chat"
+        >
+          <Plus size={18} />
+          <span>New Chat</span>
+        </button>
+      </div>
+      
       <div className={styles.messagesContainer}>
         {messages.length === 0 ? (
           <div className={styles.welcome}>
@@ -172,6 +210,21 @@ export function ChatView() {
                         {formatTime(message.timestamp)}
                       </span>
                     </div>
+                    {/* Response time and token usage for assistant messages */}
+                    {message.role === 'assistant' && (message.responseTime || message.tokenUsage) && (
+                      <div className={styles.messageStats}>
+                        {message.responseTime && (
+                          <span className={styles.statItem} title="Response time">
+                            ⏱ {formatResponseTime(message.responseTime)}
+                          </span>
+                        )}
+                        {message.tokenUsage && (
+                          <span className={styles.statItem} title="Token usage">
+                            📊 {message.tokenUsage.total} tokens
+                          </span>
+                        )}
+                      </div>
+                    )}
                     {isLongContent && (
                       <button 
                         className={styles.expandButton}
@@ -183,7 +236,7 @@ export function ChatView() {
                     )}
                   </div>
                   <div 
-                    className={`${styles.messageContent} ${isExpanded ? styles.expanded : ''}`}
+                    className={`${styles.messageContent} ${isExpanded ? styles.expanded : ''} ${isLongContent && !isExpanded ? styles.truncated : ''}`}
                     style={isLongContent && !isExpanded ? { maxHeight: '300px' } : {}}
                   >
                     {message.tool_input && (
@@ -265,6 +318,11 @@ export function ChatView() {
               <button
                 type="button"
                 className={`${styles.actionButton} ${showFileUpload ? styles.active : ''}`}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setShowFileUpload(!showFileUpload);
+                }}
                 title="Attach files"
               >
                 <Paperclip size={18} />

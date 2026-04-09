@@ -761,7 +761,7 @@ OpenHarness is a **community-driven research project**. We welcome contributions
 
 ```bash
 # Development setup
-git clone https://github.com/HKUDS/OpenHarness.git
+git clone https://github.com/Shun-Calvin/OpenHarness-UI.git
 cd OpenHarness
 uv sync --extra dev
 uv run pytest -q  # Verify everything works

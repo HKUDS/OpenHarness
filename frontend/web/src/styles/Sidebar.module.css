@@ -6,10 +6,63 @@
   flex-direction: column;
   transition: var(--transition-slow);
   flex-shrink: 0;
+  position: relative;
+  height: 100%;
+  overflow: hidden;
 }
 
 .sidebar.collapsed {
   width: 56px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: var(--space-2);
+}
+
+.collapsedNav {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  width: 100%;
+  padding: var(--space-1);
+}
+
+.collapsedNavItem {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  margin: 0 auto;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: var(--transition-fast);
+  position: relative;
+}
+
+.collapsedNavItem:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.collapsedNavItem.active {
+  background: var(--bg-tertiary);
+  color: var(--primary-500);
+}
+
+.collapsedBadge {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  padding: 2px 5px;
+  background: var(--primary-500);
+  border-radius: var(--radius-full);
+  font-size: 0.625rem;
+  font-weight: 700;
+  color: white;
 }
 
 .header {
@@ -134,7 +187,9 @@
 .content {
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: var(--space-3);
+  min-height: 0; /* Critical for flex child to scroll properly */
 }
 
 .content::-webkit-scrollbar {
@@ -394,4 +449,49 @@
   bottom: 0;
   z-index: 99;
   cursor: ew-resize;
+}
+
+/* Info Section */
+.infoSection {
+  padding: var(--space-3);
+  margin-top: auto;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.infoCard {
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+}
+
+.infoHeader {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.infoTitle {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-tertiary);
+}
+
+.infoContent {
+  padding: var(--space-2) var(--space-3);
+}
+
+.infoRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-1) 0;
+  font-size: 0.8125rem;
+}
+
+.infoRow span:first-child {
+  color: var(--text-tertiary);
+}
+
+.infoValue {
+  color: var(--text-primary);
+  font-weight: 600;
 }

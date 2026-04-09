@@ -52,7 +52,7 @@ curl -fsSL https://raw.githubusercontent.com/HKUDS/OpenHarness/main/scripts/inst
 ### 本地运行
 
 ```bash
-git clone https://github.com/HKUDS/OpenHarness.git
+git clone https://github.com/Shun-Calvin/OpenHarness-UI.git
 cd OpenHarness
 uv sync --extra dev
 uv run oh

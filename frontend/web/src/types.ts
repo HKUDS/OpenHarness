@@ -6,6 +6,12 @@ export interface Message {
   tool_name?: string;
   tool_input?: Record<string, unknown>;
   is_error?: boolean;
+  responseTime?: number;  // Time in milliseconds for assistant responses
+  tokenUsage?: {
+    input: number;
+    output: number;
+    total: number;
+  };
 }
 
 export interface TaskSnapshot {
@@ -43,7 +49,7 @@ export interface BackendEvent {
         'assistant_delta' | 'assistant_complete' | 'line_complete' | 
         'modal_request' | 'select_request' | 'error' | 'mcp_servers' | 
         'bridge_sessions' | 'todo_updated' | 'swarm_teammates' | 
-        'swarm_notifications';
+        'swarm_notifications' | 'token_usage';
   state?: Record<string, unknown>;
   tasks?: TaskSnapshot[];
   item?: TranscriptItem;
@@ -58,6 +64,14 @@ export interface BackendEvent {
     options: SelectOptionPayload[];
   };
   todo_markdown?: string;
+  // Token usage data
+  token_usage?: {
+    input: number;
+    output: number;
+    total: number;
+  };
+  message_id?: string;
+  response_time?: number;
 }
 
 export interface TranscriptItem {
@@ -67,6 +81,12 @@ export interface TranscriptItem {
   tool_input?: Record<string, unknown>;
   output?: string;
   is_error?: boolean;
+  token_usage?: {
+    input: number;
+    output: number;
+    total: number;
+  };
+  response_time?: number;
 }
 
 export interface SelectOptionPayload {
@@ -129,10 +149,15 @@ export interface TodoItem {
 export interface AppSettings {
   apiKey: string;
   model: string;
-  permissionMode: 'plan' | 'default';
+  permissionMode: 'plan' | 'default' | 'auto';
   theme: 'dark' | 'light';
   workingDirectory: string;
   maxTurns: number;
+  effort: 'low' | 'medium' | 'high';
+  passes: number;
+  verbose: boolean;
+  vimMode: boolean;
+  fastMode: boolean;
 }
 
 export interface Skill {
@@ -148,4 +173,128 @@ export interface MemoryItem {
   content: string;
   createdAt: number;
   type: 'fact' | 'preference' | 'context';
+}
+
+// Channel Configuration
+export interface ChannelConfig {
+  id: string;
+  type: 'discord' | 'telegram';
+  enabled: boolean;
+  name: string;
+  config: DiscordConfig | TelegramConfig;
+}
+
+export interface DiscordConfig {
+  botToken: string;
+  channelId: string;
+  guildId?: string;
+  prefix?: string;
+}
+
+export interface TelegramConfig {
+  botToken: string;
+  chatId: string;
+  threadId?: string;
+}
+
+// OpenHarness Configuration
+export interface OpenHarnessConfig {
+  // Engine
+  engine: {
+    maxTurns: number;
+    timeout: number;
+    streamingEnabled: boolean;
+  };
+  
+  // Reasoning
+  reasoning: {
+    effort: 'low' | 'medium' | 'high';
+    passes: number;
+  };
+  
+  // UI
+  ui: {
+    verbose: boolean;
+    vimMode: boolean;
+    fastMode: boolean;
+  };
+  
+  // Tools
+  tools: {
+    enabled: string[];
+    disabled: string[];
+  };
+  
+  // Skills
+  skills: {
+    enabled: string[];
+    autoLoad: boolean;
+  };
+  
+  // Plugins
+  plugins: {
+    enabled: string[];
+  };
+  
+  // Permissions
+  permissions: {
+    mode: 'default' | 'plan' | 'auto';
+    allowedPaths: string[];
+    deniedCommands: string[];
+  };
+  
+  // Hooks
+  hooks: {
+    preToolUse: string[];
+    postToolUse: string[];
+  };
+  
+  // Commands
+  commands: {
+    enabled: string[];
+    aliases: Record<string, string>;
+  };
+  
+  // MCP
+  mcp: {
+    servers: McpServerConfig[];
+    autoConnect: boolean;
+  };
+  
+  // Memory
+  memory: {
+    enabled: boolean;
+    persistAcrossSessions: boolean;
+    maxItems: number;
+  };
+  
+  // Tasks
+  tasks: {
+    maxConcurrent: number;
+    autoResume: boolean;
+  };
+  
+  // Coordinator (Multi-Agent)
+  coordinator: {
+    enabled: boolean;
+    maxAgents: number;
+    defaultTeam?: string;
+  };
+  
+  // Prompts
+  prompts: {
+    systemPrompt?: string;
+    contextFiles: string[];
+  };
+  
+  // Config
+  config: {
+    workingDirectory: string;
+    apiKey?: string;
+    model: string;
+    theme: 'dark' | 'light';
+  };
+  
+  // Channels
+  channels: ChannelConfig[];
 }

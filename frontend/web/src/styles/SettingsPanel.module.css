@@ -9,18 +9,18 @@
   align-items: center;
   gap: 0.75rem;
   padding: 1.25rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(255, 255, 255, 0.02);
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-tertiary);
 }
 
 .header h3 {
   font-size: 1.1rem;
   font-weight: 700;
-  color: #e0e0e0;
+  color: var(--text-primary);
 }
 
 .header svg {
-  color: #5f73dc;
+  color: var(--primary-500);
 }
 
 .content {
@@ -38,14 +38,14 @@
 }
 
 .content::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--border-default);
   border-radius: 3px;
 }
 
 .section {
   margin-bottom: 2rem;
   padding-bottom: 2rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 .section:last-child {
@@ -62,11 +62,11 @@
 .sectionHeader h4 {
   font-size: 0.95rem;
   font-weight: 600;
-  color: #e0e0e0;
+  color: var(--text-primary);
 }
 
 .sectionIcon {
-  color: #5f73dc;
+  color: var(--primary-500);
 }
 
 .formGroup {
@@ -78,7 +78,7 @@
 .label {
   font-size: 0.85rem;
   font-weight: 600;
-  color: #b0b0b0;
+  color: var(--text-secondary);
 }
 
 .inputWrapper {
@@ -90,10 +90,10 @@
 .input {
   width: 100%;
   padding: 0.75rem 1rem;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-default);
   border-radius: 10px;
-  color: #e0e0e0;
+  color: var(--text-primary);
   font-size: 0.9rem;
   font-family: inherit;
   transition: all 0.2s;
@@ -101,13 +101,13 @@
 
 .input:focus {
   outline: none;
-  border-color: rgba(95, 115, 220, 0.5);
-  background: rgba(255, 255, 255, 0.08);
+  border-color: var(--primary-500);
+  background: var(--bg-elevated);
   box-shadow: 0 0 0 3px rgba(95, 115, 220, 0.1);
 }
 
 .input::placeholder {
-  color: #555;
+  color: var(--text-tertiary);
 }
 
 .toggleVisibility {
@@ -119,13 +119,13 @@
   padding: 0.375rem;
   background: transparent;
   border: none;
-  color: #666;
+  color: var(--text-tertiary);
   cursor: pointer;
   transition: color 0.2s;
 }
 
 .toggleVisibility:hover {
-  color: #e0e0e0;
+  color: var(--text-primary);
 }
 
 .buttonGroup {
@@ -140,7 +140,7 @@
   justify-content: center;
   gap: 0.5rem;
   padding: 0.625rem 1.25rem;
-  background: linear-gradient(135deg, #5f73dc 0%, #6f85e8 100%);
+  background: linear-gradient(135deg, var(--primary-500) 0%, var(--primary-400) 100%);
   border: none;
   border-radius: 10px;
   color: white;
@@ -152,7 +152,7 @@
 }
 
 .saveButton:hover {
-  background: linear-gradient(135deg, #6f85e8 0%, #7f95f8 100%);
+  background: linear-gradient(135deg, var(--primary-400) 0%, var(--primary-300) 100%);
   transform: translateY(-2px);
   box-shadow: 0 6px 16px rgba(95, 115, 220, 0.4);
 }
@@ -167,8 +167,8 @@
   display: flex;
   flex-direction: column;
   padding: 1rem;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-subtle);
   border-radius: 12px;
   cursor: pointer;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
@@ -177,8 +177,8 @@
 }
 
 .modeCard:hover {
-  background: rgba(255, 255, 255, 0.06);
-  border-color: rgba(255, 255, 255, 0.1);
+  background: var(--bg-elevated);
+  border-color: var(--border-default);
 }
 
 .modeCard.active {
@@ -196,13 +196,13 @@
 .modeCardTitle {
   font-size: 0.95rem;
   font-weight: 600;
-  color: #e0e0e0;
+  color: var(--text-primary);
 }
 
 .activeIndicator {
   width: 20px;
   height: 20px;
-  background: linear-gradient(135deg, #5f73dc 0%, #6f85e8 100%);
+  background: linear-gradient(135deg, var(--primary-500) 0%, var(--primary-400) 100%);
   border-radius: 50%;
   display: flex;
   align-items: center;
@@ -218,26 +218,26 @@
 
 .modeCardDescription {
   font-size: 0.8rem;
-  color: #777;
+  color: var(--text-tertiary);
   margin: 0;
   line-height: 1.5;
 }
 
 .currentValue {
   font-size: 0.8rem;
-  color: #555;
+  color: var(--text-tertiary);
   margin-top: 0.75rem;
 }
 
 .value {
-  color: #5f73dc;
+  color: var(--primary-500);
   font-weight: 600;
   font-family: 'JetBrains Mono', monospace;
 }
 
 .hint {
   font-size: 0.75rem;
-  color: #555;
+  color: var(--text-tertiary);
   margin-top: 0.375rem;
 }
 
@@ -249,10 +249,10 @@
 .themeOption {
   flex: 1;
   padding: 0.875rem;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-subtle);
   border-radius: 10px;
-  color: #b0b0b0;
+  color: var(--text-secondary);
   font-size: 0.9rem;
   font-weight: 500;
   cursor: pointer;
@@ -260,14 +260,14 @@
 }
 
 .themeOption:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.1);
+  background: var(--bg-elevated);
+  border-color: var(--border-default);
 }
 
 .themeOption.active {
   background: rgba(95, 115, 220, 0.15);
   border-color: rgba(95, 115, 220, 0.3);
-  color: #5f73dc;
+  color: var(--primary-500);
 }
 
 .themeOption:disabled {
@@ -281,7 +281,7 @@
   background: rgba(255, 85, 85, 0.1);
   border: 1px solid rgba(255, 85, 85, 0.3);
   border-radius: 10px;
-  color: #ff8888;
+  color: var(--error-500);
   font-size: 0.9rem;
   font-weight: 600;
   cursor: pointer;

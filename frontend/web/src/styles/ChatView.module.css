@@ -5,6 +5,54 @@
   background: transparent;
 }
 
+/* Chat Header */
+.chatHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-3) var(--space-6);
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+}
+
+.chatHeaderInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.chatTitle {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.chatMessageCount {
+  font-size: 0.75rem;
+  color: var(--text-tertiary);
+}
+
+.newChatButton {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--primary-500);
+  border: none;
+  border-radius: var(--radius-md);
+  color: white;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.newChatButton:hover {
+  background: var(--primary-400);
+  transform: scale(1.02);
+}
+
 .messagesContainer {
   flex: 1;
   overflow-y: auto;
@@ -219,6 +267,25 @@
   font-weight: 500;
 }
 
+.messageStats {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+
+.statItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: 0.75rem;
+  color: var(--text-tertiary);
+  background: var(--bg-tertiary);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  font-weight: 500;
+}
+
 .expandButton {
   margin-left: auto;
   display: flex;
@@ -247,12 +314,31 @@
   line-height: 1.7;
   font-size: 0.9375rem;
   color: var(--text-primary);
-  overflow: hidden;
-  transition: max-height var(--transition-slow);
+  overflow-y: auto;
+  overflow-x: hidden;
+  transition: max-height 0.3s ease-out;
+  position: relative;
+}
+
+.messageContent:not(.expanded) {
+  overflow-y: hidden;
 }
 
 .messageContent.expanded {
   max-height: none !important;
+  overflow-y: auto;
+}
+
+/* Gradient overlay for collapsed content - only when truncated */
+.messageContent.truncated:not(.expanded)::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 60px;
+  background: linear-gradient(to bottom, transparent 0%, var(--bg-primary) 100%);
+  pointer-events: none;
 }
 
 .message.user .messageContent {
@@ -347,6 +433,7 @@
   border-top: 1px solid var(--border-subtle);
   position: relative;
   transition: height var(--transition-slow);
+  overflow: visible; /* Allow model selector dropdown to show */
 }
 
 .resizeHandle {

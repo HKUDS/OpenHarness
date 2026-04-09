@@ -4,7 +4,7 @@ import { useAppStore } from '../store/useAppStore';
 import styles from '../styles/ChatSessions.module.css';
 
 export function ChatSessions() {
-  const { chatSessions, currentChatId, createNewChat, switchChat, deleteChat } = useAppStore();
+  const { chatSessions, currentChatId, createNewChat, switchChat, deleteChat, updateChatSession } = useAppStore();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
 
@@ -38,9 +38,13 @@ export function ChatSessions() {
     }
   };
 
-  const handleSaveEdit = (e: React.MouseEvent) => {
+  const handleSaveEdit = (chatId: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    if (editName.trim()) {
+      updateChatSession(chatId, { name: editName.trim() });
+    }
     setEditingId(null);
+    setEditName('');
   };
 
   const handleCancelEdit = (e: React.MouseEvent) => {
@@ -95,7 +99,7 @@ export function ChatSessions() {
                     <div className={styles.editActions}>
                       <button
                         className={styles.editSave}
-                        onClick={(e) => handleSaveEdit(e)}
+                        onClick={(e) => handleSaveEdit(chat.id, e)}
                       >
                         <Check size={14} />
                       </button>

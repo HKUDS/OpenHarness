@@ -1,4 +1,5 @@
-:root {
+:root,
+[data-theme="dark"] {
   /* Primary Colors */
   --primary-50: #f0f4ff;
   --primary-100: #e0e9ff;
@@ -27,7 +28,7 @@
   --purple-500: #bd93f9;
   --purple-600: #a87fe6;
   
-  /* Neutral Colors */
+  /* Dark Theme Neutral Colors */
   --bg-primary: #0a0a0f;
   --bg-secondary: #12121a;
   --bg-tertiary: #1a1a24;
@@ -42,7 +43,7 @@
   --text-tertiary: #71717a;
   --text-inverse: #0a0a0f;
   
-  /* Shadows */
+  /* Dark Shadows */
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
   --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
@@ -68,6 +69,44 @@
   --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
   --transition-base: 200ms cubic-bezier(0.4, 0, 0.2, 1);
   --transition-slow: 300ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Light Theme */
+[data-theme="light"] {
+  /* Light Theme Background Colors */
+  --bg-primary: #f8f9fa;
+  --bg-secondary: #ffffff;
+  --bg-tertiary: #f1f3f4;
+  --bg-elevated: #e8eaed;
+  
+  /* Light Theme Border Colors */
+  --border-subtle: rgba(0, 0, 0, 0.06);
+  --border-default: rgba(0, 0, 0, 0.1);
+  --border-strong: rgba(0, 0, 0, 0.15);
+  
+  /* Light Theme Text Colors */
+  --text-primary: #1a1a1a;
+  --text-secondary: #5f6368;
+  --text-tertiary: #80868b;
+  --text-inverse: #f8f9fa;
+  
+  /* Light Theme Shadows */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.08);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.12);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.16);
+  --shadow-xl: 0 16px 48px rgba(0, 0, 0, 0.2);
+  
+  /* Adjusted accent colors for light theme */
+  --primary-500: #5f73dc;
+  --primary-600: #4f5bc9;
+  --success-500: #1a8f3c;
+  --success-600: #167d35;
+  --warning-500: #d4a500;
+  --warning-600: #b89400;
+  --error-500: #dc3545;
+  --error-600: #c82333;
+  --purple-500: #7c3aed;
+  --purple-600: #6d28d9;
 }
 
 * {

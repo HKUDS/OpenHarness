@@ -1,9 +1,13 @@
-import { Terminal, Menu, Command } from 'lucide-react';
+import { Terminal, Menu, Command, Moon, Sun } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import styles from '../styles/Header.module.css';
 
 export function Header() {
-  const { connected, connecting, sessionState, toggleSidebar, setCommandPaletteOpen } = useAppStore();
+  const { connected, connecting, sessionState, toggleSidebar, setCommandPaletteOpen, settings, updateSettings } = useAppStore();
+
+  const toggleTheme = () => {
+    updateSettings({ theme: settings.theme === 'dark' ? 'light' : 'dark' });
+  };
 
   return (
     <header className={styles.header}>
@@ -37,6 +41,14 @@ export function Header() {
             Mode: {sessionState.permission_mode}
           </span>
         )}
+        <button 
+          className={styles.themeButton}
+          onClick={toggleTheme}
+          title={`Switch to ${settings.theme === 'dark' ? 'light' : 'dark'} mode`}
+          aria-label="Toggle theme"
+        >
+          {settings.theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
+        </button>
         <button 
           className={styles.commandButton}
           onClick={() => setCommandPaletteOpen(true)}

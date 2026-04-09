@@ -150,9 +150,8 @@ export function SettingsPanel() {
             <button
               className={`${styles.themeOption} ${settings.theme === 'light' ? styles.active : ''}`}
               onClick={() => updateSettings({ theme: 'light' })}
-              disabled
             >
-              ☀️ Light (Coming Soon)
+              ☀️ Light
             </button>
           </div>
         </section>

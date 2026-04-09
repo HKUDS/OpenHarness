@@ -11,7 +11,9 @@ import type {
   ChatSession,
   McpServerConfig,
   TodoItem,
-  AppSettings
+  AppSettings,
+  ChannelConfig,
+  OpenHarnessConfig
 } from '../types';
 
 interface Skill {
@@ -57,6 +59,12 @@ interface AppState {
   todoItems: TodoItem[];
   skills: Skill[];
   memories: MemoryItem[];
+  
+  // Channel configuration
+  channels: ChannelConfig[];
+  
+  // OpenHarness configuration
+  openHarnessConfig: OpenHarnessConfig | null;
   
   // UI state
   isBusy: boolean;
@@ -109,6 +117,7 @@ interface AppState {
   createNewChat: (name?: string) => void;
   switchChat: (chatId: string) => void;
   deleteChat: (chatId: string) => void;
+  updateChatSession: (chatId: string, updates: Partial<ChatSession>) => void;
   updateSettings: (settings: Partial<AppSettings>) => void;
   addMcpServer: (config: McpServerConfig) => void;
   removeMcpServer: (name: string) => void;
@@ -131,6 +140,16 @@ interface AppState {
   updateMemory: (memoryId: string, content: string) => void;
   setSkills: (skills: Skill[]) => void;
   setMemories: (memories: MemoryItem[]) => void;
+  
+  // Channel actions
+  addChannel: (channel: ChannelConfig) => void;
+  updateChannel: (id: string, updates: Partial<ChannelConfig>) => void;
+  removeChannel: (id: string) => void;
+  toggleChannel: (id: string) => void;
+  
+  // OpenHarness config actions
+  setOpenHarnessConfig: (config: OpenHarnessConfig) => void;
+  updateOpenHarnessConfig: (updates: Partial<OpenHarnessConfig>) => void;
 }
 
 const DEFAULT_MODELS = [
@@ -152,11 +171,16 @@ const PERMISSION_MODES = [
 
 const DEFAULT_SETTINGS: AppSettings = {
   apiKey: '',
-  model: 'claude-3-5-sonnet-20241022',
+  model: 'claude-sonnet-4-6',
   permissionMode: 'default',
   theme: 'dark',
   workingDirectory: '~/workspace',
-  maxTurns: 100
+  maxTurns: 200,
+  effort: 'medium',
+  passes: 1,
+  verbose: false,
+  vimMode: false,
+  fastMode: false,
 };
 
 const DEFAULT_SKILLS: Skill[] = [
@@ -167,8 +191,40 @@ const DEFAULT_SKILLS: Skill[] = [
   { id: 'refactoring', name: 'Refactoring', description: 'Improve code structure', enabled: false },
 ];
 
+// LocalStorage keys
+const STORAGE_KEYS = {
+  SETTINGS: 'openharness-settings',
+  CHAT_SESSIONS: 'openharness-chat-sessions',
+  CURRENT_CHAT_ID: 'openharness-current-chat-id',
+  SKILLS: 'openharness-skills',
+  MEMORIES: 'openharness-memories',
+  CHANNELS: 'openharness-channels',
+};
+
+// Helper to load from localStorage
+function loadFromStorage<T>(key: string, defaultValue: T): T {
+  try {
+    const stored = localStorage.getItem(key);
+    if (stored) {
+      return JSON.parse(stored) as T;
+    }
+  } catch (e) {
+    console.error(`Failed to load ${key} from localStorage:`, e);
+  }
+  return defaultValue;
+}
+
+// Helper to save to localStorage
+function saveToStorage<T>(key: string, value: T): void {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch (e) {
+    console.error(`Failed to save ${key} to localStorage:`, e);
+  }
+}
+
 export const useAppStore = create<AppState>((set) => ({
-  // Initial state
+  // Initial state - load from localStorage
   connected: false,
   connecting: false,
   error: null,
@@ -194,17 +250,19 @@ export const useAppStore = create<AppState>((set) => ({
   isResizingSidebar: false,
   isResizingInput: false,
   
-  // New features initial state
-  chatSessions: [],
-  currentChatId: null,
+  // New features initial state - load from localStorage
+  chatSessions: loadFromStorage<ChatSession[]>(STORAGE_KEYS.CHAT_SESSIONS, []),
+  currentChatId: loadFromStorage<string | null>(STORAGE_KEYS.CURRENT_CHAT_ID, null),
   uploadedFiles: [],
   availableModels: DEFAULT_MODELS,
   permissionModes: PERMISSION_MODES,
-  settings: DEFAULT_SETTINGS,
+  settings: loadFromStorage<AppSettings>(STORAGE_KEYS.SETTINGS, DEFAULT_SETTINGS),
   mcpServerConfigs: [],
   todoItems: [],
-  skills: DEFAULT_SKILLS,
-  memories: [],
+  skills: loadFromStorage<Skill[]>(STORAGE_KEYS.SKILLS, DEFAULT_SKILLS),
+  memories: loadFromStorage<MemoryItem[]>(STORAGE_KEYS.MEMORIES, []),
+  channels: loadFromStorage<ChannelConfig[]>(STORAGE_KEYS.CHANNELS, []),
+  openHarnessConfig: null,
   
   // Actions
   setConnected: (connected) => set({ connected }),
@@ -260,15 +318,23 @@ export const useAppStore = create<AppState>((set) => ({
   
   setAvailableModels: (models) => set({ availableModels: models }),
   
-  setCurrentModel: (model) => set((state) => ({
-    settings: { ...state.settings, model },
-    sessionState: { ...state.sessionState, model }
-  })),
+  setCurrentModel: (model) => set((state) => {
+    const newSettings = { ...state.settings, model };
+    saveToStorage(STORAGE_KEYS.SETTINGS, newSettings);
+    return {
+      settings: newSettings,
+      sessionState: { ...state.sessionState, model }
+    };
+  }),
   
-  setPermissionMode: (mode) => set((state) => ({
-    settings: { ...state.settings, permissionMode: mode as 'plan' | 'default' },
-    sessionState: { ...state.sessionState, permission_mode: mode }
-  })),
+  setPermissionMode: (mode) => set((state) => {
+    const newSettings = { ...state.settings, permissionMode: mode as 'plan' | 'default' | 'auto' };
+    saveToStorage(STORAGE_KEYS.SETTINGS, newSettings);
+    return {
+      settings: newSettings,
+      sessionState: { ...state.sessionState, permission_mode: mode }
+    };
+  }),
   
   createNewChat: (name) => set((state) => {
     const newChat: ChatSession = {
@@ -279,8 +345,11 @@ export const useAppStore = create<AppState>((set) => ({
       updatedAt: Date.now(),
       model: state.settings.model
     };
+    const newSessions = [newChat, ...state.chatSessions];
+    saveToStorage(STORAGE_KEYS.CHAT_SESSIONS, newSessions);
+    saveToStorage(STORAGE_KEYS.CURRENT_CHAT_ID, newChat.id);
     return {
-      chatSessions: [newChat, ...state.chatSessions],
+      chatSessions: newSessions,
       currentChatId: newChat.id,
       messages: []
     };
@@ -289,6 +358,7 @@ export const useAppStore = create<AppState>((set) => ({
   switchChat: (chatId) => set((state) => {
     const chat = state.chatSessions.find(c => c.id === chatId);
     if (!chat) return state;
+    saveToStorage(STORAGE_KEYS.CURRENT_CHAT_ID, chatId);
     return {
       currentChatId: chatId,
       messages: chat.messages
@@ -303,6 +373,8 @@ export const useAppStore = create<AppState>((set) => ({
     const newMessages = state.currentChatId === chatId
       ? (newSessions.length > 0 ? newSessions[0].messages : [])
       : state.messages;
+    saveToStorage(STORAGE_KEYS.CHAT_SESSIONS, newSessions);
+    if (newCurrentId) saveToStorage(STORAGE_KEYS.CURRENT_CHAT_ID, newCurrentId);
     return {
       chatSessions: newSessions,
       currentChatId: newCurrentId,
@@ -310,9 +382,19 @@ export const useAppStore = create<AppState>((set) => ({
     };
   }),
   
-  updateSettings: (newSettings) => set((state) => ({
-    settings: { ...state.settings, ...newSettings }
-  })),
+  updateChatSession: (chatId, updates) => set((state) => {
+    const newSessions = state.chatSessions.map(c => 
+      c.id === chatId ? { ...c, ...updates, updatedAt: Date.now() } : c
+    );
+    saveToStorage(STORAGE_KEYS.CHAT_SESSIONS, newSessions);
+    return { chatSessions: newSessions };
+  }),
+  
+  updateSettings: (newSettings) => set((state) => {
+    const updated = { ...state.settings, ...newSettings };
+    saveToStorage(STORAGE_KEYS.SETTINGS, updated);
+    return { settings: updated };
+  }),
   
   addMcpServer: (config) => set((state) => ({
     mcpServerConfigs: [...state.mcpServerConfigs, config]
@@ -359,34 +441,90 @@ export const useAppStore = create<AppState>((set) => ({
   setIsResizingSidebar: (resizing) => set({ isResizingSidebar: resizing }),
   setIsResizingInput: (resizing) => set({ isResizingInput: resizing }),
   
-  addSkill: (skill) => set((state) => ({
-    skills: [...state.skills, skill]
-  })),
+  addSkill: (skill) => set((state) => {
+    const newSkills = [...state.skills, skill];
+    saveToStorage(STORAGE_KEYS.SKILLS, newSkills);
+    return { skills: newSkills };
+  }),
   
-  toggleSkill: (skillId) => set((state) => ({
-    skills: state.skills.map(s => 
+  toggleSkill: (skillId) => set((state) => {
+    const newSkills = state.skills.map(s => 
       s.id === skillId ? { ...s, enabled: !s.enabled } : s
-    )
-  })),
+    );
+    saveToStorage(STORAGE_KEYS.SKILLS, newSkills);
+    return { skills: newSkills };
+  }),
   
-  removeSkill: (skillId) => set((state) => ({
-    skills: state.skills.filter(s => s.id !== skillId)
-  })),
+  removeSkill: (skillId) => set((state) => {
+    const newSkills = state.skills.filter(s => s.id !== skillId);
+    saveToStorage(STORAGE_KEYS.SKILLS, newSkills);
+    return { skills: newSkills };
+  }),
   
-  addMemory: (memory) => set((state) => ({
-    memories: [...state.memories, memory]
-  })),
+  addMemory: (memory) => set((state) => {
+    const newMemories = [...state.memories, memory];
+    saveToStorage(STORAGE_KEYS.MEMORIES, newMemories);
+    return { memories: newMemories };
+  }),
   
-  removeMemory: (memoryId) => set((state) => ({
-    memories: state.memories.filter(m => m.id !== memoryId)
-  })),
+  removeMemory: (memoryId) => set((state) => {
+    const newMemories = state.memories.filter(m => m.id !== memoryId);
+    saveToStorage(STORAGE_KEYS.MEMORIES, newMemories);
+    return { memories: newMemories };
+  }),
   
-  updateMemory: (memoryId, content) => set((state) => ({
-    memories: state.memories.map(m => 
+  updateMemory: (memoryId, content) => set((state) => {
+    const newMemories = state.memories.map(m => 
       m.id === memoryId ? { ...m, content } : m
-    )
-  })),
+    );
+    saveToStorage(STORAGE_KEYS.MEMORIES, newMemories);
+    return { memories: newMemories };
+  }),
   
-  setSkills: (skills) => set({ skills }),
-  setMemories: (memories) => set({ memories }),
+  setSkills: (skills) => {
+    saveToStorage(STORAGE_KEYS.SKILLS, skills);
+    set({ skills });
+  },
+  setMemories: (memories) => {
+    saveToStorage(STORAGE_KEYS.MEMORIES, memories);
+    set({ memories });
+  },
+  
+  // Channel actions
+  addChannel: (channel) => set((state) => {
+    const newChannels = [...state.channels, channel];
+    saveToStorage(STORAGE_KEYS.CHANNELS, newChannels);
+    return { channels: newChannels };
+  }),
+  
+  updateChannel: (id, updates) => set((state) => {
+    const newChannels = state.channels.map(c => 
+      c.id === id ? { ...c, ...updates } : c
+    );
+    saveToStorage(STORAGE_KEYS.CHANNELS, newChannels);
+    return { channels: newChannels };
+  }),
+  
+  removeChannel: (id) => set((state) => {
+    const newChannels = state.channels.filter(c => c.id !== id);
+    saveToStorage(STORAGE_KEYS.CHANNELS, newChannels);
+    return { channels: newChannels };
+  }),
+  
+  toggleChannel: (id) => set((state) => {
+    const newChannels = state.channels.map(c => 
+      c.id === id ? { ...c, enabled: !c.enabled } : c
+    );
+    saveToStorage(STORAGE_KEYS.CHANNELS, newChannels);
+    return { channels: newChannels };
+  }),
+  
+  // OpenHarness config actions
+  setOpenHarnessConfig: (config) => set({ openHarnessConfig: config }),
+  
+  updateOpenHarnessConfig: (updates) => set((state) => ({
+    openHarnessConfig: state.openHarnessConfig 
+      ? { ...state.openHarnessConfig, ...updates }
+      : null
+  })),
 }));

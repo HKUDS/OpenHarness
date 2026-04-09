@@ -12,9 +12,7 @@ import os
 import string
 
 from openharness.channels.bus.events import InboundMessage
-from openharness.commands import CommandContext
 from openharness.engine.messages import ConversationMessage, ImageBlock, TextBlock
-from openharness.engine.query import MaxTurnsExceeded
 from openharness.engine.stream_events import (
     AssistantTextDelta,
     AssistantTurnComplete,
@@ -24,7 +22,7 @@ from openharness.engine.stream_events import (
     ToolExecutionStarted,
 )
 from openharness.prompts import build_runtime_system_prompt
-from openharness.ui.runtime import RuntimeBundle, _last_user_text, build_runtime, close_runtime, start_runtime
+from openharness.ui.runtime import RuntimeBundle, build_runtime, start_runtime
 
 from ohmo.prompts import build_ohmo_system_prompt
 from ohmo.session_storage import OhmoSessionBackend
@@ -143,129 +141,6 @@ class OhmoSessionRuntimePool:
             bundle.session_id,
             _content_snippet(user_prompt),
         )
-
-        parsed = bundle.commands.lookup(user_prompt)
-        if parsed is not None and not message.media:
-            command, args = parsed
-            result = await command.handler(
-                args,
-                CommandContext(
-                    engine=bundle.engine,
-                    hooks_summary=bundle.hook_summary(),
-                    mcp_summary=bundle.mcp_summary(),
-                    plugin_summary=bundle.plugin_summary(),
-                    cwd=bundle.cwd,
-                    tool_registry=bundle.tool_registry,
-                    app_state=bundle.app_state,
-                    session_backend=bundle.session_backend,
-                    session_id=bundle.session_id,
-                    extra_skill_dirs=bundle.extra_skill_dirs,
-                    extra_plugin_roots=bundle.extra_plugin_roots,
-                ),
-            )
-            async for update in self._stream_command_result(
-                bundle=bundle,
-                message=message,
-                session_key=session_key,
-                user_prompt=user_prompt,
-                result=result,
-            ):
-                yield update
-            return
-
-        async for update in self._stream_engine_message(
-            bundle=bundle,
-            message=message,
-            session_key=session_key,
-            user_prompt=user_prompt,
-            user_message=user_message,
-        ):
-            yield update
-
-    async def _stream_command_result(
-        self,
-        *,
-        bundle: RuntimeBundle,
-        message: InboundMessage,
-        session_key: str,
-        user_prompt: str,
-        result,
-    ):
-        if result.refresh_runtime:
-            bundle = await self._refresh_bundle(session_key, bundle, user_prompt)
-
-        if result.message:
-            yield GatewayStreamUpdate(
-                kind="final",
-                text=result.message,
-                metadata={"_session_key": session_key, "_command": True},
-            )
-
-        if result.submit_prompt is not None:
-            original_model = bundle.engine.model
-            if result.submit_model:
-                bundle.engine.set_model(result.submit_model)
-            try:
-                async for update in self._stream_engine_message(
-                    bundle=bundle,
-                    message=message,
-                    session_key=session_key,
-                    user_prompt=result.submit_prompt,
-                    user_message=result.submit_prompt,
-                ):
-                    yield update
-            finally:
-                if result.submit_model:
-                    bundle.engine.set_model(original_model)
-            return
-
-        if result.continue_pending:
-            settings = bundle.current_settings()
-            if bundle.enforce_max_turns:
-                bundle.engine.set_max_turns(settings.max_turns)
-            bundle.engine.set_system_prompt(
-                self._runtime_system_prompt(bundle, _last_user_text(bundle.engine.messages))
-            )
-            turns = result.continue_turns if result.continue_turns is not None else bundle.engine.max_turns
-            reply_parts: list[str] = []
-            try:
-                async for event in bundle.engine.continue_pending(max_turns=turns):
-                    async for update in self._convert_stream_event(
-                        event=event,
-                        bundle=bundle,
-                        message=message,
-                        session_key=session_key,
-                        content=user_prompt,
-                        reply_parts=reply_parts,
-                    ):
-                        yield update
-            except MaxTurnsExceeded as exc:
-                yield GatewayStreamUpdate(
-                    kind="error",
-                    text=f"Stopped after {exc.max_turns} turns (max_turns).",
-                    metadata={"_session_key": session_key},
-                )
-            await self._save_snapshot(bundle, session_key, user_prompt)
-            reply = "".join(reply_parts).strip()
-            if reply:
-                yield GatewayStreamUpdate(
-                    kind="final",
-                    text=reply,
-                    metadata={"_session_key": session_key},
-                )
-            return
-
-        await self._save_snapshot(bundle, session_key, user_prompt)
-
-    async def _stream_engine_message(
-        self,
-        *,
-        bundle: RuntimeBundle,
-        message: InboundMessage,
-        session_key: str,
-        user_prompt: str,
-        user_message: ConversationMessage | str,
-    ):
         bundle.engine.set_system_prompt(self._runtime_system_prompt(bundle, user_prompt))
         reply_parts: list[str] = []
         yield GatewayStreamUpdate(
@@ -279,27 +154,97 @@ class OhmoSessionRuntimePool:
             ),
             metadata={"_progress": True, "_session_key": session_key},
         )
-        try:
-            async for event in bundle.engine.submit_message(user_message):
-                async for update in self._convert_stream_event(
-                    event=event,
-                    bundle=bundle,
-                    message=message,
-                    session_key=session_key,
-                    content=user_prompt,
-                    reply_parts=reply_parts,
-                ):
-                    yield update
-        except MaxTurnsExceeded as exc:
-            yield GatewayStreamUpdate(
-                kind="error",
-                text=f"Stopped after {exc.max_turns} turns (max_turns).",
-                metadata={"_session_key": session_key},
-            )
-            await self._save_snapshot(bundle, session_key, user_prompt)
-            return
-        await self._save_snapshot(bundle, session_key, user_prompt)
+        async for event in bundle.engine.submit_message(user_message):
+            if isinstance(event, AssistantTextDelta):
+                reply_parts.append(event.text)
+                continue
+            if isinstance(event, StatusEvent):
+                logger.info(
+                    "ohmo runtime status session_key=%s session_id=%s message=%r",
+                    session_key,
+                    bundle.session_id,
+                    _content_snippet(event.message),
+                )
+                yield GatewayStreamUpdate(
+                    kind="progress",
+                    text=_format_channel_progress(
+                        channel=message.channel,
+                        kind="status",
+                        text=event.message,
+                        session_key=session_key,
+                        content=user_prompt,
+                    ),
+                    metadata={"_progress": True, "_session_key": session_key},
+                )
+                continue
+            if isinstance(event, ToolExecutionStarted):
+                summary = _summarize_tool_input(event.tool_name, event.tool_input)
+                logger.info(
+                    "ohmo runtime tool start session_key=%s session_id=%s tool=%s summary=%r",
+                    session_key,
+                    bundle.session_id,
+                    event.tool_name,
+                    summary,
+                )
+                hint = f"Using {event.tool_name}"
+                if summary:
+                    hint = f"{hint}: {summary}"
+                yield GatewayStreamUpdate(
+                    kind="tool_hint",
+                    text=_format_channel_progress(
+                        channel=message.channel,
+                        kind="tool_hint",
+                        text=hint,
+                        session_key=session_key,
+                        content=user_prompt,
+                    ),
+                    metadata={
+                        "_progress": True,
+                        "_tool_hint": True,
+                        "_session_key": session_key,
+                    },
+                )
+                continue
+            if isinstance(event, ToolExecutionCompleted):
+                logger.info(
+                    "ohmo runtime tool complete session_key=%s session_id=%s tool=%s",
+                    session_key,
+                    bundle.session_id,
+                    event.tool_name,
+                )
+                continue
+            if isinstance(event, ErrorEvent):
+                logger.error(
+                    "ohmo runtime error session_key=%s session_id=%s message=%r",
+                    session_key,
+                    bundle.session_id,
+                    _content_snippet(event.message),
+                )
+                yield GatewayStreamUpdate(
+                    kind="error",
+                    text=event.message,
+                    metadata={"_session_key": session_key},
+                )
+                return
+            if isinstance(event, AssistantTurnComplete) and not reply_parts:
+                reply_parts.append(event.message.text.strip())
         reply = "".join(reply_parts).strip()
+        self._session_backend.save_snapshot(
+            cwd=self._cwd,
+            model=bundle.current_settings().model,
+            system_prompt=self._runtime_system_prompt(bundle, user_prompt),
+            messages=bundle.engine.messages,
+            usage=bundle.engine.total_usage,
+            session_id=bundle.session_id,
+            session_key=session_key,
+        )
+        logger.info(
+            "ohmo runtime saved snapshot session_key=%s session_id=%s message_count=%s reply_chars=%s",
+            session_key,
+            bundle.session_id,
+            len(bundle.engine.messages),
+            len(reply),
+        )
         if reply:
             logger.info(
                 "ohmo runtime processing complete session_key=%s session_id=%s reply=%r",
@@ -312,140 +257,6 @@ class OhmoSessionRuntimePool:
                 text=reply,
                 metadata={"_session_key": session_key},
             )
-
-    async def _convert_stream_event(
-        self,
-        *,
-        event,
-        bundle: RuntimeBundle,
-        message: InboundMessage,
-        session_key: str,
-        content: str,
-        reply_parts: list[str],
-    ):
-        if isinstance(event, AssistantTextDelta):
-            reply_parts.append(event.text)
-            return
-        if isinstance(event, StatusEvent):
-            logger.info(
-                "ohmo runtime status session_key=%s session_id=%s message=%r",
-                session_key,
-                bundle.session_id,
-                _content_snippet(event.message),
-            )
-            yield GatewayStreamUpdate(
-                kind="progress",
-                text=_format_channel_progress(
-                    channel=message.channel,
-                    kind="status",
-                    text=event.message,
-                    session_key=session_key,
-                    content=content,
-                ),
-                metadata={"_progress": True, "_session_key": session_key},
-            )
-            return
-        if isinstance(event, ToolExecutionStarted):
-            summary = _summarize_tool_input(event.tool_name, event.tool_input)
-            logger.info(
-                "ohmo runtime tool start session_key=%s session_id=%s tool=%s summary=%r",
-                session_key,
-                bundle.session_id,
-                event.tool_name,
-                summary,
-            )
-            hint = f"Using {event.tool_name}"
-            if summary:
-                hint = f"{hint}: {summary}"
-            yield GatewayStreamUpdate(
-                kind="tool_hint",
-                text=_format_channel_progress(
-                    channel=message.channel,
-                    kind="tool_hint",
-                    text=hint,
-                    session_key=session_key,
-                    content=content,
-                ),
-                metadata={
-                    "_progress": True,
-                    "_tool_hint": True,
-                    "_session_key": session_key,
-                },
-            )
-            return
-        if isinstance(event, ToolExecutionCompleted):
-            logger.info(
-                "ohmo runtime tool complete session_key=%s session_id=%s tool=%s",
-                session_key,
-                bundle.session_id,
-                event.tool_name,
-            )
-            return
-        if isinstance(event, ErrorEvent):
-            logger.error(
-                "ohmo runtime error session_key=%s session_id=%s message=%r",
-                session_key,
-                bundle.session_id,
-                _content_snippet(event.message),
-            )
-            yield GatewayStreamUpdate(
-                kind="error",
-                text=event.message,
-                metadata={"_session_key": session_key},
-            )
-            return
-        if isinstance(event, AssistantTurnComplete) and not reply_parts:
-            reply_parts.append(event.message.text.strip())
-
-    async def _save_snapshot(self, bundle: RuntimeBundle, session_key: str, user_prompt: str) -> None:
-        self._session_backend.save_snapshot(
-            cwd=self._cwd,
-            model=bundle.current_settings().model,
-            system_prompt=self._runtime_system_prompt(bundle, user_prompt),
-            messages=bundle.engine.messages,
-            usage=bundle.engine.total_usage,
-            session_id=bundle.session_id,
-            session_key=session_key,
-        )
-        logger.info(
-            "ohmo runtime saved snapshot session_key=%s session_id=%s message_count=%s",
-            session_key,
-            bundle.session_id,
-            len(bundle.engine.messages),
-        )
-
-    async def _refresh_bundle(
-        self,
-        session_key: str,
-        bundle: RuntimeBundle,
-        latest_user_prompt: str | None,
-    ) -> RuntimeBundle:
-        snapshot = list(bundle.engine.messages)
-        prior_session_id = bundle.session_id
-        await close_runtime(bundle)
-        refreshed = await build_runtime(
-            cwd=self._cwd,
-            model=self._model,
-            max_turns=self._max_turns,
-            system_prompt=build_ohmo_system_prompt(self._cwd, workspace=self._workspace, extra_prompt=None),
-            active_profile=self._provider_profile,
-            session_backend=self._session_backend,
-            enforce_max_turns=self._max_turns is not None,
-            restore_messages=[message.model_dump(mode="json") for message in snapshot],
-            extra_skill_dirs=(str(get_skills_dir(self._workspace)),),
-            extra_plugin_roots=(str(get_plugins_dir(self._workspace)),),
-        )
-        refreshed.session_id = prior_session_id
-        await start_runtime(refreshed)
-        refreshed.engine.set_system_prompt(self._runtime_system_prompt(refreshed, latest_user_prompt))
-        self._bundles[session_key] = refreshed
-        logger.info(
-            "ohmo runtime refreshed session_key=%s session_id=%s message_count=%s",
-            session_key,
-            refreshed.session_id,
-            len(refreshed.engine.messages),
-        )
-        return refreshed
 
     def _runtime_system_prompt(self, bundle: RuntimeBundle, latest_user_prompt: str | None) -> str:
         settings = bundle.current_settings()
