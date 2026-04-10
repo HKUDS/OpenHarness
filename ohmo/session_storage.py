@@ -12,6 +12,7 @@ from uuid import uuid4
 from openharness.api.usage import UsageSnapshot
 from openharness.engine.messages import ConversationMessage
 from openharness.services.session_backend import SessionBackend
+from openharness.services.session_storage import _persistable_tool_metadata
 
 from ohmo.workspace import get_sessions_dir
 
@@ -43,6 +44,7 @@ def save_session_snapshot(
     usage: UsageSnapshot,
     session_id: str | None = None,
     session_key: str | None = None,
+    tool_metadata: dict[str, object] | None = None,
 ) -> Path:
     """Persist the latest ohmo session snapshot."""
     session_dir = get_session_dir(workspace)
@@ -63,6 +65,7 @@ def save_session_snapshot(
         "system_prompt": system_prompt,
         "messages": [message.model_dump(mode="json") for message in messages],
         "usage": usage.model_dump(),
+        "tool_metadata": _persistable_tool_metadata(tool_metadata),
         "created_at": now,
         "summary": summary,
         "message_count": len(messages),
@@ -159,6 +162,7 @@ class OhmoSessionBackend(SessionBackend):
         usage: UsageSnapshot,
         session_id: str | None = None,
         session_key: str | None = None,
+        tool_metadata: dict[str, object] | None = None,
     ) -> Path:
         return save_session_snapshot(
             cwd=cwd,
@@ -169,6 +173,7 @@ class OhmoSessionBackend(SessionBackend):
             usage=usage,
             session_id=session_id,
             session_key=session_key,
+            tool_metadata=tool_metadata,
         )
 
     def load_latest(self, cwd: str | Path) -> dict[str, Any] | None:

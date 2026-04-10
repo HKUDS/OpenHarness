@@ -375,18 +375,21 @@ def main(
     workspace_root = initialize_workspace(workspace)
     backend = OhmoSessionBackend(workspace_root)
     restore_messages = None
+    restore_tool_metadata = None
     if continue_session:
         latest = backend.load_latest(cwd_path)
         if latest is None:
             print("No previous ohmo session found in this directory.", file=sys.stderr)
             raise typer.Exit(1)
         restore_messages = latest.get("messages")
+        restore_tool_metadata = latest.get("tool_metadata")
     elif resume:
         snapshot = backend.load_by_id(cwd_path, resume)
         if snapshot is None:
             print(f"ohmo session not found: {resume}", file=sys.stderr)
             raise typer.Exit(1)
         restore_messages = snapshot.get("messages")
+        restore_tool_metadata = snapshot.get("tool_metadata")
 
     if backend_only:
         raise SystemExit(
@@ -398,6 +401,7 @@ def main(
                     max_turns=max_turns,
                     provider_profile=profile,
                     restore_messages=restore_messages,
+                    restore_tool_metadata=restore_tool_metadata,
                 )
             )
         )

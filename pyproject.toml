@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "openharness-ai"
-version = "0.1.5"
+version = "0.1.6"
 description = "Open-source Python port of Claude Code - an AI-powered CLI coding assistant"
 readme = "README.md"
 license = "MIT"
@@ -55,6 +55,19 @@ ohmo = "ohmo.cli:app"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/openharness", "ohmo"]
+
+[tool.hatch.build]
+exclude = [
+    "/.git",
+    "/.venv",
+    "/.openharness-venv",
+    "/.openharness",
+    "/.pytest_cache",
+    "/.mypy_cache",
+    "/.ruff_cache",
+    "/build",
+    "/dist",
+]
 
 [tool.hatch.build.targets.wheel.force-include]
 "frontend/terminal/package.json" = "openharness/_frontend/package.json"

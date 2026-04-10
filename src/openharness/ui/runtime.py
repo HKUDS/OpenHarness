@@ -175,6 +175,7 @@ async def build_runtime(
     permission_prompt: PermissionPrompt | None = None,
     ask_user_prompt: AskUserPrompt | None = None,
     restore_messages: list[dict] | None = None,
+    restore_tool_metadata: dict[str, object] | None = None,
     enforce_max_turns: bool = True,
     session_backend: SessionBackend | None = None,
     permission_mode: str | None = None,
@@ -247,6 +248,30 @@ async def build_runtime(
         extra_skill_dirs=normalized_skill_dirs,
         extra_plugin_roots=normalized_plugin_roots,
     )
+    from uuid import uuid4
+
+    session_id = uuid4().hex[:12]
+
+    restored_metadata = {
+        "permission_mode": settings.permission.mode.value,
+        "read_file_state": [],
+        "invoked_skills": [],
+        "async_agent_state": [],
+        "recent_work_log": [],
+        "recent_verified_work": [],
+        "task_focus_state": {
+            "goal": "",
+            "recent_goals": [],
+            "active_artifacts": [],
+            "verified_state": [],
+            "next_step": "",
+        },
+        "compact_checkpoints": [],
+    }
+    if isinstance(restore_tool_metadata, dict):
+        for key, value in restore_tool_metadata.items():
+            restored_metadata[key] = value
+
     engine = QueryEngine(
         api_client=resolved_api_client,
         tool_registry=tool_registry,
@@ -264,6 +289,8 @@ async def build_runtime(
             "bridge_manager": bridge_manager,
             "extra_skill_dirs": normalized_skill_dirs,
             "extra_plugin_roots": normalized_plugin_roots,
+            "session_id": session_id,
+            **restored_metadata,
         },
     )
     # Restore messages from a saved session if provided
@@ -272,8 +299,6 @@ async def build_runtime(
             ConversationMessage.model_validate(m) for m in restore_messages
         ]
         engine.load_messages(restored)
-
-    from uuid import uuid4
 
     return RuntimeBundle(
         api_client=resolved_api_client,
@@ -293,7 +318,7 @@ async def build_runtime(
         ),
         external_api_client=api_client is not None,
         enforce_max_turns=enforce_max_turns or max_turns is not None,
-        session_id=uuid4().hex[:12],
+        session_id=session_id,
         settings_overrides=settings_overrides,
         session_backend=session_backend or DEFAULT_SESSION_BACKEND,
         extra_skill_dirs=normalized_skill_dirs,
@@ -493,6 +518,7 @@ async def handle_line(
                 messages=bundle.engine.messages,
                 usage=bundle.engine.total_usage,
                 session_id=bundle.session_id,
+                tool_metadata=bundle.engine.tool_metadata,
             )
         if result.continue_pending:
             settings = bundle.current_settings()
@@ -522,6 +548,7 @@ async def handle_line(
                 messages=bundle.engine.messages,
                 usage=bundle.engine.total_usage,
                 session_id=bundle.session_id,
+                tool_metadata=bundle.engine.tool_metadata,
             )
         sync_app_state(bundle)
         return not result.should_exit
@@ -552,6 +579,7 @@ async def handle_line(
             messages=bundle.engine.messages,
             usage=bundle.engine.total_usage,
             session_id=bundle.session_id,
+            tool_metadata=bundle.engine.tool_metadata,
         )
         sync_app_state(bundle)
         return True
@@ -562,6 +590,7 @@ async def handle_line(
         messages=bundle.engine.messages,
         usage=bundle.engine.total_usage,
         session_id=bundle.session_id,
+        tool_metadata=bundle.engine.tool_metadata,
     )
     sync_app_state(bundle)
     return True

@@ -78,6 +78,11 @@ export type BackendEvent = {
 	tool_name?: string | null;
 	output?: string | null;
 	is_error?: boolean | null;
+	compact_phase?: string | null;
+	compact_trigger?: string | null;
+	attempt?: number | null;
+	compact_checkpoint?: string | null;
+	compact_metadata?: Record<string, unknown> | null;
 	// New event payloads
 	todo_items?: TodoItemSnapshot[] | null;
 	todo_markdown?: string | null;

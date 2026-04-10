@@ -40,9 +40,14 @@ def test_ohmo_session_backend_loads_latest_for_session_key(tmp_path: Path):
         usage=UsageSnapshot(),
         session_id="abc123",
         session_key="feishu:chat-1",
+        tool_metadata={
+            "task_focus_state": {"goal": "Continue the same Feishu task"},
+            "recent_verified_work": ["Verified the compact attachment order"],
+        },
     )
 
     loaded = backend.load_latest_for_session_key("feishu:chat-1")
     assert loaded is not None
     assert loaded["session_id"] == "abc123"
     assert loaded["session_key"] == "feishu:chat-1"
+    assert loaded["tool_metadata"]["task_focus_state"]["goal"] == "Continue the same Feishu task"

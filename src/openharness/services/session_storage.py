@@ -14,6 +14,41 @@ from openharness.config.paths import get_sessions_dir
 from openharness.engine.messages import ConversationMessage
 
 
+_PERSISTED_TOOL_METADATA_KEYS = (
+    "permission_mode",
+    "read_file_state",
+    "invoked_skills",
+    "async_agent_state",
+    "recent_work_log",
+    "recent_verified_work",
+    "task_focus_state",
+    "compact_checkpoints",
+    "compact_last",
+)
+
+
+def _sanitize_metadata(value: Any) -> Any:
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, dict):
+        return {str(key): _sanitize_metadata(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_sanitize_metadata(item) for item in value]
+    return str(value)
+
+
+def _persistable_tool_metadata(tool_metadata: dict[str, object] | None) -> dict[str, Any]:
+    if not isinstance(tool_metadata, dict):
+        return {}
+    payload: dict[str, Any] = {}
+    for key in _PERSISTED_TOOL_METADATA_KEYS:
+        if key in tool_metadata:
+            payload[key] = _sanitize_metadata(tool_metadata[key])
+    return payload
+
+
 def get_project_session_dir(cwd: str | Path) -> Path:
     """Return the session directory for a project."""
     path = Path(cwd).resolve()
@@ -31,6 +66,7 @@ def save_session_snapshot(
     messages: list[ConversationMessage],
     usage: UsageSnapshot,
     session_id: str | None = None,
+    tool_metadata: dict[str, object] | None = None,
 ) -> Path:
     """Persist a session snapshot. Saves both by ID and as latest."""
     session_dir = get_project_session_dir(cwd)
@@ -50,6 +86,7 @@ def save_session_snapshot(
         "system_prompt": system_prompt,
         "messages": [message.model_dump(mode="json") for message in messages],
         "usage": usage.model_dump(),
+        "tool_metadata": _persistable_tool_metadata(tool_metadata),
         "created_at": now,
         "summary": summary,
         "message_count": len(messages),

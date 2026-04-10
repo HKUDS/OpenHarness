@@ -73,21 +73,24 @@ def get_teammate_command() -> str:
     Resolution order:
     1. ``OPENHARNESS_TEAMMATE_COMMAND`` environment variable — allows the
        operator to point at a specific binary or wrapper script.
-    2. The ``openharness`` entry-point on PATH (installed package mode).
-    3. The current Python interpreter running the ``openharness`` module
-       (development / editable-install fallback).
+    2. The current Python interpreter running the ``openharness`` module.
+       This keeps spawned teammates on the same venv/source tree as the
+       leader process.
+    3. The ``openharness`` entry-point on PATH (installed package fallback).
     """
     override = os.environ.get(TEAMMATE_COMMAND_ENV_VAR)
     if override:
         return override
 
-    # Check if we are running as an installed package with an entry-point.
+    # Prefer the current interpreter so teammates inherit the same runtime and
+    # editable-install source tree as the parent process.
+    if sys.executable:
+        return sys.executable
+
     entry_point = shutil.which("openharness")
     if entry_point:
         return entry_point
-
-    # Fall back to the Python interpreter that is currently running this code.
-    return sys.executable
+    return "python"
 
 
 def build_inherited_cli_flags(
@@ -176,6 +179,9 @@ def build_inherited_env_vars() -> dict[str, str]:
     """
     env: dict[str, str] = {
         "OPENHARNESS_AGENT_TEAMS": "1",
+        # Spawned workers should behave like workers, not recursively re-enter
+        # coordinator mode just because the parent leader had the flag set.
+        "CLAUDE_CODE_COORDINATOR_MODE": "0",
     }
 
     for key in _TEAMMATE_ENV_VARS:

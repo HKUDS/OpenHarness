@@ -6,6 +6,7 @@ import os
 import re
 import threading
 from collections import OrderedDict
+from dataclasses import dataclass
 from typing import Any
 
 
@@ -29,6 +30,12 @@ MSG_TYPE_MAP = {
     "file": "[file]",
     "sticker": "[sticker]",
 }
+
+
+@dataclass(frozen=True)
+class _FeishuSenderInfo:
+    open_id: str
+    display_name: str
 
 
 def _extract_share_card_content(content_json: dict, msg_type: str) -> str:
@@ -253,6 +260,7 @@ class FeishuChannel(BaseChannel):
         self._ws_client: Any = None
         self._ws_thread: threading.Thread | None = None
         self._processed_message_ids: OrderedDict[str, None] = OrderedDict()  # Ordered dedup cache
+        self._sender_cache: OrderedDict[str, _FeishuSenderInfo] = OrderedDict()
         self._loop: asyncio.AbstractEventLoop | None = None
 
     async def start(self) -> None:
@@ -309,7 +317,7 @@ class FeishuChannel(BaseChannel):
                     try:
                         self._ws_client.start()
                     except Exception as e:
-                        logger.warning("Feishu WebSocket error: {}", e)
+                        logger.warning("Feishu WebSocket error: %s", e)
                     if self._running:
                         time.sleep(5)
             finally:
@@ -351,11 +359,11 @@ class FeishuChannel(BaseChannel):
             response = self._client.im.v1.message_reaction.create(request)
 
             if not response.success():
-                logger.warning("Failed to add reaction: code={}, msg={}", response.code, response.msg)
+                logger.warning("Failed to add reaction: code=%s, msg=%s", response.code, response.msg)
             else:
-                logger.debug("Added {} reaction to message {}", emoji_type, message_id)
+                logger.debug("Added %s reaction to message %s", emoji_type, message_id)
         except Exception as e:
-            logger.warning("Error adding reaction: {}", e)
+            logger.warning("Error adding reaction: %s", e)
 
     async def _add_reaction(self, message_id: str, emoji_type: str = "THUMBSUP") -> None:
         """
@@ -612,13 +620,13 @@ class FeishuChannel(BaseChannel):
                 response = self._client.im.v1.image.create(request)
                 if response.success():
                     image_key = response.data.image_key
-                    logger.debug("Uploaded image {}: {}", os.path.basename(file_path), image_key)
+                    logger.debug("Uploaded image %s: %s", os.path.basename(file_path), image_key)
                     return image_key
                 else:
-                    logger.error("Failed to upload image: code={}, msg={}", response.code, response.msg)
+                    logger.error("Failed to upload image: code=%s, msg=%s", response.code, response.msg)
                     return None
         except Exception as e:
-            logger.error("Error uploading image {}: {}", file_path, e)
+            logger.error("Error uploading image %s: %s", file_path, e)
             return None
 
     def _upload_file_sync(self, file_path: str) -> str | None:
@@ -640,13 +648,13 @@ class FeishuChannel(BaseChannel):
                 response = self._client.im.v1.file.create(request)
                 if response.success():
                     file_key = response.data.file_key
-                    logger.debug("Uploaded file {}: {}", file_name, file_key)
+                    logger.debug("Uploaded file %s: %s", file_name, file_key)
                     return file_key
                 else:
-                    logger.error("Failed to upload file: code={}, msg={}", response.code, response.msg)
+                    logger.error("Failed to upload file: code=%s, msg=%s", response.code, response.msg)
                     return None
         except Exception as e:
-            logger.error("Error uploading file {}: {}", file_path, e)
+            logger.error("Error uploading file %s: %s", file_path, e)
             return None
 
     def _download_image_sync(self, message_id: str, image_key: str) -> tuple[bytes | None, str | None]:
@@ -666,10 +674,10 @@ class FeishuChannel(BaseChannel):
                     file_data = file_data.read()
                 return file_data, response.file_name
             else:
-                logger.error("Failed to download image: code={}, msg={}", response.code, response.msg)
+                logger.error("Failed to download image: code=%s, msg=%s", response.code, response.msg)
                 return None, None
         except Exception as e:
-            logger.error("Error downloading image {}: {}", image_key, e)
+            logger.error("Error downloading image %s: %s", image_key, e)
             return None, None
 
     def _download_file_sync(
@@ -698,10 +706,10 @@ class FeishuChannel(BaseChannel):
                     file_data = file_data.read()
                 return file_data, response.file_name
             else:
-                logger.error("Failed to download {}: code={}, msg={}", resource_type, response.code, response.msg)
+                logger.error("Failed to download %s: code=%s, msg=%s", resource_type, response.code, response.msg)
                 return None, None
         except Exception:
-            logger.exception("Error downloading {} {}", resource_type, file_key)
+            logger.exception("Error downloading %s %s", resource_type, file_key)
             return None, None
 
     async def _download_and_save_media(
@@ -743,7 +751,7 @@ class FeishuChannel(BaseChannel):
         if data and filename:
             file_path = media_dir / filename
             file_path.write_bytes(data)
-            logger.debug("Downloaded {} to {}", msg_type, file_path)
+            logger.debug("Downloaded %s to %s", msg_type, file_path)
             return str(file_path), f"[{msg_type}: {filename}]"
 
         return None, f"[{msg_type}: download failed]"
@@ -764,14 +772,14 @@ class FeishuChannel(BaseChannel):
             response = self._client.im.v1.message.create(request)
             if not response.success():
                 logger.error(
-                    "Failed to send Feishu {} message: code={}, msg={}, log_id={}",
+                    "Failed to send Feishu %s message: code=%s, msg=%s, log_id=%s",
                     msg_type, response.code, response.msg, response.get_log_id()
                 )
                 return False
-            logger.debug("Feishu {} message sent to {}", msg_type, receive_id)
+            logger.debug("Feishu %s message sent to %s", msg_type, receive_id)
             return True
         except Exception as e:
-            logger.error("Error sending Feishu {} message: {}", msg_type, e)
+            logger.error("Error sending Feishu %s message: %s", msg_type, e)
             return False
 
     async def send(self, msg: OutboundMessage) -> None:
@@ -786,7 +794,7 @@ class FeishuChannel(BaseChannel):
 
             for file_path in msg.media:
                 if not os.path.isfile(file_path):
-                    logger.warning("Media file not found: {}", file_path)
+                    logger.warning("Media file not found: %s", file_path)
                     continue
                 ext = os.path.splitext(file_path)[1].lower()
                 if ext in self._IMAGE_EXTS:
@@ -840,7 +848,45 @@ class FeishuChannel(BaseChannel):
                         )
 
         except Exception as e:
-            logger.error("Error sending Feishu message: {}", e)
+            logger.error("Error sending Feishu message: %s", e)
+
+    def _resolve_sender_display_name_sync(self, open_id: str) -> str:
+        """Resolve a human-friendly sender name from Feishu contact APIs."""
+        cached = self._sender_cache.get(open_id)
+        if cached is not None:
+            self._sender_cache.move_to_end(open_id)
+            return cached.display_name
+        if not self._client or not open_id:
+            return open_id or "unknown"
+
+        try:
+            import lark_oapi as lark
+
+            request = (
+                lark.api.contact.v3.GetUserRequest.builder()
+                .user_id(open_id)
+                .user_id_type("open_id")
+                .build()
+            )
+            response = self._client.contact.v3.user.get(request)
+            if getattr(response, "success", lambda: False)():
+                user = getattr(getattr(response, "data", None), "user", None)
+                display_name = (
+                    getattr(user, "name", None)
+                    or getattr(user, "en_name", None)
+                    or getattr(user, "nickname", None)
+                    or open_id
+                )
+            else:
+                display_name = open_id
+        except Exception:
+            logger.exception("Failed to resolve Feishu sender name open_id=%s", open_id)
+            display_name = open_id
+
+        self._sender_cache[open_id] = _FeishuSenderInfo(open_id=open_id, display_name=display_name)
+        while len(self._sender_cache) > 512:
+            self._sender_cache.popitem(last=False)
+        return display_name
 
     def _on_message_sync(self, data: "P2ImMessageReceiveV1") -> None:  # noqa: F821
         """
@@ -872,6 +918,12 @@ class FeishuChannel(BaseChannel):
                 return
 
             sender_id = sender.sender_id.open_id if sender.sender_id else "unknown"
+            loop = asyncio.get_running_loop()
+            sender_display_name = await loop.run_in_executor(
+                None,
+                self._resolve_sender_display_name_sync,
+                sender_id,
+            )
             chat_id = message.chat_id
             chat_type = message.chat_type
             msg_type = message.message_type
@@ -937,8 +989,10 @@ class FeishuChannel(BaseChannel):
                     "message_id": message_id,
                     "chat_type": chat_type,
                     "msg_type": msg_type,
+                    "sender_display_name": sender_display_name,
+                    "sender_label": sender_display_name or sender_id,
                 }
             )
 
         except Exception as e:
-            logger.error("Error processing Feishu message: {}", e)
+            logger.error("Error processing Feishu message: %s", e)

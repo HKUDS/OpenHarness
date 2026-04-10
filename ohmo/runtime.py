@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 from openharness.api.client import SupportsStreamingMessages
-from openharness.engine.stream_events import AssistantTextDelta, AssistantTurnComplete, ErrorEvent, StatusEvent
+from openharness.engine.stream_events import AssistantTextDelta, AssistantTurnComplete, CompactProgressEvent, ErrorEvent, StatusEvent
 from openharness.ui.backend_host import run_backend_host
 from openharness.ui.runtime import build_runtime, close_runtime, handle_line, start_runtime
 from openharness.ui.react_launcher import _resolve_npm, _resolve_tsx, get_frontend_dir
@@ -33,6 +33,7 @@ async def run_ohmo_backend(
     provider_profile: str | None = None,
     api_client: SupportsStreamingMessages | None = None,
     restore_messages: list[dict] | None = None,
+    restore_tool_metadata: dict[str, object] | None = None,
     backend_only: bool = True,
 ) -> int:
     """Run the shared React backend host with ohmo workspace semantics."""
@@ -48,6 +49,7 @@ async def run_ohmo_backend(
         active_profile=provider_profile,
         api_client=api_client,
         restore_messages=restore_messages,
+        restore_tool_metadata=restore_tool_metadata,
         enforce_max_turns=max_turns is not None,
         session_backend=OhmoSessionBackend(workspace_root),
         extra_skill_dirs=extra_skill_dirs,
@@ -173,6 +175,9 @@ async def run_ohmo_print_mode(
                 sys.stdout.flush()
             elif isinstance(event, ErrorEvent):
                 print(event.message, file=sys.stderr)
+            elif isinstance(event, CompactProgressEvent):
+                if event.message:
+                    print(event.message, file=sys.stderr)
             elif isinstance(event, StatusEvent):
                 print(event.message, file=sys.stderr)
 

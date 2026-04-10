@@ -41,7 +41,13 @@ from openharness.permissions import PermissionChecker, PermissionMode
 from openharness.plugins import load_plugins
 from openharness.prompts import build_runtime_system_prompt
 from openharness.plugins.installer import install_plugin_from_path, uninstall_plugin
-from openharness.services import compact_messages, estimate_conversation_tokens, summarize_messages
+from openharness.services import (
+    build_post_compact_messages,
+    compact_conversation,
+    compact_messages,
+    estimate_conversation_tokens,
+    summarize_messages,
+)
 from openharness.services.session_backend import DEFAULT_SESSION_BACKEND, SessionBackend
 from openharness.skills import load_skill_registry
 from openharness.tasks import get_task_manager
@@ -254,7 +260,7 @@ def create_default_command_registry(
         try:
             version = importlib.metadata.version("openharness")
         except importlib.metadata.PackageNotFoundError:
-            version = "0.1.5"
+            version = "0.1.6"
         return CommandResult(message=f"OpenHarness {version}")
 
     async def _context_handler(_: str, context: CommandContext) -> CommandResult:
@@ -280,7 +286,18 @@ def create_default_command_registry(
             except ValueError:
                 return CommandResult(message="Usage: /compact [PRESERVE_RECENT]")
         before = len(context.engine.messages)
-        compacted = compact_messages(context.engine.messages, preserve_recent=preserve_recent)
+        try:
+            compacted_result = await compact_conversation(
+                context.engine.messages,
+                api_client=context.engine.api_client,
+                model=context.engine.model,
+                system_prompt=context.engine.system_prompt,
+                preserve_recent=preserve_recent,
+                trigger="manual",
+            )
+            compacted = build_post_compact_messages(compacted_result)
+        except Exception:
+            compacted = compact_messages(context.engine.messages, preserve_recent=preserve_recent)
         context.engine.load_messages(compacted)
         return CommandResult(
             message=f"Compacted conversation from {before} messages to {len(compacted)}."
@@ -1386,7 +1403,7 @@ def create_default_command_registry(
         try:
             version = importlib.metadata.version("openharness")
         except importlib.metadata.PackageNotFoundError:
-            version = "0.1.5"
+            version = "0.1.6"
         return CommandResult(
             message=(
                 f"Current version: {version}\n"

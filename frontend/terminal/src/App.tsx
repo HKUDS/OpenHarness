@@ -437,7 +437,7 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 					setInput={setInput}
 					onSubmit={onSubmit}
 					toolName={session.busy ? currentToolName : undefined}
-					statusLabel={session.busy ? (currentToolName ? `Running ${currentToolName}...` : 'Running agent loop...') : undefined}
+					statusLabel={session.busy ? (session.busyLabel ?? (currentToolName ? `Running ${currentToolName}...` : 'Running agent loop...')) : undefined}
 					suppressSubmit={showPicker}
 				/>
 			)}

@@ -10,5 +10,7 @@ class HookEvent(str, Enum):
 
     SESSION_START = "session_start"
     SESSION_END = "session_end"
+    PRE_COMPACT = "pre_compact"
+    POST_COMPACT = "post_compact"
     PRE_TOOL_USE = "pre_tool_use"
     POST_TOOL_USE = "post_tool_use"

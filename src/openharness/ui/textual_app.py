@@ -19,6 +19,7 @@ from openharness.config.settings import load_settings, save_settings
 from openharness.engine.stream_events import (
     AssistantTextDelta,
     AssistantTurnComplete,
+    CompactProgressEvent,
     ErrorEvent,
     StatusEvent,
     StreamEvent,
@@ -315,6 +316,35 @@ class OpenHarnessTerminalApp(App[None]):
         if isinstance(event, AssistantTextDelta):
             self._assistant_buffer += event.text
             self._set_current_response(f"[bold]assistant>[/bold] {self._assistant_buffer}")
+            return
+
+        if isinstance(event, CompactProgressEvent):
+            if event.phase == "hooks_start":
+                if event.trigger == "reactive":
+                    self._set_current_response("[dim]Preparing retry compaction...[/dim]")
+                else:
+                    self._set_current_response("[dim]Preparing conversation compaction...[/dim]")
+            elif event.phase == "compact_start":
+                if event.trigger == "reactive":
+                    self._set_current_response("[dim]Context too large. Compacting and retrying...[/dim]")
+                else:
+                    self._set_current_response("[dim]Compacting conversation memory...[/dim]")
+            elif event.phase == "compact_retry":
+                attempt = f" (attempt {event.attempt})" if event.attempt is not None else ""
+                self._set_current_response(f"[dim]Retrying compaction{attempt}...[/dim]")
+            elif event.phase == "compact_failed":
+                self._append_line(f"system> Compaction failed: {event.message or 'unknown error'}")
+                self._set_current_response("Ready.")
+            elif event.phase == "compact_end":
+                self._set_current_response("[dim]Compaction complete.[/dim]")
+            elif event.phase == "session_memory_start":
+                self._set_current_response("[dim]Condensing earlier conversation...[/dim]")
+            elif event.phase == "session_memory_end":
+                self._set_current_response("[dim]Condensed earlier conversation.[/dim]")
+            elif event.phase == "context_collapse_start":
+                self._set_current_response("[dim]Collapsing oversized context...[/dim]")
+            elif event.phase == "context_collapse_end":
+                self._set_current_response("[dim]Context collapse complete.[/dim]")
             return
 
         if isinstance(event, AssistantTurnComplete):

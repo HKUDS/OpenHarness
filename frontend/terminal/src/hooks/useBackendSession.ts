@@ -29,6 +29,7 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 	const [modal, setModal] = useState<Record<string, unknown> | null>(null);
 	const [selectRequest, setSelectRequest] = useState<{title: string; command: string; options: SelectOptionPayload[]} | null>(null);
 	const [busy, setBusy] = useState(false);
+	const [busyLabel, setBusyLabel] = useState<string | undefined>(undefined);
 	const [ready, setReady] = useState(false);
 	const [todoMarkdown, setTodoMarkdown] = useState('');
 	const [swarmTeammates, setSwarmTeammates] = useState<SwarmTeammateSnapshot[]>([]);
@@ -167,6 +168,43 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 				return;
 			}
 			setTranscript((items) => [...items, {role: 'status', text: message}]);
+			if (busy) {
+				setBusyLabel(message);
+			}
+			return;
+		}
+		if (event.type === 'compact_progress') {
+			const phase = String(event.compact_phase ?? '');
+			const trigger = String(event.compact_trigger ?? '');
+			const attempt = event.attempt != null ? Number(event.attempt) : undefined;
+			if (phase === 'hooks_start') {
+				setBusyLabel(
+					trigger === 'reactive'
+						? 'Preparing retry compaction…'
+						: 'Preparing conversation compaction…',
+				);
+			} else if (phase === 'context_collapse_start') {
+				setBusyLabel('Collapsing oversized context…');
+			} else if (phase === 'context_collapse_end') {
+				setBusyLabel('Context collapse complete…');
+			} else if (phase === 'session_memory_start') {
+				setBusyLabel('Condensing earlier conversation…');
+			} else if (phase === 'compact_start') {
+				setBusyLabel(
+					trigger === 'reactive'
+						? 'Context is too large. Compacting and retrying…'
+						: 'Compacting conversation memory…',
+				);
+			} else if (phase === 'compact_retry') {
+				setBusyLabel(attempt ? `Retrying compaction (${attempt})…` : 'Retrying compaction…');
+			} else if (phase === 'compact_end') {
+				setBusyLabel('Compaction complete. Continuing…');
+			} else if (phase === 'compact_failed') {
+				setBusyLabel('Compaction failed. Continuing without it…');
+			}
+			if (event.message) {
+				setTranscript((items) => [...items, {role: 'status', text: event.message!}]);
+			}
 			return;
 		}
 		if (event.type === 'assistant_delta') {
@@ -197,6 +235,7 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 			setTranscript((items) => [...items, {role: 'assistant', text}]);
 			clearAssistantDelta();
 			setBusy(false);
+			setBusyLabel(undefined);
 			return;
 		}
 		if (event.type === 'line_complete') {
@@ -204,9 +243,13 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 			// don't leave stale streaming text on screen.
 			clearAssistantDelta();
 			setBusy(false);
+			setBusyLabel(undefined);
 			return;
 		}
 		if ((event.type === 'tool_started' || event.type === 'tool_completed') && event.item) {
+			if (event.type === 'tool_started') {
+				setBusyLabel(event.tool_name ? `Running ${event.tool_name}...` : 'Running...');
+			}
 			const enrichedItem: TranscriptItem = {
 				...event.item,
 				tool_name: event.item.tool_name ?? event.tool_name ?? undefined,
@@ -219,6 +262,7 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 		if (event.type === 'clear_transcript') {
 			setTranscript([]);
 			clearAssistantDelta();
+			setBusyLabel(undefined);
 			return;
 		}
 		if (event.type === 'select_request') {
@@ -238,6 +282,7 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 			setTranscript((items) => [...items, {role: 'system', text: `error: ${event.message ?? 'unknown error'}`}]);
 			clearAssistantDelta();
 			setBusy(false);
+			setBusyLabel(undefined);
 			return;
 		}
 		if (event.type === 'todo_update') {
@@ -278,6 +323,7 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 			modal,
 			selectRequest,
 			busy,
+			busyLabel,
 			ready,
 			todoMarkdown,
 			swarmTeammates,
@@ -287,6 +333,6 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 			setBusy,
 			sendRequest,
 		}),
-		[assistantBuffer, bridgeSessions, busy, commands, mcpServers, modal, ready, selectRequest, status, swarmNotifications, swarmTeammates, tasks, todoMarkdown, transcript]
+		[assistantBuffer, bridgeSessions, busy, busyLabel, commands, mcpServers, modal, ready, selectRequest, status, swarmNotifications, swarmTeammates, tasks, todoMarkdown, transcript]
 	);
 }

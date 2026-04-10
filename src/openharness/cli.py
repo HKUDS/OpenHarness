@@ -11,7 +11,7 @@ from typing import Optional
 
 import typer
 
-__version__ = "0.1.5"
+__version__ = "0.1.6"
 
 
 def _version_callback(value: bool) -> None:
@@ -1346,6 +1346,12 @@ def main(
         help="Run the structured backend host for the React terminal UI",
         hidden=True,
     ),
+    task_worker: bool = typer.Option(
+        False,
+        "--task-worker",
+        help="Run the stdin-driven headless worker loop used for background agent tasks",
+        hidden=True,
+    ),
 ) -> None:
     """Start an interactive session or run a single prompt."""
     if ctx.invoked_subcommand is not None:
@@ -1376,7 +1382,7 @@ def main(
         settings.theme = theme
         save_settings(settings)
 
-    from openharness.ui.app import run_print_mode, run_repl
+    from openharness.ui.app import run_print_mode, run_repl, run_task_worker
 
     # Handle --continue and --resume flags
     if continue_session or resume is not None:
@@ -1432,6 +1438,7 @@ def main(
                 system_prompt=session_data.get("system_prompt") or system_prompt,
                 api_key=api_key,
                 restore_messages=session_data.get("messages"),
+                restore_tool_metadata=session_data.get("tool_metadata"),
                 permission_mode=permission_mode,
                 api_format=api_format,
             )
@@ -1456,6 +1463,21 @@ def main(
                 api_format=api_format,
                 permission_mode=permission_mode,
                 max_turns=max_turns,
+            )
+        )
+        return
+
+    if task_worker:
+        asyncio.run(
+            run_task_worker(
+                cwd=cwd,
+                model=model,
+                max_turns=max_turns,
+                base_url=base_url,
+                system_prompt=system_prompt,
+                api_key=api_key,
+                api_format=api_format,
+                permission_mode=permission_mode,
             )
         )
         return

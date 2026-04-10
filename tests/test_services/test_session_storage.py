@@ -24,6 +24,10 @@ def test_save_and_load_session_snapshot(tmp_path: Path, monkeypatch):
         system_prompt="system",
         messages=[ConversationMessage(role="user", content=[TextBlock(text="hello")])],
         usage=UsageSnapshot(input_tokens=1, output_tokens=2),
+        tool_metadata={
+            "task_focus_state": {"goal": "Fix compact carry-over"},
+            "recent_verified_work": ["Focused session storage test passed"],
+        },
     )
 
     assert path.exists()
@@ -31,6 +35,8 @@ def test_save_and_load_session_snapshot(tmp_path: Path, monkeypatch):
     assert snapshot is not None
     assert snapshot["model"] == "claude-test"
     assert snapshot["usage"]["output_tokens"] == 2
+    assert snapshot["tool_metadata"]["task_focus_state"]["goal"] == "Fix compact carry-over"
+    assert snapshot["tool_metadata"]["recent_verified_work"] == ["Focused session storage test passed"]
 
 
 def test_export_session_markdown(tmp_path: Path, monkeypatch):

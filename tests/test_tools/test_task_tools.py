@@ -142,6 +142,8 @@ async def test_agent_tool_uses_subprocess_backend_and_task_is_pollable(
         f"task_id {task_id!r} not found in BackgroundTaskManager — "
         "task tools (TaskGet, TaskOutput, etc.) would have failed"
     )
+    assert record.command is not None
+    assert "--task-worker" in record.command
 
 
 @pytest.mark.asyncio

@@ -84,7 +84,7 @@ class BaseChannel(ABC):
         """Check if *sender_id* is permitted.  Empty list → deny all; ``"*"`` → allow all."""
         allow_list = getattr(self.config, "allow_from", [])
         if not allow_list:
-            logger.warning("{}: allow_from is empty — all access denied", self.name)
+            logger.warning("%s: allow_from is empty — all access denied", self.name)
             return False
         if "*" in allow_list:
             return True
@@ -117,7 +117,7 @@ class BaseChannel(ABC):
         """
         if not self.is_allowed(sender_id):
             logger.warning(
-                "Access denied for sender {} on channel {}. "
+                "Access denied for sender %s on channel %s. "
                 "Add them to allowFrom list in config to grant access.",
                 sender_id, self.name,
             )

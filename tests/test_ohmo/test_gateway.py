@@ -11,11 +11,11 @@ from openharness.api.usage import UsageSnapshot
 from openharness.channels.bus.events import InboundMessage
 from openharness.channels.bus.queue import MessageBus
 from openharness.engine.messages import ConversationMessage, ImageBlock, TextBlock
-from openharness.engine.stream_events import AssistantTextDelta, StatusEvent, ToolExecutionStarted
+from openharness.engine.stream_events import AssistantTextDelta, CompactProgressEvent, ToolExecutionStarted
 
 from ohmo.gateway.bridge import OhmoGatewayBridge, _format_gateway_error
 from ohmo.gateway.models import GatewayState
-from ohmo.gateway.runtime import OhmoSessionRuntimePool
+from ohmo.gateway.runtime import OhmoSessionRuntimePool, _build_inbound_user_message, _format_channel_progress
 from ohmo.gateway.service import OhmoGatewayService, gateway_status, stop_gateway_process
 from ohmo.gateway.router import session_key_for_message
 from ohmo.session_storage import save_session_snapshot
@@ -54,6 +54,20 @@ def test_gateway_error_formats_claude_refresh_failure():
 def test_gateway_error_formats_generic_auth_failure():
     exc = ValueError("API key missing for current profile")
     assert "Authentication failed" in _format_gateway_error(exc)
+
+
+def test_compact_progress_formats_reactive_channel_hint_in_chinese():
+    text = _format_channel_progress(
+        channel="feishu",
+        kind="compact_progress",
+        text="",
+        session_key="feishu:c1",
+        content="帮我继续处理",
+        compact_phase="compact_start",
+        compact_trigger="reactive",
+        attempt=None,
+    )
+    assert "重试" in text
 
 
 def test_gateway_status_prefers_live_config_over_stale_state(tmp_path):
@@ -196,7 +210,7 @@ async def test_runtime_pool_stream_message_formats_auto_compact_status_for_feish
                 return None
 
             async def submit_message(self, content):
-                yield StatusEvent(message="Auto-compacting conversation memory to keep things fast and focused.")
+                yield CompactProgressEvent(phase="compact_start", trigger="auto")
                 yield AssistantTextDelta(text="done")
 
         return SimpleNamespace(
@@ -217,9 +231,85 @@ async def test_runtime_pool_stream_message_formats_auto_compact_status_for_feish
     updates = [u async for u in pool.stream_message(message, "feishu:c1")]
 
     assert updates[1].kind == "progress"
-    assert updates[1].text == "🧠 聊天有点长啦，我先帮你蹦蹦跳跳压缩一下记忆，马上带着重点回来～"
+    assert updates[1].text == "🧠 聊天有点长啦，我先帮你悄悄压缩一下记忆，马上继续～"
     assert updates[-1].kind == "final"
     assert updates[-1].text == "done"
+
+
+@pytest.mark.asyncio
+async def test_runtime_pool_stream_message_formats_compact_retry_for_feishu(tmp_path, monkeypatch):
+    workspace = tmp_path / ".ohmo-home"
+    initialize_workspace(workspace)
+
+    async def fake_build_runtime(**kwargs):
+        class FakeEngine:
+            messages = []
+            total_usage = UsageSnapshot()
+
+            def set_system_prompt(self, prompt):
+                return None
+
+            async def submit_message(self, content):
+                yield CompactProgressEvent(phase="compact_retry", trigger="auto", attempt=2, message="retrying")
+                yield AssistantTextDelta(text="done")
+
+        return SimpleNamespace(
+            engine=FakeEngine(),
+            session_id="sess123",
+            current_settings=lambda: SimpleNamespace(model="gpt-5.4"),
+            commands=SimpleNamespace(lookup=lambda raw: None),
+        )
+
+    async def fake_start_runtime(bundle):
+        return None
+
+    monkeypatch.setattr("ohmo.gateway.runtime.build_runtime", fake_build_runtime)
+    monkeypatch.setattr("ohmo.gateway.runtime.start_runtime", fake_start_runtime)
+
+    pool = OhmoSessionRuntimePool(cwd=tmp_path, workspace=workspace, provider_profile="codex")
+    message = InboundMessage(channel="feishu", sender_id="u1", chat_id="c1", content="继续")
+    updates = [u async for u in pool.stream_message(message, "feishu:c1")]
+
+    assert updates[1].kind == "progress"
+    assert "再试一次" in updates[1].text
+
+
+@pytest.mark.asyncio
+async def test_runtime_pool_stream_message_formats_compact_hooks_start_for_feishu(tmp_path, monkeypatch):
+    workspace = tmp_path / ".ohmo-home"
+    initialize_workspace(workspace)
+
+    async def fake_build_runtime(**kwargs):
+        class FakeEngine:
+            messages = []
+            total_usage = UsageSnapshot()
+
+            def set_system_prompt(self, prompt):
+                return None
+
+            async def submit_message(self, content):
+                yield CompactProgressEvent(phase="hooks_start", trigger="auto")
+                yield AssistantTextDelta(text="done")
+
+        return SimpleNamespace(
+            engine=FakeEngine(),
+            session_id="sess123",
+            current_settings=lambda: SimpleNamespace(model="gpt-5.4"),
+            commands=SimpleNamespace(lookup=lambda raw: None),
+        )
+
+    async def fake_start_runtime(bundle):
+        return None
+
+    monkeypatch.setattr("ohmo.gateway.runtime.build_runtime", fake_build_runtime)
+    monkeypatch.setattr("ohmo.gateway.runtime.start_runtime", fake_start_runtime)
+
+    pool = OhmoSessionRuntimePool(cwd=tmp_path, workspace=workspace, provider_profile="codex")
+    message = InboundMessage(channel="feishu", sender_id="u1", chat_id="c1", content="继续")
+    updates = [u async for u in pool.stream_message(message, "feishu:c1")]
+
+    assert updates[1].kind == "progress"
+    assert "准备" in updates[1].text
 
 
 @pytest.mark.asyncio
@@ -321,6 +411,23 @@ async def test_runtime_pool_includes_media_paths_in_prompt(tmp_path, monkeypatch
     assert f"image: example.png (path: {image_path})" in text
     assert f"file: report.txt (path: {report_path})" in text
     assert "text preview: Quarterly summary Revenue up 12%" in text
+
+
+def test_runtime_pool_includes_group_speaker_context():
+    built = _build_inbound_user_message(
+        InboundMessage(
+            channel="feishu",
+            sender_id="ou_123",
+            chat_id="oc_group",
+            content="请帮我看一下",
+            metadata={"chat_type": "group", "sender_display_name": "Tang Jiabin"},
+        )
+    )
+    text = "".join(block.text for block in built.content if isinstance(block, TextBlock))
+    assert "[Channel speaker]" in text
+    assert "Tang Jiabin" in text
+    assert "Sender id: ou_123" in text
+    assert "请帮我看一下" in text
 
 
 @pytest.mark.asyncio

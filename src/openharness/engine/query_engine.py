@@ -7,9 +7,10 @@ from typing import AsyncIterator
 
 from openharness.api.client import SupportsStreamingMessages
 from openharness.engine.cost_tracker import CostTracker
-from openharness.engine.messages import ConversationMessage, ToolResultBlock
-from openharness.engine.query import AskUserPrompt, PermissionPrompt, QueryContext, run_query
-from openharness.engine.stream_events import StreamEvent
+from openharness.coordinator.coordinator_mode import get_coordinator_user_context
+from openharness.engine.messages import ConversationMessage, TextBlock, ToolResultBlock
+from openharness.engine.query import AskUserPrompt, PermissionPrompt, QueryContext, remember_user_goal, run_query
+from openharness.engine.stream_events import AssistantTurnComplete, StreamEvent
 from openharness.hooks import HookExecutor
 from openharness.permissions.checker import PermissionChecker
 from openharness.tools.base import ToolRegistry
@@ -60,6 +61,26 @@ class QueryEngine:
         return self._max_turns
 
     @property
+    def api_client(self) -> SupportsStreamingMessages:
+        """Return the active API client."""
+        return self._api_client
+
+    @property
+    def model(self) -> str:
+        """Return the active model identifier."""
+        return self._model
+
+    @property
+    def system_prompt(self) -> str:
+        """Return the active system prompt."""
+        return self._system_prompt
+
+    @property
+    def tool_metadata(self) -> dict[str, object]:
+        """Return the mutable tool metadata/carry-over state."""
+        return self._tool_metadata
+
+    @property
     def total_usage(self):
         """Return the total usage across all turns."""
         return self._cost_tracker.total
@@ -89,6 +110,17 @@ class QueryEngine:
         """Update the active permission checker for future turns."""
         self._permission_checker = checker
 
+    def _build_coordinator_context_message(self) -> ConversationMessage | None:
+        """Build a synthetic user message carrying coordinator runtime context."""
+        context = get_coordinator_user_context()
+        worker_tools_context = context.get("workerToolsContext")
+        if not worker_tools_context:
+            return None
+        return ConversationMessage(
+            role="user",
+            content=[TextBlock(text=f"# Coordinator User Context\n\n{worker_tools_context}")],
+        )
+
     def load_messages(self, messages: list[ConversationMessage]) -> None:
         """Replace the in-memory conversation history."""
         self._messages = list(messages)
@@ -115,6 +147,8 @@ class QueryEngine:
             if isinstance(prompt, ConversationMessage)
             else ConversationMessage.from_user_text(prompt)
         )
+        if user_message.text.strip():
+            remember_user_goal(self._tool_metadata, user_message.text)
         self._messages.append(user_message)
         context = QueryContext(
             api_client=self._api_client,
@@ -130,7 +164,13 @@ class QueryEngine:
             hook_executor=self._hook_executor,
             tool_metadata=self._tool_metadata,
         )
-        async for event, usage in run_query(context, self._messages):
+        query_messages = list(self._messages)
+        coordinator_context = self._build_coordinator_context_message()
+        if coordinator_context is not None:
+            query_messages.append(coordinator_context)
+        async for event, usage in run_query(context, query_messages):
+            if isinstance(event, AssistantTurnComplete):
+                self._messages = list(query_messages)
             if usage is not None:
                 self._cost_tracker.add(usage)
             yield event

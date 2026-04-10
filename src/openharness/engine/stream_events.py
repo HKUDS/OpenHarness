@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 from openharness.api.usage import UsageSnapshot
 from openharness.engine.messages import ConversationMessage
@@ -56,6 +56,28 @@ class StatusEvent:
     message: str
 
 
+@dataclass(frozen=True)
+class CompactProgressEvent:
+    """Structured progress event for conversation compaction."""
+
+    phase: Literal[
+        "hooks_start",
+        "context_collapse_start",
+        "context_collapse_end",
+        "session_memory_start",
+        "session_memory_end",
+        "compact_start",
+        "compact_retry",
+        "compact_end",
+        "compact_failed",
+    ]
+    trigger: Literal["auto", "manual", "reactive"]
+    message: str | None = None
+    attempt: int | None = None
+    checkpoint: str | None = None
+    metadata: dict[str, Any] | None = None
+
+
 StreamEvent = (
     AssistantTextDelta
     | AssistantTurnComplete
@@ -63,4 +85,5 @@ StreamEvent = (
     | ToolExecutionCompleted
     | ErrorEvent
     | StatusEvent
+    | CompactProgressEvent
 )

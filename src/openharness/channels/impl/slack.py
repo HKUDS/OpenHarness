@@ -36,7 +36,7 @@ class SlackChannel(BaseChannel):
             logger.error("Slack bot/app token not configured")
             return
         if self.config.mode != "socket":
-            logger.error("Unsupported Slack mode: {}", self.config.mode)
+            logger.error("Unsupported Slack mode: %s", self.config.mode)
             return
 
         self._running = True
@@ -53,9 +53,9 @@ class SlackChannel(BaseChannel):
         try:
             auth = await self._web_client.auth_test()
             self._bot_user_id = auth.get("user_id")
-            logger.info("Slack bot connected as {}", self._bot_user_id)
+            logger.info("Slack bot connected as %s", self._bot_user_id)
         except Exception as e:
-            logger.warning("Slack auth_test failed: {}", e)
+            logger.warning("Slack auth_test failed: %s", e)
 
         logger.info("Starting Slack Socket Mode client...")
         await self._socket_client.connect()
@@ -70,7 +70,7 @@ class SlackChannel(BaseChannel):
             try:
                 await self._socket_client.close()
             except Exception as e:
-                logger.warning("Slack socket close failed: {}", e)
+                logger.warning("Slack socket close failed: %s", e)
             self._socket_client = None
 
     async def send(self, msg: OutboundMessage) -> None:
@@ -101,9 +101,9 @@ class SlackChannel(BaseChannel):
                         thread_ts=thread_ts_param,
                     )
                 except Exception as e:
-                    logger.error("Failed to upload file {}: {}", media_path, e)
+                    logger.error("Failed to upload file %s: %s", media_path, e)
         except Exception as e:
-            logger.error("Error sending Slack message: {}", e)
+            logger.error("Error sending Slack message: %s", e)
 
     async def _on_socket_request(
         self,
@@ -144,7 +144,7 @@ class SlackChannel(BaseChannel):
 
         # Debug: log basic event shape
         logger.debug(
-            "Slack event: type={} subtype={} user={} channel={} channel_type={} text={}",
+            "Slack event: type=%s subtype=%s user=%s channel=%s channel_type=%s text=%s",
             event_type,
             event.get("subtype"),
             sender_id,
@@ -177,7 +177,7 @@ class SlackChannel(BaseChannel):
                     timestamp=event.get("ts"),
                 )
         except Exception as e:
-            logger.debug("Slack reactions_add failed: {}", e)
+            logger.debug("Slack reactions_add failed: %s", e)
 
         # Thread-scoped session key for channel/group messages
         session_key = f"slack:{chat_id}:{thread_ts}" if thread_ts and channel_type != "im" else None
@@ -197,7 +197,7 @@ class SlackChannel(BaseChannel):
                 session_key=session_key,
             )
         except Exception:
-            logger.exception("Error handling Slack message from {}", sender_id)
+            logger.exception("Error handling Slack message from %s", sender_id)
 
     def _is_allowed(self, sender_id: str, chat_id: str, channel_type: str) -> bool:
         if channel_type == "im":
@@ -278,4 +278,3 @@ class SlackChannel(BaseChannel):
             if parts:
                 rows.append(" · ".join(parts))
         return "\n".join(rows)
-
