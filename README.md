@@ -241,7 +241,7 @@ ANTHROPIC_API_KEY=your_key uv run oh -p "Inspect this repository and list the to
 
 ```bash
 # Clone and install
-git clone https://github.com/HKUDS/OpenHarness.git
+git clone https://github.com/Shun-Calvin/OpenHarness-UI.git
 cd OpenHarness
 uv sync --extra dev
 
