@@ -328,6 +328,11 @@ def _format_channel_progress(
             return f"🛠️ {text}"
         return text if text.startswith("🛠️ ") else f"🛠️ {text}"
     if kind == "status":
+        normalized = text.strip()
+        if normalized == "Auto-compacting conversation memory to keep things fast and focused.":
+            if prefers_chinese:
+                return "🧠 聊天有点长啦，我先帮你悄悄压缩一下记忆，马上继续～"
+            return "🧠 This chat is getting long — I’m doing a quick memory squeeze, then I’ll keep going."
         if text.startswith(("🤔", "🧠", "✨", "🔎", "🪄", "🛠️", "🫧")):
             return text
         return f"🫧 {text}"

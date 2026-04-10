@@ -437,12 +437,13 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 					setInput={setInput}
 					onSubmit={onSubmit}
 					toolName={session.busy ? currentToolName : undefined}
+					statusLabel={session.busy ? (currentToolName ? `Running ${currentToolName}...` : 'Running...') : undefined}
 					suppressSubmit={showPicker}
 				/>
 			)}
 
 			{/* Keyboard hints (only after backend is ready) */}
-			{session.ready && !session.modal && !session.busy && !selectModal ? (
+			{session.ready && !session.modal && !selectModal ? (
 				<Box>
 					<Text dimColor>
 						<Text color={theme.colors.primary}>enter</Text> send{'  '}

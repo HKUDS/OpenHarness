@@ -10,7 +10,7 @@ from openharness.api.usage import UsageSnapshot
 from openharness.channels.bus.events import InboundMessage
 from openharness.channels.bus.queue import MessageBus
 from openharness.engine.messages import ConversationMessage, ImageBlock, TextBlock
-from openharness.engine.stream_events import AssistantTextDelta, ToolExecutionStarted
+from openharness.engine.stream_events import AssistantTextDelta, StatusEvent, ToolExecutionStarted
 
 from ohmo.gateway.bridge import OhmoGatewayBridge, _format_gateway_error
 from ohmo.gateway.models import GatewayState
@@ -177,6 +177,46 @@ async def test_runtime_pool_stream_message_emits_progress_and_tool_hint(tmp_path
     assert updates[1].kind == "tool_hint"
     assert updates[1].text.startswith("🛠️ ")
     assert "web_fetch" in updates[1].text
+    assert updates[-1].kind == "final"
+    assert updates[-1].text == "done"
+
+
+@pytest.mark.asyncio
+async def test_runtime_pool_stream_message_formats_auto_compact_status_for_feishu(tmp_path, monkeypatch):
+    workspace = tmp_path / ".ohmo-home"
+    initialize_workspace(workspace)
+
+    async def fake_build_runtime(**kwargs):
+        class FakeEngine:
+            messages = []
+            total_usage = UsageSnapshot()
+
+            def set_system_prompt(self, prompt):
+                return None
+
+            async def submit_message(self, content):
+                yield StatusEvent(message="Auto-compacting conversation memory to keep things fast and focused.")
+                yield AssistantTextDelta(text="done")
+
+        return SimpleNamespace(
+            engine=FakeEngine(),
+            session_id="sess123",
+            current_settings=lambda: SimpleNamespace(model="gpt-5.4"),
+            commands=SimpleNamespace(lookup=lambda raw: None),
+        )
+
+    async def fake_start_runtime(bundle):
+        return None
+
+    monkeypatch.setattr("ohmo.gateway.runtime.build_runtime", fake_build_runtime)
+    monkeypatch.setattr("ohmo.gateway.runtime.start_runtime", fake_start_runtime)
+
+    pool = OhmoSessionRuntimePool(cwd=tmp_path, workspace=workspace, provider_profile="codex")
+    message = InboundMessage(channel="feishu", sender_id="u1", chat_id="c1", content="继续")
+    updates = [u async for u in pool.stream_message(message, "feishu:c1")]
+
+    assert updates[1].kind == "progress"
+    assert updates[1].text == "🧠 聊天有点长啦，我先帮你悄悄压缩一下记忆，马上继续～"
     assert updates[-1].kind == "final"
     assert updates[-1].text == "done"
 

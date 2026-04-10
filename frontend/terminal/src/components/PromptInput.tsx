@@ -14,6 +14,7 @@ export function PromptInput({
 	onSubmit,
 	toolName,
 	suppressSubmit,
+	statusLabel,
 }: {
 	busy: boolean;
 	input: string;
@@ -21,21 +22,21 @@ export function PromptInput({
 	onSubmit: (value: string) => void;
 	toolName?: string;
 	suppressSubmit?: boolean;
+	statusLabel?: string;
 }): React.JSX.Element {
 	const {theme} = useTheme();
 
-	if (busy) {
-		return (
-			<Box>
-				<Spinner label={toolName ? `Running ${toolName}...` : undefined} />
-			</Box>
-		);
-	}
-
 	return (
-		<Box>
-			<Text color={theme.colors.primary} bold>{'> '}</Text>
-			<TextInput value={input} onChange={setInput} onSubmit={suppressSubmit ? noop : onSubmit} />
+		<Box flexDirection="column">
+			{busy ? (
+				<Box marginBottom={0}>
+					<Spinner label={statusLabel ?? (toolName ? `Running ${toolName}...` : 'Running...')} />
+				</Box>
+			) : null}
+			<Box>
+				<Text color={theme.colors.primary} bold>{busy ? '… ' : '> '}</Text>
+				<TextInput value={input} onChange={setInput} onSubmit={suppressSubmit || busy ? noop : onSubmit} />
+			</Box>
 		</Box>
 	);
 }

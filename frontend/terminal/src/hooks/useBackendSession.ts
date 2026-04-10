@@ -161,6 +161,14 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 			setTranscript((items) => [...items, event.item as TranscriptItem]);
 			return;
 		}
+		if (event.type === 'status') {
+			const message = event.message?.trim();
+			if (!message) {
+				return;
+			}
+			setTranscript((items) => [...items, {role: 'status', text: message}]);
+			return;
+		}
 		if (event.type === 'assistant_delta') {
 			const delta = event.message ?? '';
 			if (!delta) {

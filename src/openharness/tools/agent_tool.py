@@ -84,7 +84,12 @@ class AgentTool(BaseTool):
             return ToolResult(output=result.error or "Failed to spawn agent", is_error=True)
 
         if arguments.team:
-            get_team_registry().add_agent(arguments.team, result.task_id)
+            registry = get_team_registry()
+            try:
+                registry.add_agent(arguments.team, result.task_id)
+            except ValueError:
+                registry.create_team(arguments.team)
+                registry.add_agent(arguments.team, result.task_id)
 
         return ToolResult(
             output=(

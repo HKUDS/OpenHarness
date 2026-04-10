@@ -8,7 +8,9 @@
   "dependencies": {
     "ink": "^5.1.0",
     "ink-text-input": "^6.0.0",
-    "react": "^18.3.1"
+    "marked": "^18.0.0",
+    "react": "^18.3.1",
+    "string-width": "^7.2.0"
   },
   "devDependencies": {
     "@types/node": "^22.13.10",

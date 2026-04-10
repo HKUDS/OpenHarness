@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from openharness.coordinator.coordinator_mode import get_team_registry
 from openharness.tasks import get_task_manager
 from openharness.tools.agent_tool import AgentTool, AgentToolInput
 from openharness.tools.base import ToolExecutionContext
@@ -180,6 +181,29 @@ async def test_send_message_swarm_path_uses_subprocess_backend(
     mock_send.assert_called_once()
     agent_id_arg = mock_send.call_args[0][0]
     assert agent_id_arg == "worker@default"
+
+
+@pytest.mark.asyncio
+async def test_agent_tool_creates_missing_team_when_team_argument_is_provided(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("OPENHARNESS_DATA_DIR", str(tmp_path / "data"))
+    get_team_registry()._teams.clear()
+    context = ToolExecutionContext(cwd=tmp_path)
+
+    result = await AgentTool().execute(
+        AgentToolInput(
+            description="team auto-create regression",
+            prompt="ready",
+            subagent_type="test-worker-team",
+            team="design-qa-loop",
+            command="python -u -c \"import sys; print(sys.stdin.readline().strip())\"",
+        ),
+        context,
+    )
+
+    assert result.is_error is False
+    teams = {team.name: team for team in get_team_registry().list_teams()}
+    assert "design-qa-loop" in teams
+    assert len(teams["design-qa-loop"].agents) == 1
 
 
 @pytest.mark.asyncio

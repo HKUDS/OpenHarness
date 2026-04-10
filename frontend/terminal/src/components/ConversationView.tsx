@@ -1,8 +1,8 @@
-import React from 'react';
 import {Box, Text} from 'ink';
 
 import {useTheme} from '../theme/ThemeContext.js';
 import type {TranscriptItem} from '../types.js';
+import {MarkdownText} from './MarkdownText.js';
 import {ToolCallDisplay} from './ToolCallDisplay.js';
 import {WelcomeBanner} from './WelcomeBanner.js';
 
@@ -28,9 +28,13 @@ export function ConversationView({
 			))}
 
 			{assistantBuffer ? (
-				<Box flexDirection="row" marginTop={0}>
-					<Text color={theme.colors.success} bold>{theme.icons.assistant}</Text>
-					<Text>{assistantBuffer}</Text>
+				<Box marginTop={1} marginBottom={0} flexDirection="column">
+					<Text>
+						<Text color={theme.colors.success} bold>{theme.icons.assistant}</Text>
+					</Text>
+					<Box marginLeft={2} flexDirection="column">
+						<MarkdownText content={assistantBuffer} />
+					</Box>
 				</Box>
 			) : null}
 		</Box>
@@ -54,8 +58,10 @@ function MessageRow({item, theme}: {item: TranscriptItem; theme: ReturnType<type
 				<Box marginTop={1} marginBottom={0} flexDirection="column">
 					<Text>
 						<Text color={theme.colors.success} bold>{theme.icons.assistant}</Text>
-						<Text>{item.text}</Text>
 					</Text>
+					<Box marginLeft={2} flexDirection="column">
+						<MarkdownText content={item.text} />
+					</Box>
 				</Box>
 			);
 
@@ -70,6 +76,13 @@ function MessageRow({item, theme}: {item: TranscriptItem; theme: ReturnType<type
 						<Text color={theme.colors.warning}>{theme.icons.system}</Text>
 						<Text color={theme.colors.warning}>{item.text}</Text>
 					</Text>
+				</Box>
+			);
+
+		case 'status':
+			return (
+				<Box marginTop={0}>
+					<Text color={theme.colors.info}>{item.text}</Text>
 				</Box>
 			);
 

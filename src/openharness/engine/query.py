@@ -27,6 +27,8 @@ from openharness.engine.stream_events import (
     ToolExecutionCompleted,
     ToolExecutionStarted,
 )
+
+AUTO_COMPACT_STATUS_MESSAGE = "Auto-compacting conversation memory to keep things fast and focused."
 from openharness.hooks import HookEvent, HookExecutor
 from openharness.permissions.checker import PermissionChecker
 from openharness.tools.base import ToolExecutionContext
@@ -95,6 +97,8 @@ async def run_query(
             system_prompt=context.system_prompt,
             state=compact_state,
         )
+        if was_compacted:
+            yield StatusEvent(message=AUTO_COMPACT_STATUS_MESSAGE), None
         # ---------------------------------------------------------------
 
         final_message: ConversationMessage | None = None
