@@ -8,13 +8,13 @@ export async function getStaticPaths() {
   return docs.map((doc) => {
     let slug: string;
     if (doc.id === 'index.md') {
-      slug = '';
+      slug = 'index';
     } else {
       slug = doc.id.replace(/\.md$/, '');
     }
 
     return {
-      params: { slug: slug || undefined },
+      params: { slug },
            props: { doc, slug },
     };
   });
@@ -39,8 +39,4 @@ const currentPath = slug ? `/docs/${slug}/` : '/docs/';
   ">
     <Content components={{ ImageGenIsland: ImageGenIsland as any }} />
   </div>
-
-  <!-- Load mermaid-block component and convert code blocks -->
-  <script type="module" src="/mermaid-block.js"></script>
-  <script type="module" src="/mermaid-convert.js"></script>
 </DocLayout>

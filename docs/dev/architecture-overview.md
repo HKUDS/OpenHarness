@@ -1,266 +1,235 @@
 # 架构总览
 
-本文档介绍 OpenHarness 的整体架构设计。
-
 ## 项目简介
 
 OpenHarness 是一个开源的 Python Agent Harness —— 围绕 LLM 构建功能性编码 Agent 的基础设施。它兼容 Claude Code 规范，提供工具使用、技能、记忆和多 Agent 协调能力。
 
 **核心理念**: 模型是 Agent，代码是 Harness。
 
-## 系统架构
+## 架构：按职责划分
+
+OpenHarness 按**职责**划分模块，从上到下依次为：**入口 → 编排 → 核心 → 工具 → 知识 → 插件 → 基础设施**。依赖单向传递，下层为上层提供支撑。插件是横向扩展机制，不属于纵向依赖链的一环，但在图中为保持完整性而展示。
 
 ```mermaid
 flowchart TB
-    subgraph Client["客户端层"]
-        CLI[CLI: oh]
-        TUI[React TUI]
+    subgraph entry["Entry - 入口层"]
+        cli["cli.py"]
+        channels["channels/"]
+        bridge["bridge/"]
     end
 
-    subgraph Core["核心引擎"]
-        QueryEngine[QueryEngine]
-        run_query[run_query]
+    subgraph orchestration["Orchestration - 编排层"]
+        swarm["swarm/"]
+        tasks["tasks/"]
+        coordinator["coordinator/"]
     end
 
-    subgraph Tools["工具层"]
-        Registry[ToolRegistry]
-        Permission[PermissionChecker]
-        Hooks[HookExecutor]
+    subgraph core["Core - 核心层"]
+        engine["engine/"]
+        messages["messages.py"]
+        stream["stream_events.py"]
+        cost["cost_tracker.py"]
     end
 
-    subgraph Subsystems["子系统"]
-        Skills[Skills]
-        Plugins[Plugins]
-        MCP[MCP Client]
-        Memory[Memory]
-        Tasks[Tasks]
-        Coordinator[Coordinator]
-        Commands[Commands]
+    subgraph tooling["Tooling - 工具层"]
+        tools["tools/"]
+        perms["permissions/"]
+        mcp["mcp/"]
     end
 
-    subgraph API["API 层"]
-        AnthropicClient[Anthropic Client]
-        OpenAIClient[OpenAI Client]
-        CustomClient[Custom Client]
+    subgraph knowledge["Knowledge - 知识层"]
+        skills["skills/"]
+        memory["memory/"]
+        prompts["prompts/"]
     end
 
-    subgraph Config["配置层"]
-        Settings[Settings]
-        Profiles[Provider Profiles]
-        EnvVars[环境变量]
+    subgraph infra["Infra - 基础设施（底层）"]
+        config["config/"]
+        sandbox["sandbox/"]
+        services["services/"]
+        utils["utils/"]
+        api["api/"]
+        auth["auth/"]
     end
 
-    CLI --> QueryEngine
-    TUI --> QueryEngine
+    subgraph plugins["Plugins - 插件层（横向扩展）"]
+        plugins_pkg["plugins/"]
+        hooks["hooks/"]
+    end
 
-    QueryEngine --> run_query
-    run_query --> Registry
-    run_query --> Permission
-    run_query --> Hooks
+    entry --> orchestration
+    orchestration --> core
+    core --> tooling
+    core --> knowledge
 
-    Registry --> Skills
-    Registry --> Plugins
-    Registry --> MCP
-    Registry --> Tasks
-    Registry --> Commands
+    plugins_pkg -.-> tooling
+    plugins_pkg -.-> knowledge
+    plugins_pkg -.-> core
 
-    run_query --> Coordinator
-    run_query --> Memory
-
-    QueryEngine --> AnthropicClient
-    QueryEngine --> OpenAIClient
-    QueryEngine --> CustomClient
-
-    QueryEngine --> Settings
-    Settings --> Profiles
-    Settings --> EnvVars
+    config -.-> entry
+    config -.-> orchestration
+    config -.-> core
+    config -.-> tooling
+    config -.-> knowledge
 ```
 
-## 核心模块
+## 各层详解
 
-### 1. Engine（引擎）
+### 1. 入口层（Entry）
 
-**职责**: Agent 循环的核心实现
+**模块**: `cli.py` + `channels/` + `bridge/`
 
-```text
+外部世界进入 Agent 的入口。
+
+```
+src/openharness/
+├── cli.py              # Typer CLI 主入口（`oh` 命令）
+├── channels/           # IM 渠道（Telegram/Slack/Discord/飞书等）
+└── bridge/             # ohmo gateway 与 harness 的桥接
+
+ohmo/                   # Personal Agent 应用（独立子包）
+├── gateway/            # HTTP/WebSocket 网关，接收 ohmo-client 请求
+├── channels/           # IM 渠道实现（Telegram/Slack/Discord/飞书等）
+└── workspace/          # 工作区管理
+```
+
+**职责**：接收用户输入（命令行、IM 消息、gateway 调用），统一转换为内部消息格式。不包含任何 Agent 逻辑。
+
+**ohmo 与 harness 的关系**：ohmo 是构建在 harness 之上的 personal-agent 应用，通过 `bridge/` 将 ohmo gateway 的请求路由到 harness 核心，两者共享同一个 Agent 实例。
+
+---
+
+### 2. 编排层（Orchestration）
+
+**模块**: `swarm/` + `tasks/` + `coordinator/`
+
+Agent 的"协作层"——管理多 Agent 协作和后台任务。
+
+| 模块 | 职责 | 关键概念 |
+|------|------|----------|
+| `swarm/` | 多 Agent（teammate）的生成和进程间通信 | `SubprocessBackend`、`TeammateMailbox`、`PaneBackend` |
+| `tasks/` | 后台任务的创建、监控、停止 | `BackgroundTaskManager`、`local_shell_task` |
+| `coordinator/` | 任务委派和多 Agent 协调模式 | `CoordinatorMode`、`AgentDefinition` |
+
+**为什么放一起**：它们都涉及" Agent 之间的协作"。Swarm 管理多 Agent 的生命周期，Tasks 管理后台任务（可以由其他 Agent 发起），Coordinator 定义协作模式和任务分配策略。
+
+---
+
+### 3. 核心层（Core）
+
+**模块**: `engine/`
+
+Agent 的"大脑"——唯一包含主循环的地方。
+
+```
 src/openharness/engine/
-├── query_engine.py    # QueryEngine 主类
-├── query.py           # run_query 循环实现
-├── messages.py        # 消息类型定义
-├── stream_events.py   # 流式事件类型
-└── cost_tracker.py    # 使用量追踪
+├── query_engine.py    # QueryEngine，对话管理和循环入口
+├── query.py          # run_query，实际的 Agent 循环逻辑
+├── messages.py       # ConversationMessage 等消息类型
+├── stream_events.py   # 流式事件类型（AssistantTextDelta 等）
+└── cost_tracker.py   # Token 使用量追踪
 ```
 
-**核心流程**:
-1. 接收用户消息
-2. 调用 API 获取响应
-3. 如有工具调用，执行权限检查
-4. 执行工具
-5. 触发钩子
-6. 将结果添加到对话历史
-7. 循环直到模型完成
+**职责**：接收用户消息 → 调用 LLM → 处理工具调用 → 循环，直到模型输出最终结果。不直接执行任何外部操作。
 
-### 2. Tools（工具）
+---
 
-**职责**: 提供 Agent 可调用的工具
+### 4. 工具层（Tooling）
 
-```text
-src/openharness/tools/
-├── base.py           # BaseTool 基类（含 ToolRegistry 工具注册表）
-├── __init__.py       # 工具初始化
-├── bash_tool.py      # Bash 执行
-├── file_*.py        # 文件操作（edit/read/write/glob/grep）
-├── web_*.py         # Web 操作（fetch/search）
-├── task_*.py        # 任务管理（create/get/list/update/stop/output）
-├── mcp_tool.py      # MCP 包装
-└── ... (40+ 工具)
+**模块**: `tools/` + `permissions/` + `mcp/`
+
+Agent 的"手"——所有对外操作都经过此处，并通过权限进行安全管控。
+
+| 模块 | 职责 | 关键文件 |
+|------|------|----------|
+| `tools/` | 43+ 工具的实现和注册 | `base.py`（含 ToolRegistry）、`*_tool.py` |
+| `permissions/` | 工具执行前的安全检查 | `checker.py`（PathRule、CommandRule） |
+| `mcp/` | 接入外部 MCP 服务器提供的工具 | `client.py`（支持 stdio、HTTP 和 SSE） |
+
+**工具执行管道**：
+```
+ToolCall 请求
+    ↓
+PermissionChecker.evaluate()    ← 权限检查
+    ↓
+工具执行（Tools / MCP）         ← 实际执行
+    ↓
+返回 ToolResult
 ```
 
-### 3. Skills（技能）
+钩子（Hooks）在插件层管理，通过插件机制注入到工具执行管道中。
 
-**职责**: 按需加载的知识模块
+---
 
-```text
-src/openharness/skills/
-├── loader.py        # 技能加载器
-├── registry.py       # 技能注册表
-├── types.py         # 类型定义
-└── bundled/         # 内置技能
-```
+### 5. 知识层（Knowledge）
 
-### 4. Plugins（插件）
+**模块**: `skills/` + `memory/` + `prompts/`
 
-**职责**: 扩展系统功能
+Agent 的"知识"——管理跨轮次的上下文、专业领域知识。
 
-```text
-src/openharness/plugins/
-├── loader.py        # 插件加载器
-├── schemas.py       # 插件清单 Schema
-└── types.py         # 类型定义
-```
+| 模块 | 职责 | 关键概念 |
+|------|------|----------|
+| `skills/` | 按需从 Markdown 文件加载领域知识 | `SKILL.md`、内置技能、用户技能 |
+| `memory/` | 持久化记忆和上下文压缩 | `MEMORY.md`、`memdir.py`、上下文压缩 |
+| `prompts/` | 系统 Prompt 的组装和 CLAUDE.md 处理 | `system_prompt.py`、`context.py` |
 
-### 5. Permissions（权限）
+**为什么放一起**：它们共同回答"Agent 知道什么"这个问题。Skills 提供专业知识，Memory 提供跨会话记忆，Prompts 决定模型看到什么上下文。
 
-**职责**: 工具执行安全控制
+---
 
-```text
-src/openharness/permissions/
-├── checker.py       # 权限检查器
-└── modes.py        # 权限模式
-```
+### 6. 插件层（Plugins）
 
-### 6. Hooks（钩子）
+**模块**: `plugins/` + `hooks/`
 
-**职责**: 生命周期事件处理
+功能扩展包和生命周期钩子，可插拔的功能单元。插件是横向扩展机制，可以向任意层注入能力。
 
-```text
-src/openharness/hooks/
-├── executor.py      # 钩子执行器
-├── loader.py        # 钩子加载器
-├── events.py        # 事件类型
-├── schemas.py       # 钩子 Schema
-└── types.py         # 结果类型
-```
+| 模块 | 职责 | 关键概念 |
+|------|------|----------|
+| `plugins/` | 完整的功能扩展包（命令/Hook/Agent/MCP） | `plugin.json`、兼容 Claude Code 插件格式 |
+| `hooks/` | 工具执行前后的生命周期事件 | `executor.py`、`events.py` |
 
-### 7. Commands（命令）
+**为什么放中间**：虽然插件是横向扩展机制，但为保持层级完整性在此展示。实际依赖关系中 plugins 可注入到 tooling、knowledge、core 等层。
 
-**职责**: Slash commands 实现
+---
 
-```text
-src/openharness/commands/
-├── __init__.py       # 命令初始化
-└── registry.py       # 命令注册表（含所有 slash command 定义）
-```
+### 7. 基础设施（Infra）
 
-### 8. MCP（Model Context Protocol）
+**模块**: `config/` + `sandbox/` + `services/` + `utils/` + `api/` + `auth/` + `platforms.py`
 
-**职责**: MCP 客户端集成
+支撑整个系统的底层服务，各模块独立且被其他层依赖。
 
-```text
-src/openharness/mcp/
-├── client.py        # MCP 客户端管理器
-├── config.py        # 配置处理
-└── types.py         # 类型定义
-```
+| 模块 | 职责 |
+|------|------|
+| `config/` | 多层配置加载（文件、环境变量、Schema 校验） |
+| `sandbox/` | 沙箱运行时适配器 |
+| `services/` | 辅助服务（Cron、Session 存储、Token 估算等） |
+| `utils/` | 通用 Shell 辅助函数 |
+| `api/` | 多 Provider 的 LLM 调用（Anthropic/OpenAI/Codex/Copilot） |
+| `auth/` | 多认证流程的管理（ApiKey/DeviceCode/Browser） |
+| `platforms.py` | 平台能力检测（tmux/iterm2 等） |
 
-### 9. Memory（记忆）
-
-**职责**: 持久化记忆和上下文压缩
-
-```text
-src/openharness/memory/
-├── memdir.py        # 记忆目录
-├── manager.py       # 记忆管理器
-└── types.py         # 类型定义
-```
-
-### 10. Tasks（任务）
-
-**职责**: 后台任务管理
-
-```text
-src/openharness/tasks/
-├── manager.py       # 任务管理器
-├── types.py         # 任务类型
-├── local_shell_task.py
-└── local_agent_task.py
-```
-
-### 11. Coordinator（协调）
-
-**职责**: 多 Agent 协调
-
-```text
-src/openharness/coordinator/
-├── coordinator_mode.py  # 协调者模式
-└── agent_definitions.py # Agent 定义
-```
-
-### 12. Prompts（提示词）
-
-**职责**: 系统提示词构建
-
-```text
-src/openharness/prompts/
-├── system_prompt.py     # 基础提示词
-├── environment.py        # 环境信息
-├── context.py            # 上下文组装
-└── claudemd.py          # CLAUDE.md 处理
-```
-
-### 13. Config（配置）
-
-**职责**: 配置管理
-
-```text
-src/openharness/config/
-├── settings.py      # 设置模型和加载
-├── paths.py         # 路径管理
-└── schema.py       # Schema 定义
-```
+---
 
 ## 数据流
 
-### Agent 执行流程
+### Agent 主循环
 
 ```text
-用户输入
+用户输入（入口层）
     ↓
 RuntimeBundle 初始化
     ↓
 QueryEngine.submit_message()
     ↓
 run_query() 循环
-    ├─→ auto_compact_if_needed()  [上下文压缩]
-    ├─→ api_client.stream_message()  [API 调用]
+    ├─→ auto_compact_if_needed()    # 上下文压缩（知识层）
+    ├─→ api_client.stream_message()  # LLM 调用（基础设施层）
     │       ↓
-    │   AssistantTextDelta  [流式文本]
-    │       ↓
-    │   AssistantTurnComplete  [完成]
+    │   流式响应事件（AssistantTextDelta / AssistantTurnComplete）
     │
-    ├─→ 工具执行 (如有 tool_use)
-    │       ├─→ hook_executor.execute(PRE_TOOL_USE)
+    ├─→ 工具执行（如有 tool_use）     # 工具层
     │       ├─→ permission_checker.evaluate()
+    │       ├─→ hook_executor.execute(PRE_TOOL_USE)
     │       ├─→ tool.execute()
     │       └─→ hook_executor.execute(POST_TOOL_USE)
     │
@@ -269,116 +238,82 @@ run_query() 循环
 返回结果
 ```
 
-### 工具执行流程
+### 工具执行管道
 
 ```text
-工具调用请求
+ToolCall 请求（tool_name, tool_input）
     ↓
-ToolRegistry.get(tool_name)
+ToolRegistry.get(tool_name)       # 查询工具
     ↓
-权限检查 (PermissionChecker)
-    ├─→ 敏感路径检查
+PermissionChecker.evaluate()       # 权限检查
     ├─→ 工具允许/拒绝列表
-    ├─→ 路径规则
+    ├─→ 敏感路径规则
     └─→ 命令规则
     ↓
-钩子执行 (PreToolUse)
+HookExecutor.execute(PRE_TOOL_USE) # 前置钩子
     ↓
-BaseTool.execute()
+BaseTool.execute()                  # 实际执行
     ↓
-钩子执行 (PostToolUse)
+HookExecutor.execute(POST_TOOL_USE) # 后置钩子
     ↓
 返回 ToolResult
 ```
 
-## 关键设计
+## 关键设计决策
 
-### 1. 流式优先
+### 1. 工具层独立于核心
 
-所有 API 调用和工具执行都支持流式返回，提供实时反馈。
+`engine/` 不直接调用工具，而是通过 `ToolRegistry` + `PermissionChecker` 的管道。权限逻辑与核心循环解耦，可以独立修改或替换。钩子通过插件机制注入。
 
-### 2. 异步架构
+### 2. 知识层是按需加载的
 
-广泛使用 `async/await`，支持高效的并发执行。
+Skills 在运行时按需加载，不在启动时全部初始化。这样保持冷启动速度，同时支持大量扩展。
 
-### 3. 扩展性
+### 3. 编排层与核心解耦
 
-- **工具**: 继承 BaseTool
-- **技能**: Markdown 文件格式
-- **插件**: 完整扩展系统
-- **钩子**: 多种钩子类型
+后台任务和多 Agent 通过独立的 TaskManager 和 SwarmBackend 管理，不阻塞主 Agent 循环。
 
-### 4. 安全性
+### 4. API 层完全抽象
 
-- 多层权限检查
-- 敏感路径保护
-- 沙箱集成
-- 审计追踪
+`api/` 对上层隐藏 Provider 差异（Anthropic/OpenAI/Codex/Copilot），上层只看到统一的流式接口。
 
-### 5. 可配置性
+### 5. 入口层与核心解耦
 
-- 多层配置系统
-- 提供者抽象
-- 环境变量支持
+CLI、TUI、ohmo bridge、IM channels 都是"同一核心的不同入口"，互相不可见，通过 `RuntimeBundle` 共享同一个 Agent 实例。
 
-## 与 Claude Code 的兼容性
+### 6. 插件层是横向扩展机制
 
-OpenHarness 兼容 Claude Code 的：
-
-- **工具格式**: 相同 schema
-- **技能格式**: `~/.openharness/skills/` 和 `SKILL.md`
-- **插件格式**: `.claude-plugin/plugin.json`
-- **命令格式**: Markdown 命令文件
-- **CLAUDE.md**: 自动发现和注入
+Plugins 可以向任意层注入能力（命令、钩子、Agent、MCP 工具），是横向扩展而非纵向依赖。
 
 ## 扩展点
 
 ### 添加新工具
 
+继承 `BaseTool` 并注册到 `ToolRegistry`：
+
 ```python
+class MyToolInput(BaseModel):
+    query: str
+
 class MyTool(BaseTool):
     name = "my_tool"
     input_model = MyToolInput
 
-    async def execute(self, args, ctx):
-        return ToolResult(output="...")
-
-registry.register(MyTool())
+    async def execute(self, args: MyToolInput, ctx: ToolExecutionContext) -> ToolResult:
+        return ToolResult(output=f"Result: {args.query}")
 ```
 
 ### 添加新技能
 
-在 `~/.openharness/skills/my-skill/SKILL.md` 创建 Markdown 文件。
+在 `~/.openharness/skills/my-skill/SKILL.md` 创建 Markdown 文件，SkillsLoader 会自动发现并按需加载。
 
 ### 添加新插件
 
-创建 `.openharness/plugins/my-plugin/plugin.json` 和相应组件。
+创建 `.openharness/plugins/my-plugin/.claude-plugin/plugin.json`，声明 commands/hooks/agents 后插件自动加载。
 
-## 部署架构
+### 添加新执行后端
 
-```text
-┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│   CLI/oh    │     │   React UI  │     │   脚本/API  │
-└──────┬──────┘     └──────┬──────┘     └──────┬──────┘
-       │                   │                   │
-       └───────────────────┼───────────────────┘
-                           ↓
-                   ┌───────────────┐
-                   │  QueryEngine  │
-                   └───────┬───────┘
-                           ↓
-       ┌───────────────────┼───────────────────┐
-       ↓                   ↓                   ↓
-┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│   Tools     │     │   Skills    │     │   Plugins   │
-└─────────────┘     └─────────────┘     └─────────────┘
-                           ↓
-                   ┌───────────────┐
-                   │  API Client   │
-                   │  (Anthropic,  │
-                   │   OpenAI, ...) │
-                   └───────────────┘
-```
+在 `swarm/` 中实现 `TeammateExecutor` 协议（`spawn`、`send_message`、`shutdown`），然后在 `BackendRegistry` 中注册即可。
 
 ## 进一步阅读
 
@@ -386,4 +321,6 @@ registry.register(MyTool())
 - [工具系统](./core/tools.md)
 - [权限系统](./core/permissions.md)
 - [钩子系统](./core/hooks.md)
-- [插件系统](./core/plugins.md)
+- [记忆系统](./core/memory.md)
+- [Swarm 多 Agent](./core/swarm.md)
+- [API 客户端](./infrastructure/api-clients.md)

@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en" class="scroll-smooth">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Theme Test</title>
+    <style>
+      body {
+        padding: 20px;
+        font-family: system-ui, sans-serif;
+        transition: background-color 0.2s, color 0.2s;
+      }
+      .light {
+        background-color: white;
+        color: #111;
+      }
+      .dark {
+        background-color: #030712;
+        color: #f3f4f6;
+      }
+      .theme-btn {
+        padding: 10px 20px;
+        border: 2px solid currentColor;
+        border-radius: 8px;
+        cursor: pointer;
+        font-size: 16px;
+      }
+      .status {
+        margin-top: 20px;
+        padding: 10px;
+        border: 1px solid currentColor;
+        border-radius: 4px;
+      }
+      .test-section {
+        margin: 30px 0;
+        padding: 20px;
+        border: 1px dashed currentColor;
+      }
+    </style>
+    <!-- Inline script to apply theme before paint to prevent flash -->
+    <script>
+      (function() {
+        var theme = localStorage.getItem('theme');
+        var isDark = false;
+        if (theme === 'dark') {
+          isDark = true;
+        } else if (theme === 'light') {
+          isDark = false;
+        } else {
+          isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        }
+        document.documentElement.classList.toggle('dark', isDark);
+      })();
+
+      <!-- Theme Toggle Script -->
+      var themes = ['light', 'dark', 'system'];
+      var themeIndex = 2; // Start with 'system'
+
+      function getSystemTheme() {
+        return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      }
+
+      function applyTheme(currentTheme) {
+        var effective = currentTheme === 'system' ? getSystemTheme() : currentTheme;
+        document.documentElement.classList.toggle('dark', effective === 'dark');
+        localStorage.setItem('theme', currentTheme);
+        updateThemeButton(currentTheme);
+        updateStatus();
+      }
+
+      function updateThemeButton(currentTheme) {
+        var button = document.getElementById('theme-toggle-btn');
+        if (!button) return;
+        button.setAttribute('aria-label', 'Theme: ' + currentTheme + '. Click to switch.');
+        button.title = currentTheme;
+        button.textContent = currentTheme;
+
+        if (currentTheme === 'light') {
+          button.innerHTML = '☀️ Light';
+        } else if (currentTheme === 'dark') {
+          button.innerHTML = '🌙 Dark';
+        } else {
+          // system
+          button.innerHTML = '💻 System';
+        }
+      }
+
+      function cycleTheme() {
+        themeIndex = (themeIndex + 1) % themes.length;
+        var nextTheme = themes[themeIndex];
+        applyTheme(nextTheme);
+      }
+
+      function initTheme() {
+        var stored = localStorage.getItem('theme');
+        if (stored && themes.includes(stored)) {
+          themeIndex = themes.indexOf(stored);
+        } else {
+          themeIndex = 2; // Default to 'system'
+        }
+        applyTheme(themes[themeIndex]);
+      }
+
+      function updateStatus() {
+        var status = document.getElementById('status');
+        if (!status) return;
+
+        var storedTheme = localStorage.getItem('theme');
+        var currentTheme = themes[themeIndex];
+        var systemTheme = getSystemTheme();
+        var isDark = document.documentElement.classList.contains('dark');
+
+        status.innerHTML = `
+          <strong>Status:</strong><br>
+          Current Theme: ${currentTheme}<br>
+          Stored Theme: ${storedTheme || 'null'}<br>
+          System Theme: ${systemTheme}<br>
+          Is Dark Class Set: ${isDark}<br>
+          Theme Index: ${themeIndex}
+        `;
+      }
+
+      // System theme change handler - only respond if current mode is 'system'
+      var systemHandler = function() {
+        var currentTheme = themes[themeIndex];
+        if (currentTheme === 'system') {
+          applyTheme('system');
+        }
+      };
+      var mq = window.matchMedia('(prefers-color-scheme: dark)');
+      mq.addEventListener('change', systemHandler);
+
+      // Initialize theme and button state after DOM is ready
+      window.addEventListener('DOMContentLoaded', function() {
+        initTheme();
+
+        var button = document.getElementById('theme-toggle-btn');
+        if (button) {
+          button.addEventListener('click', cycleTheme);
+        }
+
+        var clearBtn = document.getElementById('clear-storage');
+        if (clearBtn) {
+          clearBtn.addEventListener('click', function() {
+            localStorage.removeItem('theme');
+            location.reload();
+          });
+        }
+
+        // Apply styling based on theme
+        setInterval(function() {
+          var isDark = document.documentElement.classList.contains('dark');
+          if (isDark) {
+            document.body.style.cssText = 'background-color: #030712; color: #f3f4f6;';
+          } else {
+            document.body.style.cssText = 'background-color: white; color: #111;';
+          }
+        }, 100);
+      });
+    </script>
+  </head>
+  <body>
+    <h1>Theme Switch Test</h1>
+
+    <button id="theme-toggle-btn" class="theme-btn">Loading...</button>
+    <button id="clear-storage" class="theme-btn">Clear Storage & Reload</button>
+
+    <div id="status" class="status"></div>
+
+    <div class="test-section">
+      <h2>Test Instructions:</h2>
+      <ol>
+        <li>Click the theme button and verify it cycles: Light → Dark → System → Light</li>
+        <li>Check the Status section shows correct values</li>
+        <li>In System mode, change your system theme and verify page updates</li>
+        <li>Click "Clear Storage & Reload" and verify it defaults to System</li>
+      </ol>
+
+      <h3>Expected Behavior:</h3>
+      <ul>
+        <li><strong>Light:</strong> White background, dark text</li>
+        <li><strong>Dark:</strong> Very dark background, light text</li>
+        <li><strong>System:</strong> Follows OS theme preference</li>
+      </ul>
+    </div>
+  </body>
+</html>

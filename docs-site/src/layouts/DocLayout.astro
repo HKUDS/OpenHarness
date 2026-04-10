@@ -2,8 +2,6 @@
 import { getCollection } from 'astro:content';
 import TopNav from '../components/TopNav.astro';
 import Sidebar from '../components/Sidebar.astro';
-import ThemeToggle from '../components/ThemeToggle.tsx';
-import ImageGenIsland from '../components/ImageGenIsland.tsx';
 import '../styles/global.css';
 
 interface Props {
@@ -24,47 +22,238 @@ const { title = 'OpenHarness Docs', description, section = '', currentPath = '' 
     <meta name="description" content={description || 'OpenHarness 文档中心'} />
     <title>{title} — OpenHarness</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <!-- Inline script to apply theme before paint to prevent flash -->
+    <script is:inline>
+      (function() {
+        var theme = localStorage.getItem('theme');
+        var isDark = false;
+        if (theme === 'dark') {
+          isDark = true;
+        } else if (theme === 'light') {
+          isDark = false;
+        } else {
+          isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        }
+        document.documentElement.classList.toggle('dark', isDark);
+      })();
+
+      <!-- Theme Toggle Script -->
+      var themes = ['light', 'dark', 'system'];
+      var themeIndex = 2; // Start with 'system'
+
+      function getSystemTheme() {
+        return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      }
+
+      function applyTheme(currentTheme) {
+        var effective = currentTheme === 'system' ? getSystemTheme() : currentTheme;
+        document.documentElement.classList.toggle('dark', effective === 'dark');
+        localStorage.setItem('theme', currentTheme);
+        updateThemeButton(currentTheme);
+      }
+
+      function updateThemeButton(currentTheme) {
+        var button = document.getElementById('theme-toggle-btn');
+        if (!button) return;
+        button.setAttribute('aria-label', 'Theme: ' + currentTheme + '. Click to switch.');
+        button.title = currentTheme;
+
+        var icon = button.querySelector('.theme-icon');
+        if (!icon) return;
+
+        if (currentTheme === 'light') {
+          icon.innerHTML = `
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="5"/>
+              <line x1="12" y1="1" x2="12" y2="3"/>
+              <line x1="12" y1="21" x2="12" y2="23"/>
+              <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
+              <line x1="12" y1="12" x2="3" y2="12"/>
+              <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+              <line x1="12" y1="12" x2="21" y2="12"/>
+              <line x1="21" y1="12" x2="23" y2="12"/>
+              <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
+              <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+            </svg>
+          `;
+        } else if (currentTheme === 'dark') {
+          icon.innerHTML = `
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 21 12.79z"/>
+            </svg>
+          `;
+        } else {
+          // system
+          icon.innerHTML = `
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
+              <line x1="8" y1="21" x2="16" y2="21"/>
+              <line x1="12" y1="17" x2="12" y2="21"/>
+            </svg>
+          `;
+        }
+      }
+
+      function cycleTheme() {
+        themeIndex = (themeIndex + 1) % themes.length;
+        var nextTheme = themes[themeIndex];
+        applyTheme(nextTheme);
+      }
+
+      function initTheme() {
+        var stored = localStorage.getItem('theme');
+        if (stored && themes.includes(stored)) {
+          themeIndex = themes.indexOf(stored);
+        } else {
+          themeIndex = 2; // Default to 'system'
+        }
+        applyTheme(themes[themeIndex]);
+      }
+
+      // System theme change handler - only respond if current mode is 'system'
+      var systemHandler = function() {
+        var currentTheme = themes[themeIndex];
+        if (currentTheme === 'system') {
+          applyTheme('system');
+        }
+      };
+      var mq = window.matchMedia('(prefers-color-scheme: dark)');
+      mq.addEventListener('change', systemHandler);
+
+      // Initialize theme and button state after DOM is ready
+      window.addEventListener('DOMContentLoaded', function() {
+        initTheme();
+
+        var button = document.getElementById('theme-toggle-btn');
+        if (button) {
+          button.addEventListener('click', cycleTheme);
+        }
+      });
+    </script>
   </head>
   <body class="min-h-screen bg-white dark:bg-gray-950 text-gray-900 dark:text-gray-100 transition-colors duration-200">
     <TopNav title={title} />
     <div class="flex">
       <Sidebar currentPath={currentPath} />
-      <main class="flex-1 ml-64 pt-16 min-h-screen transition-all duration-200">
-        <article class="max-w-4xl mx-auto px-8 py-12">
+      <main id="main-content" class="flex-1 lg:ml-64 pt-16 min-h-screen transition-all duration-200">
+        <article class="max-w-4xl mx-auto px-6 lg:px-8 py-8 lg:py-12">
           <slot />
         </article>
       </main>
     </div>
+
+    <!-- Sidebar collapse/expand + Mermaid rendering - combined into one script -->
     <script>
       import '../components/mermaid-block.ts';
 
-      // Convert mermaid code blocks to mermaid-block elements
-      (function() {
-        // Find all code blocks with language-mermaid class
-        const codeBlocks = document.querySelectorAll('code[data-language="mermaid"], code.language-mermaid');
-        codeBlocks.forEach((codeEl) => {
-          const preEl = codeEl.closest('pre');
-          if (!preEl) return;
+      // Sidebar collapse/expand
+      var sidebar = document.getElementById('sidebar');
+      var mainContent = document.getElementById('main-content');
+      var sidebarToggle = document.getElementById('sidebar-toggle');
+      var sidebarCollapse = document.getElementById('sidebar-collapse');
+      var overlay = document.getElementById('sidebar-overlay');
+      var iconOpen = document.getElementById('collapse-icon-open');
+      var iconClosed = document.getElementById('collapse-icon-closed');
 
-          // Get mermaid definition
-          const definition = codeEl.textContent || '';
+      var collapsed = localStorage.getItem('sidebar-collapsed') === 'true';
 
-          // Create mermaid-block element
-          const mermaidBlock = document.createElement('mermaid-block');
-          mermaidBlock.dataset.definition = definition;
+      function updateSidebarState() {
+        if (!sidebar || !mainContent) return;
 
-          // Replace pre element
-          preEl.parentNode?.replaceChild(mermaidBlock, preEl);
-        });
-      })();
-
-      // Apply saved theme on load
-      (function() {
-        const theme = localStorage.getItem('theme');
-        if (theme === 'dark' || (!theme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
-          document.documentElement.classList.add('dark');
+        if (collapsed) {
+          sidebar.style.width = '0px';
+          sidebar.style.padding = '0';
+          sidebar.style.overflow = 'hidden';
+          sidebar.style.borderRightWidth = '0';
+          mainContent.classList.remove('lg:ml-64');
+          mainContent.classList.add('lg:ml-0');
+          if (iconOpen) iconOpen.classList.add('hidden');
+          if (iconClosed) iconClosed.classList.remove('hidden');
+        } else {
+          sidebar.style.width = '';
+          sidebar.style.padding = '';
+          sidebar.style.overflow = '';
+          sidebar.style.borderRightWidth = '';
+          mainContent.classList.remove('lg:ml-0');
+          mainContent.classList.add('lg:ml-64');
+          if (iconOpen) iconOpen.classList.remove('hidden');
+          if (iconClosed) iconClosed.classList.add('hidden');
         }
-      })();
+
+        localStorage.setItem('sidebar-collapsed', String(collapsed));
+      }
+
+      // Desktop collapse
+      if (sidebarCollapse) {
+        updateSidebarState();
+        sidebarCollapse.addEventListener('click', function() {
+          collapsed = !collapsed;
+          updateSidebarState();
+        });
+      }
+
+      // Mobile toggle
+      if (sidebarToggle && sidebar && overlay) {
+        sidebarToggle.addEventListener('click', function() {
+          var isHidden = sidebar.classList.contains('-translate-x-full');
+          if (isHidden) {
+            sidebar.classList.remove('-translate-x-full');
+            sidebar.style.width = '';
+            sidebar.style.padding = '';
+            sidebar.style.overflow = '';
+            overlay.classList.remove('hidden');
+          } else {
+            sidebar.classList.add('-translate-x-full');
+            overlay.classList.add('hidden');
+          }
+        });
+
+        overlay.addEventListener('click', function() {
+          sidebar.classList.add('-translate-x-full');
+          overlay.classList.add('hidden');
+        });
+      }
+
+      // Section toggle (collapsible groups in sidebar)
+      document.querySelectorAll('.sidebar-section-toggle').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          var section = btn.closest('.sidebar-section');
+          if (!section) return;
+          var content = section.querySelector('.sidebar-section-content');
+          var chevron = btn.querySelector('.sidebar-chevron');
+          if (!content) return;
+
+          var isOpen = !content.classList.contains('hidden');
+          if (isOpen) {
+            content.classList.add('hidden');
+            if (chevron) chevron.style.transform = 'rotate(-90deg)';
+            btn.setAttribute('aria-expanded', 'false');
+          } else {
+            content.classList.remove('hidden');
+            if (chevron) chevron.style.transform = '';
+            btn.setAttribute('aria-expanded', 'true');
+          }
+        });
+      });
+
+      // Init chevron rotation for closed sections
+      document.querySelectorAll('.sidebar-section[data-open="false"] .sidebar-chevron').forEach(function(chevron) {
+        chevron.style.transform = 'rotate(-90deg)';
+      });
+
+      // Convert mermaid code blocks to mermaid-block elements
+      var preBlocks = document.querySelectorAll('pre[data-language="mermaid"]');
+      console.log('[mermaid-convert] Found', preBlocks.length, 'mermaid pre blocks');
+
+      preBlocks.forEach(function(preEl) {
+        var codeEl = preEl.querySelector('code');
+        var definition = (codeEl || preEl).textContent || '';
+
+        var mermaidBlock = document.createElement('mermaid-block');
+        mermaidBlock.dataset.definition = definition;
+
+        preEl.parentNode.replaceChild(mermaidBlock, preEl);
+      });
     </script>
   </body>
 </html>
