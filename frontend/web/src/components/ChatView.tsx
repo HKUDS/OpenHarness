@@ -1,5 +1,5 @@
 import React, { useRef, useEffect } from 'react';
-import { Send, Bot, User, AlertCircle, Wrench, Paperclip, Maximize2, Minimize2, ChevronDown, ChevronUp, Sparkles, Brain, Plus } from 'lucide-react';
+import { Send, Bot, User, AlertCircle, Wrench, Paperclip, Maximize2, Minimize2, ChevronDown, ChevronUp, Sparkles, Brain, Plus, Copy, Check, Clock } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useAppStore } from '../store/useAppStore';
@@ -28,10 +28,14 @@ export function ChatView() {
   } = useAppStore();
   
   const [input, setInput] = React.useState('');
+  const [copiedMessageId, setCopiedMessageId] = React.useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const timelineTrackRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const inputContainerRef = useRef<HTMLDivElement>(null);
   const resizeHandleRef = useRef<HTMLDivElement>(null);
+  const messageRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -40,6 +44,89 @@ export function ChatView() {
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  // Track scroll position for timeline and sync timeline scroll
+  useEffect(() => {
+    const container = messagesContainerRef.current;
+    const timelineTrack = timelineTrackRef.current;
+    if (!container) return;
+
+    const handleScroll = () => {
+      const scrollTop = container.scrollTop;
+      const scrollHeight = container.scrollHeight - container.clientHeight;
+      const progress = scrollHeight > 0 ? scrollTop / scrollHeight : 0;
+      
+      // Sync timeline scroll with messages scroll
+      if (timelineTrack && timelineTrack.scrollHeight > timelineTrack.clientHeight) {
+        const timelineScrollTop = progress * (timelineTrack.scrollHeight - timelineTrack.clientHeight);
+        timelineTrack.scrollTop = timelineScrollTop;
+      }
+    };
+
+    container.addEventListener('scroll', handleScroll);
+    return () => container.removeEventListener('scroll', handleScroll);
+  }, [messages]);
+
+  // Clear copied state after 2 seconds
+  useEffect(() => {
+    if (copiedMessageId) {
+      const timer = setTimeout(() => setCopiedMessageId(null), 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [copiedMessageId]);
+
+  const handleCopyMessage = async (content: string, messageId: string) => {
+    try {
+      await navigator.clipboard.writeText(content);
+      setCopiedMessageId(messageId);
+    } catch (err) {
+      console.error('Failed to copy message:', err);
+    }
+  };
+
+  const handleTimelineClick = (messageId: string) => {
+    const messageElement = messageRefs.current.get(messageId);
+    if (messageElement) {
+      messageElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  };
+
+  // Generate timeline markers based on messages - positioned relative to viewport
+  const getTimelineMarkers = () => {
+    if (messages.length === 0) return [];
+    
+    // Show markers at fixed intervals on the timeline
+    // Each marker represents a clickable point to jump to that message
+    const markers: { id: string; position: number; label: string; timestamp: number }[] = [];
+    const numMarkers = Math.min(8, messages.length); // Max 8 markers
+    
+    for (let i = 0; i < numMarkers; i++) {
+      const messageIndex = Math.floor((i / (numMarkers - 1)) * (messages.length - 1));
+      const message = messages[messageIndex];
+      const position = i / (numMarkers - 1);
+      markers.push({
+        id: message.id,
+        position,
+        label: formatTime(message.timestamp),
+        timestamp: message.timestamp,
+      });
+    }
+    
+    return markers;
+  };
+
+  const formatTimelineLabel = (timestamp: number) => {
+    const date = new Date(timestamp);
+    const now = new Date();
+    const diffMs = now.getTime() - timestamp;
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    
+    if (diffMins < 1) return 'Now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  };
 
   // Drag to resize input area
   useEffect(() => {
@@ -154,7 +241,28 @@ export function ChatView() {
         </button>
       </div>
       
-      <div className={styles.messagesContainer}>
+      <div className={styles.messagesContainer} ref={messagesContainerRef}>
+        {/* Timeline Scrollbar - Synced with message scroll */}
+        {messages.length > 5 && (
+          <div className={styles.timelineBar}>
+            <div className={styles.timelineHeader}>Timeline</div>
+            <div className={styles.timelineTrack} ref={timelineTrackRef}>
+              {/* Timeline markers - scrollable list */}
+              {getTimelineMarkers().map((marker, idx) => (
+                <button
+                  key={`marker-${idx}`}
+                  className={styles.timelineMarker}
+                  onClick={() => handleTimelineClick(marker.id)}
+                  title={formatTimelineLabel(marker.timestamp)}
+                >
+                  <Clock size={12} />
+                  <span className={styles.timelineLabel}>{formatTimelineLabel(marker.timestamp)}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        
         {messages.length === 0 ? (
           <div className={styles.welcome}>
             <div className={styles.welcomeIcon}>
@@ -194,7 +302,8 @@ export function ChatView() {
               
               return (
                 <div 
-                  key={message.id} 
+                  key={message.id}
+                  ref={(el) => { if (el) messageRefs.current.set(message.id, el); }}
                   className={`${styles.message} ${styles[message.role]}`}
                 >
                   <div className={styles.messageHeader}>
@@ -227,6 +336,18 @@ export function ChatView() {
                         )}
                       </div>
                     )}
+                    {/* Copy button */}
+                    <button
+                      className={styles.copyButton}
+                      onClick={() => handleCopyMessage(message.content, message.id)}
+                      title="Copy message"
+                    >
+                      {copiedMessageId === message.id ? (
+                        <Check size={16} />
+                      ) : (
+                        <Copy size={16} />
+                      )}
+                    </button>
                     {isLongContent && (
                       <button 
                         className={styles.expandButton}

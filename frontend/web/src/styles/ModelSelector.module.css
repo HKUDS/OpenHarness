@@ -1,6 +1,6 @@
 .modelSelector {
   position: relative;
-  z-index: 100;
+  z-index: 1000;
 }
 
 .selectorButton {
@@ -17,6 +17,8 @@
   font-size: 0.8125rem;
   font-weight: 500;
   max-width: 280px;
+  pointer-events: auto;
+  user-select: none;
 }
 
 .selectorButton:hover {
@@ -80,9 +82,25 @@
   border: 1px solid var(--border-default);
   border-radius: var(--radius-lg);
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.05);
-  z-index: 1000;
+  z-index: 9999;
   overflow: hidden;
   animation: dropdownSlideIn 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  pointer-events: auto;
+}
+
+.dropdownUp {
+  animation: dropdownSlideUp 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes dropdownSlideUp {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 @keyframes dropdownSlideIn {
@@ -104,6 +122,11 @@
   border-bottom: 1px solid var(--border-subtle);
   background: var(--bg-tertiary);
   flex-shrink: 0;
+  pointer-events: none;
+}
+
+.dropdownHeader > * {
+  pointer-events: auto;
 }
 
 .dropdownTitle {
@@ -144,6 +167,7 @@
   background: var(--bg-primary);
   border-bottom: 1px solid var(--border-subtle);
   flex-shrink: 0;
+  pointer-events: auto;
 }
 
 .customInput {
@@ -203,6 +227,7 @@
   overflow-y: auto;
   overflow-x: hidden;
   padding: var(--space-2);
+  pointer-events: auto;
 }
 
 .dropdownContent::-webkit-scrollbar {
@@ -236,6 +261,8 @@
   transition: var(--transition-fast);
   text-align: left;
   font-size: 0.8125rem;
+  pointer-events: auto;
+  user-select: none;
 }
 
 .dropdownItem:hover {
@@ -288,4 +315,196 @@
 .disconnected {
   font-size: 0.6875rem;
   color: var(--text-tertiary);
+}
+
+.manageSection {
+  padding: var(--space-2);
+  background: var(--bg-primary);
+  border-bottom: 1px solid var(--border-subtle);
+  pointer-events: none;
+}
+
+.manageSection > * {
+  pointer-events: auto;
+}
+
+.manageHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-2) var(--space-3);
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.manageItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-md);
+  margin-top: var(--space-2);
+  gap: var(--space-2);
+}
+
+.manageModelName {
+  flex: 1;
+  font-size: 0.8125rem;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.manageActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.editModelBtn,
+.deleteModelBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.editModelBtn:hover {
+  background: var(--bg-elevated);
+  color: var(--primary-500);
+  border-color: var(--primary-500);
+}
+
+.deleteModelBtn:hover {
+  background: var(--error-500);
+  color: white;
+  border-color: var(--error-500);
+}
+
+.editForm {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 1;
+}
+
+.editInput {
+  flex: 1;
+  padding: var(--space-1) var(--space-2);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 0.8125rem;
+  font-family: inherit;
+}
+
+.editInput:focus {
+  outline: none;
+  border-color: var(--primary-500);
+}
+
+.editSaveBtn,
+.editCancelBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.editSaveBtn:hover {
+  background: #22c55e;
+  color: white;
+  border-color: #22c55e;
+}
+
+.editCancelBtn:hover {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+}
+
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.actionButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: var(--transition-fast);
+  pointer-events: auto;
+  user-select: none;
+}
+
+.actionButton:hover {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+}
+
+.actionButton.active {
+  background: rgba(95, 115, 220, 0.15);
+  color: var(--primary-500);
+  border-color: var(--primary-500);
+}
+
+.modelGroupHeader {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: var(--space-2) var(--space-3);
+  margin-top: var(--space-2);
+}
+
+.modelGroupHeader:first-child {
+  margin-top: 0;
+}
+
+.emptyState {
+  padding: var(--space-4) var(--space-3);
+  text-align: center;
+  color: var(--text-tertiary);
+  font-size: 0.8125rem;
+}
+
+.emptyState p {
+  margin: 0;
+}
+
+.emptyStateHint {
+  margin-top: var(--space-2) !important;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
 }

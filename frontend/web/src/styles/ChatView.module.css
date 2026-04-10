@@ -57,8 +57,98 @@
   flex: 1;
   overflow-y: auto;
   padding: 0;
+  padding-right: 70px; /* Reserve space for timeline */
   display: flex;
   flex-direction: column;
+  position: relative;
+}
+
+/* Timeline Scrollbar - Fixed sidebar style, doesn't block content */
+.timelineBar {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 70px;
+  background: var(--bg-secondary);
+  border-left: 1px solid var(--border-subtle);
+  z-index: 5;
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+}
+
+.timelineHeader {
+  padding: var(--space-2);
+  font-size: 0.625rem;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+  pointer-events: none;
+}
+
+.timelineTrack {
+  position: relative;
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  pointer-events: auto;
+}
+
+.timelineViewport {
+  position: absolute;
+  left: 0;
+  right: 0;
+  background: rgba(95, 115, 220, 0.1);
+  border: 1px solid var(--primary-500);
+  border-radius: var(--radius-sm);
+  transition: top 0.1s ease, height 0.1s ease;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.timelineMarker {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  margin: var(--space-1) 4px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: 0.625rem;
+  cursor: pointer;
+  transition: var(--transition-fast);
+  white-space: nowrap;
+}
+
+.timelineMarker:hover {
+  background: var(--bg-elevated);
+  color: var(--primary-500);
+  border-color: var(--primary-500);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.timelineMarker svg {
+  flex-shrink: 0;
+}
+
+.timelineMarker:hover {
+  background: var(--bg-elevated);
+  color: var(--primary-500);
+  border-color: var(--primary-500);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.timelineLabel {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* Welcome Screen - Gemini Style */
@@ -306,6 +396,28 @@
   background: var(--bg-elevated);
   color: var(--text-primary);
   border-color: var(--border-default);
+}
+
+.copyButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.copyButton:hover {
+  background: var(--bg-elevated);
+  color: var(--primary-500);
+  border-color: var(--primary-500);
 }
 
 /* Message Content */

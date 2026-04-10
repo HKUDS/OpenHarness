@@ -733,7 +733,27 @@ def load_settings(config_path: Path | None = None) -> Settings:
         config_path = get_config_file_path()
 
     if config_path.exists():
-        raw = json.loads(config_path.read_text(encoding="utf-8"))
+        try:
+            raw_content = config_path.read_text(encoding="utf-8")
+            if not raw_content.strip():
+                # Empty file - use defaults
+                import logging
+                logging.getLogger(__name__).warning(f"Settings file {config_path} is empty, using defaults")
+                return _apply_env_overrides(Settings().materialize_active_profile())
+            raw = json.loads(raw_content)
+        except json.JSONDecodeError as e:
+            # Corrupted file - backup and use defaults
+            import logging
+            import shutil
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Settings file {config_path} has invalid JSON: {e}, backing up and using defaults")
+            backup_path = config_path.with_suffix('.json.bak')
+            try:
+                shutil.copy2(config_path, backup_path)
+                logger.info(f"Corrupted settings backed up to {backup_path}")
+            except Exception:
+                pass
+            return _apply_env_overrides(Settings().materialize_active_profile())
         settings = Settings.model_validate(raw)
         if "profiles" not in raw or "active_profile" not in raw:
             profile_name, profile = _profile_from_flat_settings(settings)
@@ -764,7 +784,23 @@ def save_settings(settings: Settings, config_path: Path | None = None) -> None:
 
     settings = settings.sync_active_profile_from_flat_fields().materialize_active_profile()
     config_path.parent.mkdir(parents=True, exist_ok=True)
-    config_path.write_text(
-        settings.model_dump_json(indent=2) + "\n",
-        encoding="utf-8",
-    )
+    
+    # Atomic write: write to temp file first, then rename
+    # This prevents corruption from concurrent writes or crashes
+    import tempfile
+    json_content = settings.model_dump_json(indent=2) + "\n"
+    
+    # Validate JSON before writing
+    json.loads(json_content)  # Will raise if serialization failed
+    
+    temp_path = config_path.with_suffix('.tmp')
+    try:
+        temp_path.write_text(json_content, encoding="utf-8")
+        temp_path.replace(config_path)  # Atomic on most filesystems
+    finally:
+        # Clean up temp file if it still exists
+        if temp_path.exists():
+            try:
+                temp_path.unlink()
+            except Exception:
+                pass

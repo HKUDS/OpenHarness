@@ -11,9 +11,16 @@ import { TasksPage } from './pages/TasksPage';
 import { McpServersPage } from './pages/McpServersPage';
 import { SwarmPage } from './pages/SwarmPage';
 import { SkillsPage } from './pages/SkillsPage';
+import { PluginsPage } from './pages/PluginsPage';
+import { ToolsPage } from './pages/ToolsPage';
+import { HooksPage } from './pages/HooksPage';
+import { PromptsPage } from './pages/PromptsPage';
+import { CommandsPage } from './pages/CommandsPage';
+import { ProvidersPage } from './pages/ProvidersPage';
 import { MemoryPage } from './pages/MemoryPage';
 import { TodoPage } from './pages/TodoPage';
 import { ChannelsPage } from './pages/ChannelsPage';
+import { DoctorPage } from './pages/DoctorPage';
 import { OpenHarnessConfigPage } from './pages/OpenHarnessConfigPage';
 import styles from './styles/App.module.css';
 
@@ -23,7 +30,7 @@ export function App() {
 
   // Apply theme based on settings
   React.useEffect(() => {
-    // Load theme from localStorage on first mount
+    // Load theme from localStorage on first mount - skip backend sync to prevent loops
     const savedTheme = localStorage.getItem('openharness-theme');
     if (savedTheme && savedTheme !== settings.theme) {
       updateSettings({ theme: savedTheme as 'dark' | 'light' });
@@ -71,9 +78,16 @@ export function App() {
                 <Route path="/mcp" element={<McpServersPage />} />
                 <Route path="/swarm" element={<SwarmPage />} />
                 <Route path="/skills" element={<SkillsPage />} />
+                <Route path="/plugins" element={<PluginsPage />} />
+                <Route path="/tools" element={<ToolsPage />} />
+                <Route path="/hooks" element={<HooksPage />} />
+                <Route path="/prompts" element={<PromptsPage />} />
+                <Route path="/commands" element={<CommandsPage />} />
+                <Route path="/providers" element={<ProvidersPage />} />
                 <Route path="/memory" element={<MemoryPage />} />
                 <Route path="/todo" element={<TodoPage />} />
                 <Route path="/channels" element={<ChannelsPage />} />
+                <Route path="/doctor" element={<DoctorPage />} />
                 <Route path="/config" element={<OpenHarnessConfigPage />} />
               </Routes>
             )}

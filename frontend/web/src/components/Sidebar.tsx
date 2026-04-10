@@ -9,7 +9,14 @@ import {
   Sparkles,
   Brain,
   Radio,
-  Sliders
+  Sliders,
+  Plug,
+  Wrench,
+  Zap,
+  FileText,
+  Activity,
+  Terminal,
+  Globe
 } from 'lucide-react';
 import { useCallback, useEffect, useRef } from 'react';
 import { NavLink } from 'react-router-dom';
@@ -72,9 +79,16 @@ export function Sidebar() {
     { id: 'mcp', label: 'MCP Servers', icon: Puzzle, path: '/mcp', count: mcpServers.filter(s => s.status === 'connected').length },
     { id: 'swarm', label: 'Swarm', icon: Users, path: '/swarm', count: swarmTeammates.length },
     { id: 'skills', label: 'Skills', icon: Sparkles, path: '/skills' },
+    { id: 'plugins', label: 'Plugins', icon: Plug, path: '/plugins' },
+    { id: 'tools', label: 'Tools', icon: Wrench, path: '/tools' },
+    { id: 'hooks', label: 'Hooks', icon: Zap, path: '/hooks' },
+    { id: 'prompts', label: 'Prompts', icon: FileText, path: '/prompts' },
+    { id: 'commands', label: 'Commands', icon: Terminal, path: '/commands' },
+    { id: 'providers', label: 'Providers', icon: Globe, path: '/providers' },
     { id: 'memory', label: 'Memory', icon: Brain, path: '/memory' },
     { id: 'todo', label: 'TODO', icon: FileCheck, path: '/todo' },
     { id: 'channels', label: 'Channels', icon: Radio, path: '/channels', count: channels.filter(c => c.enabled).length },
+    { id: 'doctor', label: 'Doctor', icon: Activity, path: '/doctor' },
     { id: 'config', label: 'OpenHarness Config', icon: Sliders, path: '/config' },
   ];
 
@@ -115,36 +129,37 @@ export function Sidebar() {
         className={styles.sidebar}
         style={{ width: `${sidebarWidth}px` }}
       >
-        <div className={styles.header}>
-          <h2>Navigation</h2>
-          <button className={styles.closeButton} onClick={toggleSidebar}>
-            <X size={20} />
-          </button>
-        </div>
-        
-        <nav className={styles.nav}>
-          {panels.map((panel) => {
-            const Icon = panel.icon;
-            return (
-              <NavLink
-                key={panel.id}
-                to={panel.path}
-                className={({ isActive }) => 
-                  `${styles.navItem} ${isActive ? styles.active : ''}`
-                }
-              >
-                <Icon size={20} />
-                <span>{panel.label}</span>
-                {panel.count !== undefined && panel.count > 0 && (
-                  <span className={styles.badge}>{panel.count}</span>
-                )}
-              </NavLink>
-            );
-          })}
-        </nav>
+        <div className={styles.sidebarInner}>
+          <div className={styles.header}>
+            <h2>Navigation</h2>
+            <button className={styles.closeButton} onClick={toggleSidebar}>
+              <X size={20} />
+            </button>
+          </div>
+          
+          <nav className={styles.nav}>
+            {panels.map((panel) => {
+              const Icon = panel.icon;
+              return (
+                <NavLink
+                  key={panel.id}
+                  to={panel.path}
+                  className={({ isActive }) => 
+                    `${styles.navItem} ${isActive ? styles.active : ''}`
+                  }
+                >
+                  <Icon size={20} />
+                  <span>{panel.label}</span>
+                  {panel.count !== undefined && panel.count > 0 && (
+                    <span className={styles.badge}>{panel.count}</span>
+                  )}
+                </NavLink>
+              );
+            })}
+          </nav>
 
-        {/* Quick Info Section */}
-        <div className={styles.infoSection}>
+          {/* Quick Info Section */}
+          <div className={styles.infoSection}>
           <div className={styles.infoCard}>
             <div className={styles.infoHeader}>
               <span className={styles.infoTitle}>Quick Stats</span>
@@ -168,6 +183,7 @@ export function Sidebar() {
               </div>
             </div>
           </div>
+        </div>
         </div>
 
         {/* Resize Handle */}

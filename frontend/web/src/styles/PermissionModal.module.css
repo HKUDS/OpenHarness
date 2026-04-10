@@ -94,6 +94,7 @@
   background: rgba(255, 193, 7, 0.1);
   border: 1px solid rgba(255, 193, 7, 0.3);
   border-radius: 8px;
+  margin-bottom: 12px;
 }
 
 .warningIcon {
@@ -106,6 +107,83 @@
   font-size: 14px;
   line-height: 1.5;
   margin: 0;
+}
+
+.connectionWarning {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 8px;
+  color: #f87171;
+  font-size: 13px;
+}
+
+.reconnectButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin-left: auto;
+  background: rgba(239, 68, 68, 0.2);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 6px;
+  color: #f87171;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.reconnectButton:hover {
+  background: rgba(239, 68, 68, 0.3);
+  border-color: rgba(239, 68, 68, 0.5);
+}
+
+.reconnectButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  background: rgba(251, 146, 60, 0.2);
+  border: none;
+  border-radius: 4px;
+  color: #fb923c;
+  cursor: pointer;
+  margin-left: auto;
+  transition: all 0.2s ease;
+}
+
+.reconnectButton:hover {
+  background: rgba(251, 146, 60, 0.3);
+}
+
+.errorBox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 8px;
+  color: #ef4444;
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+
+.autoModeWarning {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  background: rgba(59, 130, 246, 0.1);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  border-radius: 8px;
+  color: #60a5fa;
+  font-size: 13px;
+  margin-bottom: 12px;
 }
 
 .modalActions {
@@ -127,12 +205,17 @@
   border: none;
 }
 
+.button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .approveButton {
   background: #2ecc71;
   color: white;
 }
 
-.approveButton:hover {
+.approveButton:hover:not(:disabled) {
   background: #27ae60;
   transform: translateY(-1px);
 }
@@ -142,11 +225,24 @@
   color: white;
 }
 
-.denyButton:hover {
+.denyButton:hover:not(:disabled) {
   background: #c0392b;
   transform: translateY(-1px);
 }
 
-.button:active {
+.button:active:not(:disabled) {
   transform: translateY(0);
+}
+
+.spinning {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }

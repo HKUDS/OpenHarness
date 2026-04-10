@@ -24,6 +24,16 @@ interface Skill {
   description: string;
   enabled: boolean;
   icon?: string;
+  script?: string;
+  scriptPath?: string;
+  scriptType?: 'python' | 'bash' | 'javascript' | 'other';
+  author?: string;
+  version?: string;
+  source?: 'local' | 'github' | 'clawhub' | 'upload';
+  sourceUrl?: string;
+  createdAt?: number;
+  updatedAt?: number;
+  tags?: string[];
 }
 
 interface MemoryItem {
@@ -87,6 +97,8 @@ interface AppState {
   // Callback actions (set by hooks)
   submitPrompt: ((prompt: string) => void) | null;
   sendPermissionResponse: ((requestId: string, allowed: boolean) => void) | null;
+  clearConversationCallback: (() => void) | null;
+  saveSettingsCallback: ((settings: Record<string, unknown>) => Promise<void>) | null;
   
   // Actions
   setConnected: (connected: boolean) => void;
@@ -105,9 +117,12 @@ interface AppState {
   setBusy: (busy: boolean) => void;
   setSubmitPrompt: (fn: ((prompt: string) => void) | null) => void;
   setSendPermissionResponse: (fn: ((requestId: string, allowed: boolean) => void) | null) => void;
+  setClearConversationCallback: (fn: (() => void) | null) => void;
+  setSaveSettingsCallback: (fn: ((settings: Record<string, unknown>) => Promise<void>) | null) => void;
   toggleSidebar: () => void;
   setActivePanel: (panel: AppState['activePanel']) => void;
   setTerminalView: (view: AppState['terminalView']) => void;
+  toggleTerminalView: () => void;
   toggleCommandPalette: () => void;
   setCommandPaletteOpen: (open: boolean) => void;
   clearMessages: () => void;
@@ -144,6 +159,7 @@ interface AppState {
   setIsResizingSidebar: (resizing: boolean) => void;
   setIsResizingInput: (resizing: boolean) => void;
   addSkill: (skill: Skill) => void;
+  updateSkill: (skillId: string, updates: Partial<Skill>) => void;
   toggleSkill: (skillId: string) => void;
   removeSkill: (skillId: string) => void;
   addMemory: (memory: MemoryItem) => void;
@@ -177,7 +193,8 @@ const DEFAULT_MODELS = [
 
 const PERMISSION_MODES = [
   { value: 'default', label: 'Default (Auto-approve safe commands)' },
-  { value: 'plan', label: 'Plan Mode (Review before execution)' }
+  { value: 'plan', label: 'Plan Mode (Review before execution)' },
+  { value: 'full_auto', label: 'Auto (Allow all tools)' }
 ];
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -259,6 +276,8 @@ export const useAppStore = create<AppState>((set) => ({
   showFileUpload: false,
   submitPrompt: null,
   sendPermissionResponse: null,
+  clearConversationCallback: null,
+  saveSettingsCallback: null,
   activeModal: null,
   expandedMessages: new Set(),
   isResizingSidebar: false,
@@ -283,9 +302,24 @@ export const useAppStore = create<AppState>((set) => ({
   setConnecting: (connecting) => set({ connecting }),
   setError: (error) => set({ error }),
   
-  addMessage: (message) => set((state) => ({
-    messages: [...state.messages, message]
-  })),
+  addMessage: (message) => set((state) => {
+    // Prevent adding duplicate messages by checking recent messages
+    const recentMessages = state.messages.slice(-5);
+    const isDuplicate = recentMessages.some(
+      m => m.role === message.role && 
+           m.content === message.content && 
+           Math.abs(m.timestamp - message.timestamp) < 100
+    );
+    
+    if (isDuplicate) {
+      console.log('[useAppStore] Skipping duplicate message:', message.id);
+      return state;
+    }
+    
+    return {
+      messages: [...state.messages, message]
+    };
+  }),
   
   updateMessage: (id, updates) => set((state) => ({
     messages: state.messages.map((msg) => 
@@ -307,6 +341,8 @@ export const useAppStore = create<AppState>((set) => ({
   setBusy: (busy) => set({ isBusy: busy }),
   setSubmitPrompt: (fn) => set({ submitPrompt: fn }),
   setSendPermissionResponse: (fn) => set({ sendPermissionResponse: fn }),
+  setClearConversationCallback: (fn) => set({ clearConversationCallback: fn }),
+  setSaveSettingsCallback: (fn) => set({ saveSettingsCallback: fn }),
   
   toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
   setActivePanel: (panel) => set({ activePanel: panel }),
@@ -357,7 +393,7 @@ export const useAppStore = create<AppState>((set) => ({
   }),
   
   setPermissionMode: (mode) => set((state) => {
-    const newSettings = { ...state.settings, permissionMode: mode as 'plan' | 'default' | 'auto' };
+    const newSettings = { ...state.settings, permissionMode: mode as 'plan' | 'default' | 'full_auto' };
     saveToStorage(STORAGE_KEYS.SETTINGS, newSettings);
     return {
       settings: newSettings,
@@ -377,6 +413,10 @@ export const useAppStore = create<AppState>((set) => ({
     const newSessions = [newChat, ...state.chatSessions];
     saveToStorage(STORAGE_KEYS.CHAT_SESSIONS, newSessions);
     saveToStorage(STORAGE_KEYS.CURRENT_CHAT_ID, newChat.id);
+    // Call backend to clear conversation history
+    if (state.clearConversationCallback) {
+      state.clearConversationCallback();
+    }
     return {
       chatSessions: newSessions,
       currentChatId: newChat.id,
@@ -471,7 +511,15 @@ export const useAppStore = create<AppState>((set) => ({
   setIsResizingInput: (resizing) => set({ isResizingInput: resizing }),
   
   addSkill: (skill) => set((state) => {
-    const newSkills = [...state.skills, skill];
+    const newSkills = [...state.skills, { ...skill, createdAt: Date.now(), updatedAt: Date.now() }];
+    saveToStorage(STORAGE_KEYS.SKILLS, newSkills);
+    return { skills: newSkills };
+  }),
+  
+  updateSkill: (skillId, updates) => set((state) => {
+    const newSkills = state.skills.map(s => 
+      s.id === skillId ? { ...s, ...updates, updatedAt: Date.now() } : s
+    );
     saveToStorage(STORAGE_KEYS.SKILLS, newSkills);
     return { skills: newSkills };
   }),

@@ -5,8 +5,8 @@ import { useBackendConnection } from '../hooks/useBackendConnection';
 import styles from '../styles/SettingsPanel.module.css';
 
 export function SettingsPanel() {
-  const { settings, updateSettings, setPermissionMode, sessionState } = useAppStore();
-  const { sendConfig } = useBackendConnection();
+  const { settings, updateSettings, sessionState } = useAppStore();
+  const { saveSettingsToBackend } = useBackendConnection();
   const [showApiKey, setShowApiKey] = useState(false);
   const [localApiKey, setLocalApiKey] = useState(settings.apiKey);
 
@@ -15,15 +15,49 @@ export function SettingsPanel() {
   };
 
   const handlePermissionModeChange = (mode: string) => {
-    setPermissionMode(mode);
-    // Sync to backend
-    sendConfig({ permission_mode: mode });
+    updateSettings({ permissionMode: mode as 'plan' | 'default' | 'full_auto' });
+  };
+
+  const handleMaxTurnsChange = (value: string) => {
+    const maxTurns = parseInt(value) || 100;
+    updateSettings({ maxTurns });
+  };
+
+  const handleThemeChange = (theme: 'dark' | 'light') => {
+    updateSettings({ theme });
+  };
+
+  const handleResetSettings = async () => {
+    // Reset to defaults and sync to backend
+    const defaultSettings = {
+      model: 'claude-sonnet-4-6',
+      permissionMode: 'default' as 'plan' | 'default' | 'full_auto',
+      theme: 'dark' as 'dark' | 'light',
+      maxTurns: 200,
+      effort: 'medium' as 'low' | 'medium' | 'high',
+      passes: 1,
+      vimMode: false,
+      fastMode: false,
+    };
+    updateSettings(defaultSettings);
+    if (saveSettingsToBackend) {
+      await saveSettingsToBackend({
+        model: defaultSettings.model,
+        permission_mode: defaultSettings.permissionMode,
+        theme: defaultSettings.theme,
+        max_turns: defaultSettings.maxTurns,
+        effort: defaultSettings.effort,
+        passes: defaultSettings.passes,
+        vim_mode: defaultSettings.vimMode,
+        voice_mode: defaultSettings.fastMode,
+      });
+    }
   };
 
   const permissionModes = [
     { value: 'default', label: 'Default', description: 'Auto-approve safe commands' },
     { value: 'plan', label: 'Plan Mode', description: 'Review before execution' },
-    { value: 'auto', label: 'Auto', description: 'Allow all tools automatically' }
+    { value: 'full_auto', label: 'Auto', description: 'Allow all tools automatically' }
   ];
 
   return (
@@ -129,7 +163,7 @@ export function SettingsPanel() {
             <input
               type="number"
               value={settings.maxTurns}
-              onChange={(e) => updateSettings({ maxTurns: parseInt(e.target.value) || 100 })}
+              onChange={(e) => handleMaxTurnsChange(e.target.value)}
               min="1"
               max="1000"
               className={styles.input}
@@ -152,13 +186,13 @@ export function SettingsPanel() {
           <div className={styles.themeOptions}>
             <button
               className={`${styles.themeOption} ${settings.theme === 'dark' ? styles.active : ''}`}
-              onClick={() => updateSettings({ theme: 'dark' })}
+              onClick={() => handleThemeChange('dark')}
             >
               🌙 Dark
             </button>
             <button
               className={`${styles.themeOption} ${settings.theme === 'light' ? styles.active : ''}`}
-              onClick={() => updateSettings({ theme: 'light' })}
+              onClick={() => handleThemeChange('light')}
             >
               ☀️ Light
             </button>
@@ -171,7 +205,7 @@ export function SettingsPanel() {
             <RefreshCw size={18} className={styles.sectionIcon} />
             <h4>Reset Settings</h4>
           </div>
-          <button className={styles.resetButton}>
+          <button className={styles.resetButton} onClick={handleResetSettings}>
             Restore Default Settings
           </button>
         </section>

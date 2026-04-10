@@ -8,68 +8,76 @@ import {
   isConnectionAttempted,
 } from '../utils/socketManager';
 
+// ----------------------------------------------------------------------
+// 🚨 GLOBAL MODULE LOCKS 🚨
+// Moving these OUTSIDE the hook prevents multiple hook instances 
+// (e.g. App.tsx and SettingsPanel.tsx) from bypassing each other's locks.
+// ----------------------------------------------------------------------
+let globalIsProcessingServerEvent = false;
+let globalLastManualSave = 0;
+let globalListenersSetup = false;
+
 export function useBackendConnection() {
   const streamingMessageRef = useRef<Message | null>(null);
   const userMessageTimestampRef = useRef<number | null>(null);
-  const listenersSetupRef = useRef(false);
-  
-  // Get store actions once - these are stable
-  const {
-    setConnected,
-    setConnecting,
-    setError,
-    addMessage,
-    updateMessage,
-    setSessionState,
-    setTasks,
-    setMcpServers,
-    setBridgeSessions,
-    setBusy,
-    setCommands,
-    setSubmitPrompt,
-    setSendPermissionResponse,
-    setSkills,
-    setAvailableModels,
-    setCurrentModel,
-    updateSettings,
-    setActiveModal,
-    connected,
-    connecting,
-    error,
-  } = useAppStore();
+  const processedMessageIdsRef = useRef<Set<string>>(new Set());
+  const lastTranscriptTimestampRef = useRef<number>(0);
 
-  // Handle backend events - defined once
+  // Granular selectors to prevent hook from re-rendering on EVERY store change.
+  const setConnected = useAppStore((s) => s.setConnected);
+  const setConnecting = useAppStore((s) => s.setConnecting);
+  const setError = useAppStore((s) => s.setError);
+  const addMessage = useAppStore((s) => s.addMessage);
+  const updateMessage = useAppStore((s) => s.updateMessage);
+  const setSessionState = useAppStore((s) => s.setSessionState);
+  const setTasks = useAppStore((s) => s.setTasks);
+  const setMcpServers = useAppStore((s) => s.setMcpServers);
+  const setBridgeSessions = useAppStore((s) => s.setBridgeSessions);
+  const setBusy = useAppStore((s) => s.setBusy);
+  const setCommands = useAppStore((s) => s.setCommands);
+  const setSubmitPrompt = useAppStore((s) => s.setSubmitPrompt);
+  const setSendPermissionResponse = useAppStore((s) => s.setSendPermissionResponse);
+  const setClearConversationCallback = useAppStore((s) => s.setClearConversationCallback);
+  const setSaveSettingsCallback = useAppStore((s) => s.setSaveSettingsCallback);
+  const setSkills = useAppStore((s) => s.setSkills);
+  const setAvailableModels = useAppStore((s) => s.setAvailableModels);
+  const setCurrentModel = useAppStore((s) => s.setCurrentModel);
+  const updateSettings = useAppStore((s) => s.updateSettings);
+  const setActiveModal = useAppStore((s) => s.setActiveModal);
+  
+  const connected = useAppStore((s) => s.connected);
+  const connecting = useAppStore((s) => s.connecting);
+  const error = useAppStore((s) => s.error);
+
   const handleBackendEvent = useCallback((data: string) => {
-    console.log('[WS] 📩 Raw event received:', data.substring(0, 200));
+    // 🔒 LOCK ON: Prevent store changes from triggering outgoing saves
+    globalIsProcessingServerEvent = true;
+    
     try {
-      // Strip protocol prefix if present
       const jsonStr = data.startsWith('OHJSON:') ? data.slice(7) : data;
       const event = JSON.parse(jsonStr) as BackendEvent;
-      console.log('[WS] 📩 Event type:', event.type);
       
-      // Handle event
       switch (event.type) {
         case 'ready':
-          console.log('[WS] Handling ready event');
+          processedMessageIdsRef.current.clear();
+          lastTranscriptTimestampRef.current = 0;
+          streamingMessageRef.current = null;
+          
           if (event.state) {
             const state = event.state as Record<string, unknown>;
             setSessionState(state as any);
+            if (state.model) setCurrentModel(state.model as string);
             
-            // Sync settings from backend
-            if (state.model) {
-              setCurrentModel(state.model as string);
-            }
+            const newSettings: Record<string, any> = {};
             if (state.permission_mode) {
-              updateSettings({ permissionMode: state.permission_mode as 'plan' | 'default' | 'auto' });
+              const mode = state.permission_mode as string;
+              newSettings.permissionMode = mode === 'auto' ? 'full_auto' : mode;
             }
-            if (state.working_directory) {
-              updateSettings({ workingDirectory: state.working_directory as string });
-            }
-            if (state.max_turns) {
-              updateSettings({ maxTurns: state.max_turns as number });
-            }
+            if (state.working_directory) newSettings.workingDirectory = state.working_directory;
+            if (state.max_turns) newSettings.maxTurns = state.max_turns;
             
-            // Sync skills from backend if available
+            if (Object.keys(newSettings).length > 0) updateSettings(newSettings);
+            
             if (state.skills && Array.isArray(state.skills)) {
               setSkills(state.skills.map((s: any) => ({
                 id: s.id || s.name?.toLowerCase().replace(/\s+/g, '-'),
@@ -78,34 +86,40 @@ export function useBackendConnection() {
                 enabled: s.enabled !== false,
               })));
             }
-            
-            // Sync available models from backend if available
             if (state.available_models && Array.isArray(state.available_models)) {
               setAvailableModels(state.available_models);
             }
           }
-          if (event.commands) {
-            setCommands(event.commands);
-          }
-          if (event.mcp_servers) {
-            setMcpServers(event.mcp_servers);
-          }
-          if (event.bridge_sessions) {
-            setBridgeSessions(event.bridge_sessions);
-          }
-          if (event.tasks) {
-            setTasks(event.tasks);
-          }
+          if (event.commands) setCommands(event.commands);
+          if (event.mcp_servers) setMcpServers(event.mcp_servers);
+          if (event.bridge_sessions) setBridgeSessions(event.bridge_sessions);
+          if (event.tasks) setTasks(event.tasks);
           break;
 
         case 'transcript_item':
           if (event.item) {
             const item = event.item as TranscriptItem;
             const now = Date.now();
+            
+            if (item.role === 'assistant' && streamingMessageRef.current) break;
+            
+            const itemContent = item.text || item.output || '';
+            const itemKey = `${item.role}-${itemContent.length}-${item.tool_name || 'none'}-${itemContent.substring(0, 50)}`;
+            
+            if (processedMessageIdsRef.current.has(itemKey)) break;
+            
+            processedMessageIdsRef.current.add(itemKey);
+            lastTranscriptTimestampRef.current = now;
+            
+            if (processedMessageIdsRef.current.size > 500) {
+              const entries = Array.from(processedMessageIdsRef.current);
+              processedMessageIdsRef.current = new Set(entries.slice(-250));
+            }
+            
             const message: Message = {
               id: crypto.randomUUID(),
               role: item.role as any,
-              content: item.text || item.output || '',
+              content: itemContent,
               timestamp: now,
               tool_name: item.tool_name,
               tool_input: item.tool_input,
@@ -113,34 +127,27 @@ export function useBackendConnection() {
               tokenUsage: item.token_usage,
               responseTime: item.response_time || (item.role === 'assistant' && userMessageTimestampRef.current ? now - userMessageTimestampRef.current : undefined),
             };
-            // Calculate response time for assistant messages
+            
             if (item.role === 'assistant' && userMessageTimestampRef.current && !item.response_time) {
               message.responseTime = now - userMessageTimestampRef.current;
               userMessageTimestampRef.current = null;
             }
-            // Record user message timestamp for response time calculation
-            if (item.role === 'user') {
-              userMessageTimestampRef.current = now;
-            }
+            if (item.role === 'user') userMessageTimestampRef.current = now;
+            
             addMessage(message);
           }
           break;
         
         case 'token_usage':
-          // Handle token usage event from backend
           if (event.token_usage && streamingMessageRef.current) {
-            updateMessage(streamingMessageRef.current.id, {
-              tokenUsage: event.token_usage,
-            });
+            updateMessage(streamingMessageRef.current.id, { tokenUsage: event.token_usage });
           }
           break;
 
         case 'assistant_delta':
-          // Handle streaming assistant response
           if (event.message) {
             const now = Date.now();
             if (!streamingMessageRef.current) {
-              // Start new streaming message
               streamingMessageRef.current = {
                 id: crypto.randomUUID(),
                 role: 'assistant',
@@ -150,7 +157,6 @@ export function useBackendConnection() {
               };
               addMessage(streamingMessageRef.current);
             } else {
-              // Append to existing streaming message
               streamingMessageRef.current.content += event.message;
               updateMessage(streamingMessageRef.current.id, {
                 content: streamingMessageRef.current.content,
@@ -161,7 +167,6 @@ export function useBackendConnection() {
 
         case 'assistant_complete':
         case 'line_complete':
-          // Calculate final response time and update message
           if (streamingMessageRef.current) {
             const responseTime = userMessageTimestampRef.current 
               ? Date.now() - userMessageTimestampRef.current 
@@ -169,12 +174,10 @@ export function useBackendConnection() {
             
             updateMessage(streamingMessageRef.current.id, {
               responseTime,
-              // Include token usage if provided in the event
               ...(event.token_usage && { tokenUsage: event.token_usage }),
             });
             userMessageTimestampRef.current = null;
           }
-          // Reset streaming message
           streamingMessageRef.current = null;
           setBusy(false);
           break;
@@ -184,130 +187,115 @@ export function useBackendConnection() {
           break;
 
         case 'state_snapshot':
+        case 'state_update':
           if (event.state) {
             const state = event.state as Record<string, unknown>;
             setSessionState(state as any);
-            
-            // Sync model if it changed from backend
             if (state.model && typeof state.model === 'string') {
               setCurrentModel(state.model);
             }
-            // Sync permission mode
-            if (state.permission_mode && typeof state.permission_mode === 'string') {
-              updateSettings({ permissionMode: state.permission_mode as 'plan' | 'default' | 'auto' });
-            }
-            // Sync working directory
-            if (state.working_directory && typeof state.working_directory === 'string') {
-              updateSettings({ workingDirectory: state.working_directory as string });
-            }
-            // Sync max turns
-            if (state.max_turns && typeof state.max_turns === 'number') {
-              updateSettings({ maxTurns: state.max_turns as number });
-            }
           }
+          
+          const snapshotSettings: Record<string, any> = {};
+          const modeSource = event.permission_mode || (event.state && (event.state as any).permission_mode);
+          if (modeSource) {
+            snapshotSettings.permissionMode = modeSource === 'auto' ? 'full_auto' : modeSource;
+          }
+          if (event.state) {
+            const state = event.state as any;
+            if (state.working_directory) snapshotSettings.workingDirectory = state.working_directory;
+            if (state.max_turns) snapshotSettings.maxTurns = state.max_turns;
+          }
+          if (Object.keys(snapshotSettings).length > 0) updateSettings(snapshotSettings);
           break;
 
         case 'tasks_snapshot':
-          if (event.tasks) {
-            setTasks(event.tasks);
-          }
+          if (event.tasks) setTasks(event.tasks);
           break;
 
         case 'modal_request':
-          // Handle permission/question modal requests
-          if (event.modal) {
-            console.log('[WS] Modal request received:', event.modal);
-            setActiveModal(event.modal as ModalRequest);
-          }
+          if (event.modal) setActiveModal(event.modal as ModalRequest);
           break;
 
-        case 'state_update':
-          // Handle state update events (e.g., permission mode changes)
-          if (event.permission_mode) {
-            updateSettings({ permissionMode: event.permission_mode as 'plan' | 'default' | 'auto' });
-          }
-          if (event.state) {
-            const state = event.state as Record<string, unknown>;
-            setSessionState(state as any);
-          }
+        case 'permission_response_ack':
+          if (!event.success) console.error('[WS] Permission response failed:', event.error);
           break;
 
-        default:
-          console.log('[WS] Unhandled event type:', event.type);
+        case 'config_saved':
+          if (event.settings) {
+            const savedSettings = event.settings as Record<string, unknown>;
+            if (savedSettings.model) setCurrentModel(savedSettings.model as string);
+            
+            const batchedSettings: Record<string, any> = {};
+            if (savedSettings.permission_mode) {
+              batchedSettings.permissionMode = savedSettings.permission_mode === 'auto' ? 'full_auto' : savedSettings.permission_mode;
+            }
+            if (savedSettings.theme) batchedSettings.theme = savedSettings.theme;
+            if (savedSettings.effort) batchedSettings.effort = savedSettings.effort;
+            if (savedSettings.passes) batchedSettings.passes = savedSettings.passes;
+            if (savedSettings.max_turns) batchedSettings.maxTurns = savedSettings.max_turns;
+            if (savedSettings.vim_mode !== undefined) batchedSettings.vimMode = savedSettings.vim_mode;
+            if (savedSettings.voice_mode !== undefined) batchedSettings.fastMode = savedSettings.voice_mode;
+            
+            if (Object.keys(batchedSettings).length > 0) updateSettings(batchedSettings);
+          }
+          break;
       }
     } catch (err) {
       console.error('[WS] Failed to parse backend event:', err);
+    } finally {
+      // 🔓 LOCK OFF: Delay release slightly to let React finish rendering the new state
+      setTimeout(() => {
+        globalIsProcessingServerEvent = false;
+      }, 150);
     }
   }, [
-    setSessionState,
-    setCurrentModel,
-    updateSettings,
-    setSkills,
-    setAvailableModels,
-    setCommands,
-    setMcpServers,
-    setBridgeSessions,
-    setTasks,
-    addMessage,
-    updateMessage,
-    setBusy,
-    setError,
-    setActiveModal,
+    setSessionState, setCurrentModel, updateSettings, setSkills, setAvailableModels,
+    setCommands, setMcpServers, setBridgeSessions, setTasks, setBusy, setError,
+    setActiveModal, addMessage, updateMessage
   ]);
 
-  // Setup socket event listeners
   const setupListeners = useCallback((socket: ReturnType<typeof getSocketInstance>) => {
-    if (!socket || listenersSetupRef.current) return;
+    if (!socket) return;
+    
+    // Always clear old listeners to prevent multiple triggers per event
+    socket.off('connect');
+    socket.off('disconnect');
+    socket.off('connect_error');
+    socket.off('backend_event');
     
     socket.on('connect', () => {
-      console.log('[WS] ✅ Connected to OpenHarness backend');
       setConnected(true);
       setConnecting(false);
     });
 
     socket.on('disconnect', () => {
-      console.log('[WS] ❌ Disconnected from OpenHarness backend');
       setConnected(false);
     });
 
     socket.on('connect_error', (err: Error) => {
-      console.error('[WS] ❌ Connection error:', err);
       setError(`Connection failed: ${err.message}`);
       setConnecting(false);
       setConnected(false);
     });
 
     socket.on('backend_event', handleBackendEvent);
-    
-    listenersSetupRef.current = true;
+    globalListenersSetup = true;
   }, [handleBackendEvent, setConnected, setConnecting, setError]);
 
-  // Connect to backend - singleton pattern
   const connect = useCallback(() => {
     const existingSocket = getSocketInstance();
-    
-    if (existingSocket?.connected) {
-      console.log('[WS] Already connected, skipping');
-      return;
-    }
+    if (existingSocket?.connected) return;
     
     if (isConnectionAttempted() && existingSocket) {
-      console.log('[WS] Connection already attempted, checking state');
-      // Socket might be reconnecting
-      if (!existingSocket.connected) {
-        setConnecting(true);
-      }
+      if (!existingSocket.connected) setConnecting(true);
       return;
     }
     
-    console.log('[WS] Connecting to backend...');
     setConnecting(true);
     setError(null);
 
-    // Use current origin - backend serves the frontend
     const connectionUrl = window.location.origin;
-    console.log('[WS] Connection URL:', connectionUrl);
-
     const socket = createSocket(connectionUrl);
     setupListeners(socket);
   }, [setupListeners, setConnecting, setError]);
@@ -315,87 +303,141 @@ export function useBackendConnection() {
   const sendMessage = useCallback((payload: Record<string, unknown>) => {
     const socket = getSocketInstance();
     if (socket?.connected) {
-      console.log('[WS] Sending message:', payload);
       socket.emit('frontend_request', JSON.stringify(payload));
-    } else {
-      console.warn('[WS] Cannot send message - not connected');
     }
   }, []);
 
   const submitPrompt = useCallback((prompt: string) => {
-    console.log('[WS] Submitting prompt:', prompt);
-    userMessageTimestampRef.current = Date.now(); // Record when user sends message
+    userMessageTimestampRef.current = Date.now();
+    streamingMessageRef.current = null;
     sendMessage({ type: 'submit_line', line: prompt });
     setBusy(true);
   }, [sendMessage, setBusy]);
 
-  // Send permission response to backend
   const sendPermissionResponse = useCallback((requestId: string, allowed: boolean) => {
-    console.log('[WS] Sending permission response:', requestId, allowed);
     sendMessage({ type: 'permission_response', request_id: requestId, allowed });
   }, [sendMessage]);
 
-  // Send configuration update to backend
   const sendConfig = useCallback((config: Record<string, unknown>) => {
-    console.log('[WS] Sending config update:', config);
     sendMessage({ type: 'config_update', config });
   }, [sendMessage]);
 
-  // Request skills refresh from backend
+  const clearConversation = useCallback(() => {
+    sendMessage({ type: 'clear_conversation' });
+  }, [sendMessage]);
+
   const refreshSkills = useCallback(() => {
     sendMessage({ type: 'get_skills' });
   }, [sendMessage]);
 
-  // Request settings refresh from backend
   const refreshSettings = useCallback(() => {
     sendMessage({ type: 'get_settings' });
   }, [sendMessage]);
 
-  // Only initialize connection once per app lifecycle (not per component)
-  // This effect runs in App.tsx which is the root component
-  useEffect(() => {
-    // Only connect if this is the first mount (no existing socket)
-    if (!isConnectionAttempted()) {
-      connect();
+  const fetchSettingsFromBackend = useCallback(async () => {
+    try {
+      const response = await fetch('/api/config');
+      if (response.ok) {
+        const config = await response.json();
+        
+        // Wrap fetching initial config in the lock too so it doesn't trigger saves
+        globalIsProcessingServerEvent = true;
+        if (config.model) updateSettings({ model: config.model });
+        
+        const newSettings: Record<string, any> = {};
+        if (config.permission_mode) newSettings.permissionMode = config.permission_mode === 'auto' ? 'full_auto' : config.permission_mode;
+        if (config.theme) newSettings.theme = config.theme;
+        if (config.effort) newSettings.effort = config.effort;
+        if (config.passes) newSettings.passes = config.passes;
+        if (config.max_turns) newSettings.maxTurns = config.max_turns;
+        if (config.vim_mode !== undefined) newSettings.vimMode = config.vim_mode;
+        if (config.voice_mode !== undefined) newSettings.fastMode = config.voice_mode;
+        
+        if (Object.keys(newSettings).length > 0) updateSettings(newSettings);
+        
+        setTimeout(() => { globalIsProcessingServerEvent = false; }, 150);
+        return config;
+      }
+    } catch (err) {
+      console.error('[WS] Failed to fetch config from backend:', err);
+    }
+    return null;
+  }, [updateSettings]);
+
+  const saveSettingsToBackend = useCallback(async (settings: Record<string, unknown>) => {
+    // 1. THE ANTI-LOOP: If this save was triggered directly/indirectly by an incoming 
+    // WebSocket event, block it. The global lock catches ALL hook instances.
+    if (globalIsProcessingServerEvent) {
+      console.warn('🚫 [ANTI-LOOP] Blocked save triggered by websocket update.');
+      return null;
     }
     
-    // Setup listeners if socket exists but listeners aren't setup
+    // 2. GLOBAL CIRCUIT BREAKER: Block rapid consecutive calls across ALL components
+    const now = Date.now();
+    if (now - globalLastManualSave < 1000) {
+      console.warn('🚫 [CIRCUIT BREAKER] Blocked spam request across instances.');
+      return null;
+    }
+    globalLastManualSave = now;
+
+    try {
+      const response = await fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(settings),
+      });
+      if (response.ok) {
+        return await response.json();
+      }
+      return null;
+    } catch (err) {
+      console.error('[WS] Error saving settings to backend:', err);
+      return null;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isConnectionAttempted()) connect();
+    
     const socket = getSocketInstance();
-    if (socket && !listenersSetupRef.current) {
+    if (socket && !globalListenersSetup) {
       setupListeners(socket);
     }
-    
-    // No cleanup here - we want to keep the connection alive across page navigation
-    // Cleanup should only happen when the entire app unmounts (handled elsewhere)
-  }, []); // Empty deps - only run once
+  }, [connect, setupListeners]);
 
-  // Update submitPrompt and sendPermissionResponse in store when connected
   useEffect(() => {
     if (connected) {
       setSubmitPrompt(submitPrompt);
       setSendPermissionResponse(sendPermissionResponse);
+      setClearConversationCallback(clearConversation);
+      setSaveSettingsCallback(saveSettingsToBackend);
     }
-  }, [connected, submitPrompt, sendPermissionResponse, setSubmitPrompt, setSendPermissionResponse]);
+  }, [
+    connected, submitPrompt, sendPermissionResponse, clearConversation, 
+    saveSettingsToBackend, setSubmitPrompt, setSendPermissionResponse, 
+    setClearConversationCallback, setSaveSettingsCallback
+  ]);
 
   const disconnect = useCallback(() => {
     disconnectSocket();
     setConnected(false);
-    setSubmitPrompt(null);
-    setSendPermissionResponse(null);
-    listenersSetupRef.current = false;
-  }, [setConnected, setSubmitPrompt, setSendPermissionResponse]);
+    globalListenersSetup = false;
+  }, [setConnected]);
 
   return {
     connect,
     disconnect,
+    connected,
+    connecting,
+    error,
     sendMessage,
     submitPrompt,
     sendPermissionResponse,
     sendConfig,
+    clearConversation,
     refreshSkills,
     refreshSettings,
-    connected,
-    connecting,
-    error,
+    fetchSettingsFromBackend,
+    saveSettingsToBackend,
   };
 }

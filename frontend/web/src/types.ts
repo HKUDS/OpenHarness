@@ -65,7 +65,8 @@ export interface BackendEvent {
         'assistant_delta' | 'assistant_complete' | 'line_complete' | 
         'modal_request' | 'select_request' | 'error' | 'mcp_servers' | 
         'bridge_sessions' | 'todo_updated' | 'swarm_teammates' | 
-        'swarm_notifications' | 'token_usage' | 'state_update';
+        'swarm_notifications' | 'token_usage' | 'state_update' | 
+        'permission_response_ack' | 'conversation_cleared' | 'config_saved';
   state?: Record<string, unknown>;
   tasks?: TaskSnapshot[];
   item?: TranscriptItem;
@@ -90,6 +91,12 @@ export interface BackendEvent {
   response_time?: number;
   // Permission mode update
   permission_mode?: string;
+  // Permission response acknowledgment
+  request_id?: string;
+  success?: boolean;
+  error?: string;
+  // Config saved event
+  settings?: Record<string, unknown>;
 }
 
 export interface TranscriptItem {
@@ -167,7 +174,7 @@ export interface TodoItem {
 export interface AppSettings {
   apiKey: string;
   model: string;
-  permissionMode: 'plan' | 'default' | 'auto';
+  permissionMode: 'plan' | 'default' | 'full_auto';
   theme: 'dark' | 'light';
   workingDirectory: string;
   maxTurns: number;
@@ -184,6 +191,16 @@ export interface Skill {
   description: string;
   enabled: boolean;
   icon?: string;
+  script?: string;          // Script content (inline script)
+  scriptPath?: string;      // Path to script file
+  scriptType?: 'python' | 'bash' | 'javascript' | 'other';  // Script language
+  author?: string;          // Author name
+  version?: string;         // Version string
+  source?: 'local' | 'github' | 'clawhub' | 'upload';  // Where the skill came from
+  sourceUrl?: string;       // URL if imported from remote
+  createdAt?: number;       // Creation timestamp
+  updatedAt?: number;       // Last update timestamp
+  tags?: string[];          // Tags for categorization
 }
 
 export interface MemoryItem {
