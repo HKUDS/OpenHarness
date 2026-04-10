@@ -17,6 +17,7 @@ from openharness.tools.exit_worktree_tool import ExitWorktreeTool
 from openharness.tools.file_edit_tool import FileEditTool
 from openharness.tools.file_read_tool import FileReadTool
 from openharness.tools.file_write_tool import FileWriteTool
+from openharness.tools.git_tool import GitTool
 from openharness.tools.glob_tool import GlobTool
 from openharness.tools.grep_tool import GrepTool
 from openharness.tools.list_mcp_resources_tool import ListMcpResourcesTool
@@ -57,6 +58,7 @@ def create_default_tool_registry(mcp_manager=None) -> ToolRegistry:
         McpAuthTool(),
         GlobTool(),
         GrepTool(),
+        GitTool(),
         SkillTool(),
         ToolSearchTool(),
         WebFetchTool(),
