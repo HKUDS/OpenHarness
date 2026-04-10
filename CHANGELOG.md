@@ -16,6 +16,7 @@ The format is based on Keep a Changelog, and this project currently tracks chang
 - `CONTRIBUTING.md` with local setup, validation commands, and PR expectations.
 - `docs/SHOWCASE.md` with concrete OpenHarness usage patterns and demo commands.
 - GitHub issue templates and a pull request template.
+- React TUI assistant messages now render structured Markdown blocks, including headings, lists, code fences, blockquotes, links, and tables.
 
 ### Fixed
 
@@ -27,6 +28,7 @@ The format is based on Keep a Changelog, and this project currently tracks chang
 - Memory search tokenizer handles Han characters for multilingual queries.
 - Fixed duplicate response in React TUI caused by double Enter key submission in the input handler.
 - Fixed concurrent permission modals overwriting each other in TUI default mode when the LLM returns multiple tool calls in one response; `_ask_permission` now serialises callers via an `asyncio.Lock` so each modal is shown and resolved before the next one is emitted.
+- Fixed React TUI Markdown tables to size columns from rendered cell text so inline formatting like code spans and bold text no longer breaks alignment.
 
 ### Changed
 

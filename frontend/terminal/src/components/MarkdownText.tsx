@@ -54,6 +54,7 @@ function getTableCellDisplayText(cell: Tokens.TableCell): string {
 	return displayText.length > 0 ? displayText : cell.text;
 }
 
+// Inline token renderer — returns an array of <Text> elements.
 function renderInline(tokens: Token[] | undefined, theme: ThemeConfig): React.ReactNode {
 	if (!tokens || tokens.length === 0) {
 		return null;
@@ -62,6 +63,7 @@ function renderInline(tokens: Token[] | undefined, theme: ThemeConfig): React.Re
 		switch (token.type) {
 			case 'text': {
 				const t = token as Tokens.Text;
+				// Text tokens can themselves contain inline children, such as list items.
 				if (t.tokens && t.tokens.length > 0) {
 					return <React.Fragment key={i}>{renderInline(t.tokens, theme)}</React.Fragment>;
 				}
@@ -129,10 +131,18 @@ function renderBlocks(tokens: Token[] | undefined, theme: ThemeConfig): React.Re
 		return null;
 	}
 
-	return tokens.map((token, i) => <MarkdownBlock key={i} token={token} theme={theme} />);
+	return tokens.map((token, i) => (
+		<MarkdownBlock key={i} token={token} theme={theme} />
+	));
 }
 
-function MarkdownBlock({token, theme}: {token: Token; theme: ThemeConfig}): React.JSX.Element | null {
+function MarkdownBlock({
+	token,
+	theme,
+}: {
+	token: Token;
+	theme: ThemeConfig;
+}): React.JSX.Element | null {
 	switch (token.type) {
 		case 'heading': {
 			const h = token as Tokens.Heading;
@@ -170,7 +180,9 @@ function MarkdownBlock({token, theme}: {token: Token; theme: ThemeConfig}): Reac
 			const lines = c.text.split('\n');
 			return (
 				<Box flexDirection="column" marginTop={1} marginLeft={2} borderStyle="round" paddingX={1} borderColor={theme.colors.muted}>
-					{c.lang ? <Text dimColor>{c.lang}</Text> : null}
+					{c.lang ? (
+						<Text dimColor>{c.lang}</Text>
+					) : null}
 					{lines.map((line, i) => (
 						<Text key={i} color={theme.colors.accent}>
 							{line}
@@ -201,6 +213,8 @@ function MarkdownBlock({token, theme}: {token: Token; theme: ThemeConfig}): Reac
 			return (
 				<Box flexDirection="column" marginTop={0} marginLeft={2}>
 					{l.items.map((item, i) => {
+						// For tight lists, item.tokens = [{type:'text', tokens:[...inline]}]
+						// For loose lists, item.tokens = [{type:'paragraph', tokens:[...inline]}]
 						const inlineTokens: Token[] = item.tokens.flatMap((t) =>
 							'tokens' in t && t.tokens ? (t.tokens as Token[]) : [],
 						);
@@ -209,7 +223,11 @@ function MarkdownBlock({token, theme}: {token: Token; theme: ThemeConfig}): Reac
 							<Box key={i} flexDirection="row">
 								<Text color={theme.colors.primary}>{bullet}</Text>
 								<Box flexGrow={1}>
-									<Text>{inlineTokens.length > 0 ? renderInline(inlineTokens, theme) : item.text}</Text>
+									<Text>
+										{inlineTokens.length > 0
+											? renderInline(inlineTokens, theme)
+											: item.text}
+									</Text>
 								</Box>
 							</Box>
 						);
@@ -232,6 +250,7 @@ function MarkdownBlock({token, theme}: {token: Token; theme: ThemeConfig}): Reac
 			const t = token as Tokens.Table;
 			const headerTexts = t.header.map(getTableCellDisplayText);
 			const rowTexts = t.rows.map((row) => row.map(getTableCellDisplayText));
+			// Use stringWidth for correct CJK and wide-char column widths.
 			const colCount = t.header.length;
 			const colWidths: number[] = headerTexts.map((cellText) => stringWidth(cellText));
 			for (const row of rowTexts) {
@@ -242,39 +261,55 @@ function MarkdownBlock({token, theme}: {token: Token; theme: ThemeConfig}): Reac
 			const trailing = (cellText: string, c: number): string =>
 				' '.repeat(Math.max(0, (colWidths[c] ?? 0) - stringWidth(cellText)));
 			const top = '┌' + colWidths.map((w) => '─'.repeat(w + 2)).join('┬') + '┐';
-			const sep = '├' + colWidths.map((w) => '─'.repeat(w + 2)).join('┼') + '┤';
+			const mid = '├' + colWidths.map((w) => '─'.repeat(w + 2)).join('┼') + '┤';
 			const bot = '└' + colWidths.map((w) => '─'.repeat(w + 2)).join('┴') + '┘';
 			return (
-				<Box flexDirection="column" marginTop={1}>
-					<Text>{top}</Text>
+				<Box flexDirection="column" marginTop={1} marginLeft={1}>
+					<Text color={theme.colors.muted}>{top}</Text>
 					<Text>
-						{'│' + headerTexts.map((cell, c) => ` ${cell}${trailing(cell, c)} `).join('│') + '│'}
+						<Text color={theme.colors.muted}>{'│'}</Text>
+						{t.header.map((cell, c) => (
+							<React.Fragment key={c}>
+								<Text color={theme.colors.primary} bold>
+									{' '}{renderInline(cell.tokens, theme)}{trailing(headerTexts[c] ?? '', c)}{' '}
+								</Text>
+								<Text color={theme.colors.muted}>{'│'}</Text>
+							</React.Fragment>
+						))}
 					</Text>
-					<Text>{sep}</Text>
-					{rowTexts.map((row, r) => (
-						<Text key={r}>
-							{'│' + row.map((cell, c) => ` ${cell}${trailing(cell, c)} `).join('│') + '│'}
+					<Text color={theme.colors.muted}>{mid}</Text>
+					{t.rows.map((row, i) => (
+						<Text key={i}>
+							<Text color={theme.colors.muted}>{'│'}</Text>
+							{row.map((cell, c) => (
+								<React.Fragment key={c}>
+									<Text>
+										{' '}{renderInline(cell.tokens, theme)}{trailing(rowTexts[i]?.[c] ?? '', c)}{' '}
+									</Text>
+									<Text color={theme.colors.muted}>{'│'}</Text>
+								</React.Fragment>
+							))}
 						</Text>
 					))}
-					<Text>{bot}</Text>
+					<Text color={theme.colors.muted}>{bot}</Text>
 				</Box>
 			);
 		}
 
 		default:
-			if ('text' in token && typeof token.text === 'string') {
-				return (
-					<Box>
-						<Text>{token.text}</Text>
-					</Box>
-				);
+			if ((token as Token).raw) {
+				return <Text>{(token as Token).raw}</Text>;
 			}
 			return null;
 	}
 }
 
-export function MarkdownText({content}: {content: string}): React.JSX.Element {
+export const MarkdownText = React.memo(function MarkdownText({content}: {content: string}): React.JSX.Element {
 	const {theme} = useTheme();
-	const tokens = React.useMemo(() => lexer(content ?? ''), [content]);
-	return <Box flexDirection="column">{renderBlocks(tokens, theme)}</Box>;
-}
+	const tokens = React.useMemo(() => lexer(content), [content]);
+	return (
+		<Box flexDirection="column">
+			{renderBlocks(tokens, theme)}
+		</Box>
+	);
+});

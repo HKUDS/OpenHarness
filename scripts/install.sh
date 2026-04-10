@@ -190,7 +190,12 @@ VENV_DIR="$HOME/.openharness-venv"
 # ---------------------------------------------------------------------------
 # Create a virtual environment to avoid PEP 668 externally-managed errors
 # ---------------------------------------------------------------------------
-if [ ! -d "$VENV_DIR" ]; then
+if [ -d "$VENV_DIR" ] && [ ! -f "$VENV_DIR/bin/activate" ]; then
+    warn "Found incomplete virtual environment at ${VENV_DIR}; recreating it..."
+    rm -rf "$VENV_DIR"
+fi
+
+if [ ! -f "$VENV_DIR/bin/activate" ]; then
     info "Creating virtual environment at ${VENV_DIR}..."
     "$PYTHON_CMD" -m venv "$VENV_DIR"
 fi
