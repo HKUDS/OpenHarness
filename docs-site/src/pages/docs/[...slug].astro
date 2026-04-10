@@ -1,0 +1,46 @@
+---
+import { getCollection, render } from 'astro:content';
+import DocLayout from '../../layouts/DocLayout.astro';
+import ImageGenIsland from '../../components/ImageGenIsland.tsx';
+
+export async function getStaticPaths() {
+  const docs = await getCollection('docs');
+  return docs.map((doc) => {
+    let slug: string;
+    if (doc.id === 'index.md') {
+      slug = '';
+    } else {
+      slug = doc.id.replace(/\.md$/, '');
+    }
+
+    return {
+      params: { slug: slug || undefined },
+           props: { doc, slug },
+    };
+  });
+}
+
+const { doc, slug } = Astro.props;
+const { Content } = await render(doc);
+const currentPath = slug ? `/docs/${slug}/` : '/docs/';
+---
+
+<DocLayout
+  title={doc.data.title || (slug ? slug.split('/').pop() : '首页')}
+  description={doc.data.description}
+  currentPath={currentPath}
+>
+  <div class="prose prose-slate dark:prose-invert max-w-none
+    prose-headings:font-semibold prose-headings:text-gray-900 dark:prose-headings:text-white
+    prose-a:text-blue-600 dark:prose-a:text-blue-400
+    prose-code:text-blue-700 dark:prose-code:text-blue-300
+    prose-pre:bg-gray-900 dark:prose-pre:bg-gray-800
+    prose-img:rounded-lg
+  ">
+    <Content components={{ ImageGenIsland: ImageGenIsland as any }} />
+  </div>
+
+  <!-- Load mermaid-block component and convert code blocks -->
+  <script type="module" src="/mermaid-block.js"></script>
+  <script type="module" src="/mermaid-convert.js"></script>
+</DocLayout>

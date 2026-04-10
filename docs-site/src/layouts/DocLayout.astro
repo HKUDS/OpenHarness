@@ -1,0 +1,70 @@
+---
+import { getCollection } from 'astro:content';
+import TopNav from '../components/TopNav.astro';
+import Sidebar from '../components/Sidebar.astro';
+import ThemeToggle from '../components/ThemeToggle.tsx';
+import ImageGenIsland from '../components/ImageGenIsland.tsx';
+import '../styles/global.css';
+
+interface Props {
+  title?: string;
+  description?: string;
+  section?: string;
+  currentPath?: string;
+}
+
+const { title = 'OpenHarness Docs', description, section = '', currentPath = '' } = Astro.props;
+---
+
+<!doctype html>
+<html lang="zh" class="scroll-smooth">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content={description || 'OpenHarness 文档中心'} />
+    <title>{title} — OpenHarness</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  </head>
+  <body class="min-h-screen bg-white dark:bg-gray-950 text-gray-900 dark:text-gray-100 transition-colors duration-200">
+    <TopNav title={title} />
+    <div class="flex">
+      <Sidebar currentPath={currentPath} />
+      <main class="flex-1 ml-64 pt-16 min-h-screen transition-all duration-200">
+        <article class="max-w-4xl mx-auto px-8 py-12">
+          <slot />
+        </article>
+      </main>
+    </div>
+    <script>
+      import '../components/mermaid-block.ts';
+
+      // Convert mermaid code blocks to mermaid-block elements
+      (function() {
+        // Find all code blocks with language-mermaid class
+        const codeBlocks = document.querySelectorAll('code[data-language="mermaid"], code.language-mermaid');
+        codeBlocks.forEach((codeEl) => {
+          const preEl = codeEl.closest('pre');
+          if (!preEl) return;
+
+          // Get mermaid definition
+          const definition = codeEl.textContent || '';
+
+          // Create mermaid-block element
+          const mermaidBlock = document.createElement('mermaid-block');
+          mermaidBlock.dataset.definition = definition;
+
+          // Replace pre element
+          preEl.parentNode?.replaceChild(mermaidBlock, preEl);
+        });
+      })();
+
+      // Apply saved theme on load
+      (function() {
+        const theme = localStorage.getItem('theme');
+        if (theme === 'dark' || (!theme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+          document.documentElement.classList.add('dark');
+        }
+      })();
+    </script>
+  </body>
+</html>

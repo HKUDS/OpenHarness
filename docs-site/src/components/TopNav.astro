@@ -1,0 +1,27 @@
+---
+import ThemeToggle from './ThemeToggle.tsx';
+
+interface Props {
+  title?: string;
+}
+
+const { title } = Astro.props;
+---
+
+<header class="fixed top-0 left-0 right-0 z-50 h-16 bg-white/80 dark:bg-gray-900/80 backdrop-blur border-b border-gray-200 dark:border-gray-800 flex items-center px-6">
+  <div class="flex items-center justify-between w-full max-w-screen-2xl mx-auto">
+    <a href="/docs/" class="flex items-center gap-3 no-underline">
+      <div class="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold text-sm">OH</div>
+      <span class="font-semibold text-gray-900 dark:text-white">OpenHarness</span>
+      <span class="text-gray-400">/</span>
+      <span class="text-gray-500 text-sm">{title}</span>
+    </a>
+    <nav class="flex items-center gap-4">
+      <a href="/docs/" class="text-sm text-gray-600 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 transition">Home</a>
+      <a href="/docs/user/getting-started/" class="text-sm text-gray-600 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 transition">User Guide</a>
+      <a href="/docs/dev/architecture-overview/" class="text-sm text-gray-600 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 transition">Dev Docs</a>
+      <div class="w-px h-5 bg-gray-300 dark:bg-gray-700"></div>
+      <ThemeToggle client:load />
+    </nav>
+  </div>
+</header>

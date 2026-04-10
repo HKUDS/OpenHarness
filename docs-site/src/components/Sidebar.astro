@@ -1,0 +1,97 @@
+---
+import { getCollection } from 'astro:content';
+
+interface Props {
+  currentPath?: string;
+}
+
+const { currentPath = '' } = Astro.props;
+
+const allDocs = await getCollection('docs');
+
+// Group docs by section
+type DocEntry = { id: string; slug: string; data: { title?: string }; filePath?: string };
+type Group = { label: string; docs: DocEntry[] };
+
+function getSection(fileId: string): string {
+  const parts = fileId.split('/');
+  if (parts.length === 1) return 'root';
+  return parts[0];
+}
+
+function getLabel(section: string): string {
+  const labels: Record<string, string> = {
+    user: '用户手册',
+    dev: '开发者文档',
+    dev_core: '核心模块',
+    dev_infrastructure: '基础设施',
+    dev_ohmo: 'ohmo 应用',
+    dev_ui: 'UI 层',
+    root: '根目录',
+  };
+  return labels[section] || section;
+}
+
+function buildTree(docs: DocEntry[]): Group[] {
+  const sections: Record<string, DocEntry[]> = {};
+
+  for (const doc of docs) {
+    const section = getSection(doc.id);
+    if (!sections[section]) sections[section] = [];
+    sections[section].push(doc);
+  }
+
+  // Sort each section's docs by id
+  for (const key of Object.keys(sections)) {
+    sections[key].sort((a, b) => a.id.localeCompare(b.id));
+  }
+
+  const order = ['root', 'user', 'dev', 'dev_core', 'dev_infrastructure', 'dev_ohmo', 'dev_ui'];
+
+  return order
+    .filter(k => sections[k])
+    .map(k => ({ label: getLabel(k), docs: sections[k] }));
+}
+
+const navGroups = buildTree(allDocs);
+
+// Build a map of slug -> title for display
+function getDocTitle(doc: DocEntry): string {
+  if (doc.data?.title) return doc.data.title;
+  // Derive from filename
+  const name = doc.id.split('/').pop() || doc.id;
+  return name.replace(/\.md$/, '').replace(/-/g, ' ');
+}
+---
+
+<aside class="fixed left-0 top-16 bottom-0 w-64 overflow-y-auto bg-gray-50 dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 py-6 px-4">
+  <nav class="space-y-6">
+    {navGroups.map(group => (
+      <div>
+        <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 px-2">
+          {group.label}
+        </h3>
+        <ul class="space-y-0.5">
+          {group.docs.map(doc => {
+            const href = doc.id === 'index' ? '/docs/' : `/docs/${doc.id.replace(/\.md$/, '')}/`;
+            const isActive = currentPath === href || currentPath === href.replace(/\/$/, '');
+            return (
+              <li>
+                <a
+                  href={href}
+                  class={`block px-2 py-1.5 rounded-md text-sm transition ${
+                    isActive
+                      ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 font-medium'
+                      : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800'
+                  }`}
+                >
+                  {getDocTitle(doc)}
+                </a>
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+    ))}
+  </nav>
+</aside>

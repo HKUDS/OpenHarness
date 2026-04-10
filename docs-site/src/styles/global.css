@@ -1,0 +1,33 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --color-bg: #ffffff;
+    --color-text: #1f2937;
+    --color-sidebar-bg: #f9fafb;
+    --color-border: #e5e7eb;
+    --color-primary: #2563eb;
+    --color-code-bg: #f3f4f6;
+  }
+
+  .dark {
+    --color-bg: #111827;
+    --color-text: #f3f4f6;
+    --color-sidebar-bg: #1f2937;
+    --color-border: #374151;
+    --color-primary: #3b82f6;
+    --color-code-bg: #1f2937;
+  }
+
+  html {
+    background-color: var(--color-bg);
+    color: var(--color-text);
+  }
+}
+
+.mermaid svg {
+  max-width: 100%;
+  height: auto;
+}
