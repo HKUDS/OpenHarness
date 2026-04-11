@@ -47,8 +47,25 @@ def test_sandbox_availability_reports_native_windows_unsupported(monkeypatch):
     assert "native Windows" in (availability.reason or "")
 
 
+def test_sandbox_settings_default_backend_is_srt():
+    settings = Settings()
+    assert settings.sandbox.backend == "srt"
+
+
 def test_wrap_command_for_sandbox_returns_original_when_disabled():
     command, settings_path = wrap_command_for_sandbox(["bash", "-lc", "echo hi"], settings=Settings())
+    assert command == ["bash", "-lc", "echo hi"]
+    assert settings_path is None
+
+
+def test_wrap_command_ignores_docker_backend():
+    """The srt wrap function should pass through unchanged when backend is docker."""
+    settings = Settings(sandbox=SandboxSettings(enabled=True, backend="docker"))
+    command, settings_path = wrap_command_for_sandbox(
+        ["bash", "-lc", "echo hi"], settings=settings,
+    )
+    # srt availability check will fail (srt not installed in most test envs),
+    # so command should be returned unchanged.
     assert command == ["bash", "-lc", "echo hi"]
     assert settings_path is None
 

@@ -252,6 +252,14 @@ async def build_runtime(
 
     from uuid import uuid4
 
+    session_id_hex = uuid4().hex[:12]
+
+    # Start Docker sandbox if configured
+    if settings.sandbox.enabled and settings.sandbox.backend == "docker":
+        from openharness.sandbox.session import start_docker_sandbox
+
+        await start_docker_sandbox(settings, session_id_hex, Path(cwd))
+
     return RuntimeBundle(
         api_client=resolved_api_client,
         cwd=cwd,
@@ -263,7 +271,7 @@ async def build_runtime(
         commands=create_default_command_registry(),
         external_api_client=api_client is not None,
         enforce_max_turns=enforce_max_turns or max_turns is not None,
-        session_id=uuid4().hex[:12],
+        session_id=session_id_hex,
         settings_overrides=settings_overrides,
         session_backend=session_backend or DEFAULT_SESSION_BACKEND,
     )
@@ -279,6 +287,9 @@ async def start_runtime(bundle: RuntimeBundle) -> None:
 
 async def close_runtime(bundle: RuntimeBundle) -> None:
     """Close runtime-owned resources."""
+    from openharness.sandbox.session import stop_docker_sandbox
+
+    await stop_docker_sandbox()
     await bundle.mcp_manager.close()
     await bundle.hook_executor.execute(
         HookEvent.SESSION_END,

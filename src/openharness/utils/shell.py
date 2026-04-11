@@ -48,6 +48,28 @@ async def create_shell_subprocess(
 ) -> asyncio.subprocess.Process:
     """Spawn a shell command with platform-aware shell selection and sandboxing."""
     resolved_settings = settings or load_settings()
+
+    # Docker backend: route through docker exec
+    if resolved_settings.sandbox.enabled and resolved_settings.sandbox.backend == "docker":
+        from openharness.sandbox.session import get_docker_sandbox
+
+        session = get_docker_sandbox()
+        if session is not None and session.is_running:
+            argv = resolve_shell_command(command)
+            return await session.exec_command(
+                argv,
+                cwd=cwd,
+                stdin=stdin,
+                stdout=stdout,
+                stderr=stderr,
+                env=dict(env) if env is not None else None,
+            )
+        if resolved_settings.sandbox.fail_if_unavailable:
+            from openharness.sandbox import SandboxUnavailableError
+
+            raise SandboxUnavailableError("Docker sandbox session is not running")
+
+    # Existing srt path
     argv = resolve_shell_command(command)
     argv, cleanup_path = wrap_command_for_sandbox(argv, settings=resolved_settings)
 

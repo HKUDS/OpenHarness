@@ -161,12 +161,23 @@ async def _rg_grep(
     # `--` ensures patterns like `-foo` aren't parsed as flags.
     cmd.extend(["--", pattern, "."])
 
-    process = await asyncio.create_subprocess_exec(
-        *cmd,
-        cwd=str(root),
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
+    from openharness.sandbox.session import get_docker_sandbox
+
+    session = get_docker_sandbox()
+    if session is not None and session.is_running:
+        process = await session.exec_command(
+            cmd,
+            cwd=root,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    else:
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            cwd=str(root),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
 
     matches: list[str] = []
     try:
@@ -213,12 +224,23 @@ async def _rg_grep_file(
         cmd.append("-i")
     cmd.extend(["--", pattern, path.name])
 
-    process = await asyncio.create_subprocess_exec(
-        *cmd,
-        cwd=str(path.parent),
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
+    from openharness.sandbox.session import get_docker_sandbox
+
+    session = get_docker_sandbox()
+    if session is not None and session.is_running:
+        process = await session.exec_command(
+            cmd,
+            cwd=path.parent,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    else:
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            cwd=str(path.parent),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
 
     matches: list[str] = []
     try:
