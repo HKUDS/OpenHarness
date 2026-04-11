@@ -135,7 +135,7 @@ class WebBackendHost:
             logger.warning("Socket.IO server not set")
             return
         data = f"{PROTOCOL_PREFIX}{json.dumps(message)}"
-        for sid in self.clients:
+        for sid in list(self.clients):  # Copy to avoid RuntimeError during iteration
             try:
                 await self._sio.emit('backend_event', data, to=sid)
             except Exception as e:
@@ -144,7 +144,7 @@ class WebBackendHost:
     async def broadcast_with_sio(self, sio: socketio.AsyncServer, message: dict):
         """Broadcast message to all connected clients using provided sio."""
         data = f"{PROTOCOL_PREFIX}{json.dumps(message)}"
-        for sid in self.clients:
+        for sid in list(self.clients):  # Copy to avoid RuntimeError during iteration
             try:
                 await sio.emit('backend_event', data, to=sid)
             except Exception as e:

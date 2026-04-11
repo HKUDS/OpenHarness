@@ -1,6 +1,6 @@
 import { useEffect, useCallback, useRef } from 'react';
 import { useAppStore } from '../store/useAppStore';
-import type { BackendEvent, TranscriptItem, Message, ModalRequest } from '../types';
+import type { BackendEvent, TranscriptItem, Message, ModalRequest, UploadedFile } from '../types';
 import {
   getSocketInstance,
   createSocket,
@@ -336,7 +336,7 @@ export function useBackendConnection() {
     }
   }, []);
 
-  const submitPrompt = useCallback((prompt: string) => {
+  const submitPrompt = useCallback((prompt: string, files?: UploadedFile[]) => {
     const now = Date.now();
     userMessageTimestampRef.current = now;
     streamingMessageRef.current = null;
@@ -352,7 +352,57 @@ export function useBackendConnection() {
     
     const socket = getSocketInstance();
     if (socket?.connected) {
-      socket.emit('frontend_request', JSON.stringify({ type: 'submit_line', line: prompt }));
+      // Handle file uploads if present
+      if (files && files.length > 0) {
+        // Send files first via HTTP POST, then send the prompt
+        const uploadFiles = async () => {
+          try {
+            const formData = new FormData();
+            formData.append('prompt', prompt);
+            
+            // Convert uploaded files to blobs and append
+            for (const file of files) {
+              if ('file' in file && file.file instanceof File) {
+                formData.append('files', file.file);
+              } else if (file.type.startsWith('image/')) {
+                // For already uploaded files, we might need to fetch them
+                // For now, we'll just send metadata
+                formData.append('file_metadata', JSON.stringify({
+                  name: file.name,
+                  type: file.type,
+                  size: file.size,
+                }));
+              }
+            }
+            
+            const response = await fetch('/api/upload', {
+              method: 'POST',
+              body: formData,
+            });
+            
+            if (response.ok) {
+              const result = await response.json();
+              socket.emit('frontend_request', JSON.stringify({ 
+                type: 'submit_line', 
+                line: prompt,
+                uploaded_files: result.files,
+              }));
+            } else {
+              // Fallback: send without files
+              socket.emit('frontend_request', JSON.stringify({ type: 'submit_line', line: prompt }));
+            }
+          } catch (err) {
+            console.error('File upload failed:', err);
+            // Fallback: send without files
+            socket.emit('frontend_request', JSON.stringify({ type: 'submit_line', line: prompt }));
+          }
+        };
+        
+        uploadFiles();
+      } else {
+        // No files, send normally
+        socket.emit('frontend_request', JSON.stringify({ type: 'submit_line', line: prompt }));
+      }
       setBusy(true);
     } else {
       // Handle connection error

@@ -95,7 +95,7 @@ interface AppState {
   isResizingInput: boolean;
   
   // Callback actions (set by hooks)
-  submitPrompt: ((prompt: string) => void) | null;
+  submitPrompt: ((prompt: string, files?: UploadedFile[]) => void) | null;
   sendPermissionResponse: ((requestId: string, allowed: boolean) => void) | null;
   clearConversationCallback: (() => void) | null;
   saveSettingsCallback: ((settings: Record<string, unknown>) => Promise<void>) | null;
@@ -115,7 +115,7 @@ interface AppState {
   setTodoMarkdown: (markdown: string) => void;
   setCommands: (commands: string[]) => void;
   setBusy: (busy: boolean) => void;
-  setSubmitPrompt: (fn: ((prompt: string) => void) | null) => void;
+  setSubmitPrompt: (fn: ((prompt: string, files?: UploadedFile[]) => void) | null) => void;
   setSendPermissionResponse: (fn: ((requestId: string, allowed: boolean) => void) | null) => void;
   setClearConversationCallback: (fn: (() => void) | null) => void;
   setSaveSettingsCallback: (fn: ((settings: Record<string, unknown>) => Promise<void>) | null) => void;

@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState, useCallback } from 'react';
+import React, { useRef, useEffect, useLayoutEffect, useState, useCallback } from 'react';
 import { Send, Bot, User, AlertCircle, Wrench, Paperclip, Maximize2, Minimize2, ChevronDown, ChevronUp, Sparkles, Brain, Plus, Copy, Check, Clock } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -31,9 +31,11 @@ export function ChatView() {
   const [input, setInput] = useState('');
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const [messagePositions, setMessagePositions] = useState<Map<string, number>>(new Map());
+  const [pastedImages, setPastedImages] = useState<File[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const messagesContentRef = useRef<HTMLDivElement>(null);
   const timelineTrackRef = useRef<HTMLDivElement>(null);
+  const timelineContentRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const inputContainerRef = useRef<HTMLDivElement>(null);
   const resizeHandleRef = useRef<HTMLDivElement>(null);
@@ -49,7 +51,7 @@ export function ChatView() {
 
   // Calculate actual message positions for dynamic timeline
   const calculateMessagePositions = useCallback(() => {
-    const container = messagesContainerRef.current;
+    const container = messagesContentRef.current;
     if (!container) return;
     
     const scrollHeight = container.scrollHeight;
@@ -78,7 +80,7 @@ export function ChatView() {
 
   // Update positions on scroll to keep timeline markers in sync
   useEffect(() => {
-    const container = messagesContainerRef.current;
+    const container = messagesContentRef.current;
     if (!container) return;
     
     const handleScroll = () => {
@@ -92,7 +94,7 @@ export function ChatView() {
 
   // Update positions on resize
   useEffect(() => {
-    const container = messagesContainerRef.current;
+    const container = messagesContentRef.current;
     if (!container) return;
     
     const resizeObserver = new ResizeObserver(() => {
@@ -104,51 +106,110 @@ export function ChatView() {
   }, [calculateMessagePositions]);
 
   // Track scroll position for timeline and sync timeline scroll
-  useEffect(() => {
-    const container = messagesContainerRef.current;
+  // Sync timeline scroll with messages and update viewport indicator
+  // Use useLayoutEffect to ensure sync happens after DOM updates
+  useLayoutEffect(() => {
+    const container = messagesContentRef.current;
     const timelineTrack = timelineTrackRef.current;
-    const viewportIndicator = timelineTrack?.querySelector(`.${styles.timelineViewport}`) as HTMLElement;
-    if (!container || !timelineTrack) return;
+    const timelineContent = timelineContentRef.current;
+    const viewportIndicator = timelineContent?.querySelector(`.${styles.timelineViewport}`) as HTMLElement;
+    if (!container || !timelineTrack || !timelineContent) return;
 
+    let isSyncingFromTimeline = false;
+    let isSyncingFromMessages = false;
+
+    // Set timeline content height to match messages scroll height
+    // This ensures markers are correctly positioned relative to scroll
     const syncTimelineHeight = () => {
-      // Match timeline track height to message container scroll height
-      timelineTrack.style.height = `${container.scrollHeight}px`;
-    };
-
-    const handleScroll = () => {
-      const scrollTop = container.scrollTop;
-      const scrollHeight = container.scrollHeight - container.clientHeight;
-      const progress = scrollHeight > 0 ? scrollTop / scrollHeight : 0;
+      const messagesScrollHeight = container.scrollHeight;
+      const messagesClientHeight = container.clientHeight;
       
-      // Update viewport indicator position
-      if (viewportIndicator) {
-        const trackHeight = timelineTrack.clientHeight;
-        const viewportHeight = Math.max(20, (container.clientHeight / container.scrollHeight) * trackHeight);
-        const viewportTop = progress * (trackHeight - viewportHeight);
-        viewportIndicator.style.height = `${viewportHeight}px`;
-        viewportIndicator.style.top = `${viewportTop}px`;
+      // Calculate the scale factor between timeline track and messages
+      // The timeline content should be tall enough to accommodate all markers
+      // with proper spacing that matches the messages scroll
+      const timelineTrackHeight = timelineTrack.clientHeight;
+      
+      // Set timeline content height proportional to messages scroll height
+      // This ensures the scroll ratio is 1:1
+      if (messagesClientHeight > 0) {
+        const scrollRatio = messagesScrollHeight / messagesClientHeight;
+        const timelineContentHeight = timelineTrackHeight * scrollRatio;
+        timelineContent.style.height = `${Math.max(timelineContentHeight, timelineTrackHeight)}px`;
       }
     };
 
-    // Initial sync
-    syncTimelineHeight();
-    handleScroll();
+    const handleMessagesScroll = () => {
+      if (isSyncingFromTimeline) return;
+      isSyncingFromMessages = true;
+      
+      const scrollTop = container.scrollTop;
+      const maxScroll = container.scrollHeight - container.clientHeight;
+      const progress = maxScroll > 0 ? scrollTop / maxScroll : 0;
+      
+      // Sync timeline scroll position based on progress
+      const timelineMaxScroll = timelineTrack.scrollHeight - timelineTrack.clientHeight;
+      if (timelineMaxScroll > 0) {
+        timelineTrack.scrollTop = progress * timelineMaxScroll;
+      }
+      
+      // Update viewport indicator position (relative to timeline content)
+      if (viewportIndicator) {
+        const contentHeight = timelineContent.clientHeight;
+        const viewportHeight = Math.max(20, (container.clientHeight / container.scrollHeight) * contentHeight);
+        const viewportTop = progress * (contentHeight - viewportHeight);
+        viewportIndicator.style.height = `${viewportHeight}px`;
+        viewportIndicator.style.top = `${viewportTop}px`;
+      }
+      
+      isSyncingFromMessages = false;
+    };
+
+    const handleTimelineScroll = () => {
+      if (isSyncingFromMessages) return;
+      isSyncingFromTimeline = true;
+      
+      const scrollTop = timelineTrack.scrollTop;
+      const maxScroll = timelineTrack.scrollHeight - timelineTrack.clientHeight;
+      const progress = maxScroll > 0 ? scrollTop / maxScroll : 0;
+      
+      // Sync messages scroll position based on progress
+      const messagesMaxScroll = container.scrollHeight - container.clientHeight;
+      if (messagesMaxScroll > 0) {
+        container.scrollTop = progress * messagesMaxScroll;
+      }
+      
+      isSyncingFromTimeline = false;
+    };
+
+    // Initial sync - defer to allow DOM to update
+    requestAnimationFrame(() => {
+      syncTimelineHeight();
+      // Wait for height to be applied before syncing scroll
+      requestAnimationFrame(() => {
+        handleMessagesScroll();
+      });
+    });
     
     // Sync on scroll
-    container.addEventListener('scroll', handleScroll);
+    container.addEventListener('scroll', handleMessagesScroll, { passive: true });
+    timelineTrack.addEventListener('scroll', handleTimelineScroll, { passive: true });
     
     // Sync on resize
     const resizeObserver = new ResizeObserver(() => {
       syncTimelineHeight();
-      handleScroll();
+      // Defer scroll sync to allow height update to apply
+      requestAnimationFrame(() => {
+        handleMessagesScroll();
+      });
     });
     resizeObserver.observe(container);
     
     return () => {
-      container.removeEventListener('scroll', handleScroll);
+      container.removeEventListener('scroll', handleMessagesScroll);
+      timelineTrack.removeEventListener('scroll', handleTimelineScroll);
       resizeObserver.disconnect();
     };
-  }, [messages, styles.timelineViewport]);
+  }, [messages, styles.timelineViewport, styles.timelineContent]);
 
   // Clear copied state after 2 seconds
   useEffect(() => {
@@ -273,8 +334,17 @@ export function ChatView() {
     // Don't submit if resizing, busy, or no input
     if (isResizingInput || !input.trim() || isBusy || !submitPrompt) return;
     
-    submitPrompt(input.trim());
+    // Submit with files (uploaded + pasted)
+    submitPrompt(input.trim(), [...uploadedFiles, ...pastedImages.map(file => ({
+      id: `pasted-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      name: file.name || `image-${Date.now()}.png`,
+      size: file.size,
+      type: file.type,
+      status: 'uploaded' as const,
+      file: file,
+    }))]);
     setInput('');
+    setPastedImages([]);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -283,6 +353,30 @@ export function ChatView() {
       handleSubmit(e);
     }
   };
+
+  const handlePaste = useCallback((e: React.ClipboardEvent) => {
+    const items = e.clipboardData.items;
+    const imageFiles: File[] = [];
+    
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (item.type.startsWith('image/')) {
+        const file = item.getAsFile();
+        if (file) {
+          imageFiles.push(file);
+        }
+      }
+    }
+    
+    if (imageFiles.length > 0) {
+      e.preventDefault();
+      setPastedImages(prev => [...prev, ...imageFiles]);
+      
+      // Add file info to input as placeholder
+      const fileNames = imageFiles.map(f => f.name || `image-${Date.now()}.png`).join(', ');
+      setInput(prev => prev + ` [Attached: ${fileNames}]`);
+    }
+  }, []);
 
   const formatTime = (timestamp: number) => {
     return new Date(timestamp).toLocaleTimeString([], { 
@@ -345,7 +439,7 @@ export function ChatView() {
         </button>
       </div>
       
-      <div className={styles.messagesContainer} ref={messagesContainerRef}>
+      <div className={styles.messagesContainer}>
         {messages.length === 0 ? (
           <div className={styles.welcome}>
             <div className={styles.welcomeIcon}>
@@ -379,7 +473,7 @@ export function ChatView() {
           </div>
         ) : (
           <>
-            <div className={styles.messagesContent}>
+            <div className={styles.messagesContent} ref={messagesContentRef}>
               {messages.filter(msg => msg?.id).map((message) => {
                 const isExpanded = expandedMessages.has(message.id);
                 const isLongContent = message.content.length > 500;
@@ -552,22 +646,24 @@ export function ChatView() {
                 <span>Timeline</span>
               </div>
               <div className={styles.timelineTrack} ref={timelineTrackRef}>
-                {getTimelineMarkers().map((marker) => (
-                  <div
-                    key={marker.id}
-                    className={styles.timelineMarker}
-                    style={{ top: `${marker.position * 100}%` }}
-                    onClick={() => handleTimelineClick(marker.id)}
-                    title={`Jump to message at ${marker.label}`}
-                  >
-                    <div className={styles.markerDot} />
-                    <span className={styles.timelineLabel}>
-                      {formatTimelineLabel(marker.timestamp)}
-                    </span>
-                  </div>
-                ))}
-                {/* Viewport indicator */}
-                <div className={styles.timelineViewport} />
+                <div className={styles.timelineContent} ref={timelineContentRef}>
+                  {getTimelineMarkers().map((marker) => (
+                    <div
+                      key={marker.id}
+                      className={styles.timelineMarker}
+                      style={{ top: `${marker.position * 100}%` }}
+                      onClick={() => handleTimelineClick(marker.id)}
+                      title={`Jump to message at ${marker.label}`}
+                    >
+                      <div className={styles.markerDot} />
+                      <span className={styles.timelineLabel}>
+                        {formatTimelineLabel(marker.timestamp)}
+                      </span>
+                    </div>
+                  ))}
+                  {/* Viewport indicator */}
+                  <div className={styles.timelineViewport} />
+                </div>
               </div>
             </div>
           </>
@@ -593,6 +689,21 @@ export function ChatView() {
               onClick={() => {}}
             >
               Manage
+            </button>
+          </div>
+        )}
+
+        {/* Pasted Images Indicator */}
+        {pastedImages.length > 0 && (
+          <div className={styles.attachedFiles}>
+            <span className={styles.attachedCount}>
+              🖼️ {pastedImages.length} pasted image(s)
+            </span>
+            <button 
+              className={styles.showUploadButton}
+              onClick={() => setPastedImages([])}
+            >
+              Clear
             </button>
           </div>
         )}
@@ -642,6 +753,7 @@ export function ChatView() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
+              onPaste={handlePaste}
               placeholder="Ask OpenHarness anything... or type / for commands"
               disabled={isBusy}
               className={styles.textarea}

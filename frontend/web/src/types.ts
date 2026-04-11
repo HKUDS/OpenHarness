@@ -143,6 +143,7 @@ export interface UploadedFile {
   type: string;
   content?: string;
   status: 'pending' | 'uploading' | 'uploaded' | 'error';
+  file?: File;
 }
 
 export interface ChatSession {

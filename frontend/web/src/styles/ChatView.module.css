@@ -56,12 +56,11 @@
 
 .messagesContainer {
   flex: 1;
-  overflow-y: auto;
+  overflow: hidden; /* Changed: container doesn't scroll */
   padding: 0;
   display: flex;
   flex-direction: row;
   position: relative;
-  overflow-x: hidden;
 }
 
 /* Content wrapper for messages to allow timeline on right */
@@ -70,9 +69,11 @@
   display: flex;
   flex-direction: column;
   min-width: 0; /* Prevent overflow */
+  overflow-y: auto; /* Scrollable independently */
+  overflow-x: hidden;
 }
 
-/* Timeline Sidebar - Anchored to the right side of the container */
+/* Timeline Sidebar - Fixed on the right side */
 .timelineBar {
   width: 60px;
   min-width: 60px;
@@ -83,9 +84,10 @@
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
-  overflow-y: auto;
-  transition: width 0.2s ease;
   position: relative;
+  top: 0;
+  height: 100%;
+  transition: width 0.2s ease;
 }
 
 /* Custom scrollbar for timeline bar */
@@ -126,13 +128,12 @@
 
 .timelineTrack {
   position: relative;
-  flex: 0 0 auto;
-  overflow: visible;
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
   pointer-events: auto;
   padding: var(--space-2) 0;
-  min-height: 100%;
-  display: flex;
-  flex-direction: column;
+  min-height: 0; /* Allow flexbox to shrink */
 }
 
 /* Custom scrollbar for timeline */
@@ -151,6 +152,13 @@
 
 .timelineTrack::-webkit-scrollbar-thumb:hover {
   background: var(--primary-500);
+}
+
+/* Inner content wrapper for markers - sized to match scrollable content */
+.timelineContent {
+  position: relative;
+  min-height: 100%;
+  width: 100%;
 }
 
 .timelineViewport {

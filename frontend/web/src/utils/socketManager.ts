@@ -30,9 +30,39 @@ export function createSocket(connectionUrl: string): Socket {
     transports: ['websocket', 'polling'],
     reconnection: true,
     reconnectionDelay: 1000,
-    reconnectionAttempts: 5,
+    reconnectionDelayMax: 5000,
+    reconnectionAttempts: Infinity,
+    timeout: 20000,
     path: '/socket.io',
+    autoConnect: true,
+    forceNew: false,
   });
+  
+  // Enhanced error handling and reconnection
+  socket.on('reconnect_attempt', (attemptNumber: number) => {
+    console.log(`[WebSocket] Reconnection attempt ${attemptNumber}`);
+  });
+  
+  socket.on('reconnect_error', (error: Error) => {
+    console.error('[WebSocket] Reconnection error:', error);
+  });
+  
+  socket.on('reconnect_failed', () => {
+    console.error('[WebSocket] Reconnection failed after all attempts');
+  });
+  
+  socket.on('disconnect', (reason: string) => {
+    console.log('[WebSocket] Disconnected:', reason);
+    // Auto-reconnect on transport errors
+    if (reason === 'transport error' || reason === 'transport close') {
+      console.log('[WebSocket] Attempting to reconnect due to transport issue');
+    }
+  });
+  
+  socket.on('connect_error', (error: Error) => {
+    console.error('[WebSocket] Connection error:', error.message);
+  });
+  
   socketInstance = socket;
   connectionAttempted = true;
   return socket;
