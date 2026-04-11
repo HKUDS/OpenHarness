@@ -526,6 +526,51 @@ def test_describe_external_binding_reports_refreshable_claude_token(tmp_path: Pa
     )
 
 
+def test_describe_external_binding_reports_configured_claude_keychain(
+    monkeypatch, tmp_path: Path
+):
+    login_keychain = tmp_path / "login.keychain-db"
+
+    def _fake_check_output(args, text=True):
+        if args == ["security", "find-generic-password", "-w", "-s", "Claude Code-credentials"]:
+            return json.dumps(
+                {
+                    "claudeAiOauth": {
+                        "accessToken": "claude-access-token",
+                        "refreshToken": "claude-refresh-token",
+                        "expiresAt": 4_102_444_800_000,
+                    }
+                }
+            )
+        if args == ["security", "find-generic-password", "-s", "Claude Code-credentials"]:
+            return (
+                f'keychain: "{login_keychain}"\n'
+                'attributes:\n'
+                '    "acct"<blob>="yanchundong"\n'
+                '    "svce"<blob>="Claude Code-credentials"\n'
+            )
+        raise AssertionError(args)
+
+    monkeypatch.setattr("openharness.auth.external.subprocess.check_output", _fake_check_output)
+
+    state = describe_external_binding(
+        ExternalAuthBinding(
+            provider=CLAUDE_PROVIDER,
+            source_path="keychain:Claude Code-credentials",
+            source_kind="claude_credentials_keychain",
+            managed_by="claude-cli",
+            profile_label="Claude CLI",
+        )
+    )
+
+    assert state == ExternalAuthState(
+        configured=True,
+        state="configured",
+        source="external",
+        detail=str(login_keychain),
+    )
+
+
 def test_refresh_claude_oauth_credential(monkeypatch):
     seen: dict[str, object] = {}
 

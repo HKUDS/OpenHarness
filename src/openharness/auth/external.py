@@ -294,7 +294,7 @@ def _extract_keychain_attr(metadata: str, attr_name: str) -> str | None:
 def describe_external_binding(binding: ExternalAuthBinding) -> ExternalAuthState:
     """Return a human-readable state for an external auth binding."""
     source_path = Path(binding.source_path).expanduser()
-    if not source_path.exists():
+    if binding.source_kind != "claude_credentials_keychain" and not source_path.exists():
         return ExternalAuthState(
             configured=False,
             state="missing",
@@ -304,31 +304,40 @@ def describe_external_binding(binding: ExternalAuthBinding) -> ExternalAuthState
     try:
         credential = load_external_credential(binding, refresh_if_needed=False)
     except ValueError as exc:
+        detail = str(exc)
+        if "not found" in detail.lower():
+            return ExternalAuthState(
+                configured=False,
+                state="missing",
+                source="missing",
+                detail=detail,
+            )
         return ExternalAuthState(
             configured=False,
             state="invalid",
             source="external",
-            detail=str(exc),
+            detail=detail,
         )
+    resolved_source = credential.source_path
     if binding.provider == CLAUDE_PROVIDER and is_credential_expired(credential):
         if credential.refresh_token:
             return ExternalAuthState(
                 configured=True,
                 state="refreshable",
                 source="external",
-                detail=f"expired token can be refreshed from {source_path}",
+                detail=f"expired token can be refreshed from {resolved_source}",
             )
         return ExternalAuthState(
             configured=False,
             state="expired",
             source="external",
-            detail=f"expired token at {source_path}",
+            detail=f"expired token at {resolved_source}",
         )
     return ExternalAuthState(
         configured=True,
         state="configured",
         source="external",
-        detail=str(source_path),
+        detail=str(resolved_source),
     )
 
 
