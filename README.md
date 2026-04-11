@@ -190,13 +190,27 @@ OpenHarness is an open-source Python implementation designed for **researchers, 
 
 ### 1. Install
 
+#### Linux / macOS / WSL
+
 ```bash
-# One-click install (Linux / macOS / WSL)
+# One-click install
 curl -fsSL https://raw.githubusercontent.com/HKUDS/OpenHarness/main/scripts/install.sh | bash
 
 # Or via pip
 pip install openharness-ai
 ```
+
+#### Windows (Native)
+
+```powershell
+# One-click install (PowerShell)
+iex (Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/HKUDS/OpenHarness/main/scripts/install.ps1')
+
+# Or via pip
+pip install openharness-ai
+```
+
+**Note**: Windows support is now native! The PowerShell installer handles virtual environment setup and PATH configuration automatically.
 
 ### 2. Configure
 
