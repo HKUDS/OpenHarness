@@ -45,6 +45,14 @@ class MemorySettings(BaseModel):
     enabled: bool = True
     max_files: int = 5
     max_entrypoint_lines: int = 200
+    # Optional integration: inject relevant snippets from a local Dongtian palace DB.
+    # Disabled by default so existing OpenHarness installs behave the same.
+    dongtian_enabled: bool = False
+    dongtian_db_path: str = "~/.dongtian/palace.db"
+    dongtian_wing: str = ""
+    dongtian_room: str = ""
+    dongtian_limit: int = 5
+    dongtian_max_chars: int = 1200
 
 
 class SandboxNetworkSettings(BaseModel):
