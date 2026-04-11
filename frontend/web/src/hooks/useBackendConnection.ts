@@ -101,6 +101,9 @@ export function useBackendConnection() {
             const item = event.item as TranscriptItem;
             const now = Date.now();
             
+            // Skip user messages - they are added immediately on submit
+            if (item.role === 'user') break;
+            
             if (item.role === 'assistant' && streamingMessageRef.current) break;
             
             const itemContent = item.text || item.output || '';
@@ -132,7 +135,6 @@ export function useBackendConnection() {
               message.responseTime = now - userMessageTimestampRef.current;
               userMessageTimestampRef.current = null;
             }
-            if (item.role === 'user') userMessageTimestampRef.current = now;
             
             addMessage(message);
           }
@@ -183,7 +185,18 @@ export function useBackendConnection() {
           break;
 
         case 'error':
-          setError(event.message || 'Unknown error');
+          const errorMsg = event.message || 'Unknown error';
+          setError(errorMsg);
+          // Also display error in chat for visibility
+          const errorMessage: Message = {
+            id: crypto.randomUUID(),
+            role: 'system',
+            content: `Error: ${errorMsg}`,
+            timestamp: Date.now(),
+            is_error: true,
+          };
+          addMessage(errorMessage);
+          setBusy(false);
           break;
 
         case 'system':
@@ -324,11 +337,37 @@ export function useBackendConnection() {
   }, []);
 
   const submitPrompt = useCallback((prompt: string) => {
-    userMessageTimestampRef.current = Date.now();
+    const now = Date.now();
+    userMessageTimestampRef.current = now;
     streamingMessageRef.current = null;
-    sendMessage({ type: 'submit_line', line: prompt });
-    setBusy(true);
-  }, [sendMessage, setBusy]);
+    
+    // Add user message immediately to chat history
+    const userMessage: Message = {
+      id: crypto.randomUUID(),
+      role: 'user',
+      content: prompt,
+      timestamp: now,
+    };
+    addMessage(userMessage);
+    
+    const socket = getSocketInstance();
+    if (socket?.connected) {
+      socket.emit('frontend_request', JSON.stringify({ type: 'submit_line', line: prompt }));
+      setBusy(true);
+    } else {
+      // Handle connection error
+      setError('Not connected to backend. Please reconnect.');
+      // Add error message to chat
+      const errorMessage: Message = {
+        id: crypto.randomUUID(),
+        role: 'system',
+        content: 'Error: Not connected to backend. Please check your connection and try again.',
+        timestamp: Date.now(),
+        is_error: true,
+      };
+      addMessage(errorMessage);
+    }
+  }, [sendMessage, setBusy, addMessage, setError]);
 
   const sendPermissionResponse = useCallback((requestId: string, allowed: boolean) => {
     sendMessage({ type: 'permission_response', request_id: requestId, allowed });
@@ -374,11 +413,24 @@ export function useBackendConnection() {
         setTimeout(() => { globalIsProcessingServerEvent = false; }, 150);
         return config;
       }
+      
+      // Handle error responses
+      if (response.status === 400) {
+        const errorData = await response.json().catch(() => ({}));
+        const errorMsg = errorData.message || errorData.error || 'Invalid configuration';
+        setError(`Bad request: ${errorMsg}`);
+        console.error('[WS] Bad request when fetching config:', errorMsg);
+      } else if (response.status >= 400) {
+        setError(`Server error: ${response.status}`);
+        console.error('[WS] Error fetching config:', response.status);
+      }
     } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+      setError(`Network error: ${errorMsg}`);
       console.error('[WS] Failed to fetch config from backend:', err);
     }
     return null;
-  }, [updateSettings]);
+  }, [updateSettings, setError]);
 
   const saveSettingsToBackend = useCallback(async (settings: Record<string, unknown>) => {
     // 1. THE ANTI-LOOP: If this save was triggered directly/indirectly by an incoming 
@@ -402,11 +454,26 @@ export function useBackendConnection() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(settings),
       });
+      
       if (response.ok) {
         return await response.json();
       }
+      
+      // Handle error responses
+      if (response.status === 400) {
+        const errorData = await response.json().catch(() => ({}));
+        const errorMsg = errorData.message || errorData.error || 'Invalid settings';
+        setError(`Bad request: ${errorMsg}`);
+        console.error('[WS] Bad request when saving settings:', errorMsg);
+      } else if (response.status >= 400) {
+        setError(`Server error: ${response.status}`);
+        console.error('[WS] Error saving settings:', response.status);
+      }
+      
       return null;
     } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+      setError(`Network error: ${errorMsg}`);
       console.error('[WS] Error saving settings to backend:', err);
       return null;
     }

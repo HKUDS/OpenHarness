@@ -80,11 +80,28 @@ export function OpenHarnessConfigPage() {
   const [activeSection, setActiveSection] = useState<string>('engine');
   const [saved, setSaved] = useState(false);
   
+  // Initialize local config from store on mount and when store changes
   useEffect(() => {
     if (openHarnessConfig) {
       setLocalConfig(openHarnessConfig);
     }
   }, [openHarnessConfig]);
+  
+  // Load config from localStorage on mount if store is empty
+  useEffect(() => {
+    if (!openHarnessConfig) {
+      const stored = localStorage.getItem('openharness-openharness-config');
+      if (stored) {
+        try {
+          const parsedConfig = JSON.parse(stored);
+          setLocalConfig(parsedConfig);
+          setOpenHarnessConfig(parsedConfig);
+        } catch (e) {
+          console.error('Failed to parse stored OpenHarness config:', e);
+        }
+      }
+    }
+  }, []);
   
   const handleSave = () => {
     setOpenHarnessConfig(localConfig);

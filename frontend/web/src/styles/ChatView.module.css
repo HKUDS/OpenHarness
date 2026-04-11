@@ -14,6 +14,7 @@
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border-subtle);
   flex-shrink: 0;
+  padding-left: 60px; /* Space for sidebar toggle */
 }
 
 .chatHeaderInfo {
@@ -60,6 +61,7 @@
   display: flex;
   flex-direction: row;
   position: relative;
+  overflow-x: hidden;
 }
 
 /* Content wrapper for messages to allow timeline on right */
@@ -70,14 +72,10 @@
   min-width: 0; /* Prevent overflow */
 }
 
-/* Timeline Sidebar - Sticky position so it stays visible while scrolling */
+/* Timeline Sidebar - Anchored to the right side of the container */
 .timelineBar {
-  position: sticky;
-  right: 0;
-  top: 0;
   width: 60px;
-  min-height: 100vh;
-  height: 100%;
+  min-width: 60px;
   background: var(--bg-secondary);
   border-left: 1px solid var(--border-subtle);
   z-index: 10;
@@ -85,13 +83,27 @@
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
-  overflow: hidden;
+  overflow-y: auto;
   transition: width 0.2s ease;
-  align-self: flex-end;
+  position: relative;
 }
 
-.timelineBar:hover {
-  width: 140px;
+/* Custom scrollbar for timeline bar */
+.timelineBar::-webkit-scrollbar {
+  width: 4px;
+}
+
+.timelineBar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.timelineBar::-webkit-scrollbar-thumb {
+  background: var(--border-subtle);
+  border-radius: 2px;
+}
+
+.timelineBar::-webkit-scrollbar-thumb:hover {
+  background: var(--primary-500);
 }
 
 .timelineHeader {
@@ -114,11 +126,13 @@
 
 .timelineTrack {
   position: relative;
-  flex: 1;
-  overflow-y: auto;
-  overflow-x: hidden;
+  flex: 0 0 auto;
+  overflow: visible;
   pointer-events: auto;
   padding: var(--space-2) 0;
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
 }
 
 /* Custom scrollbar for timeline */
@@ -152,12 +166,14 @@
 }
 
 .timelineMarker {
-  position: relative;
+  position: absolute;
+  left: 4px;
+  right: 4px;
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: var(--space-1);
   padding: var(--space-1) var(--space-2);
-  margin: var(--space-1) 4px;
   background: var(--bg-tertiary);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
@@ -167,10 +183,15 @@
   transition: var(--transition-fast);
   white-space: nowrap;
   overflow: hidden;
+  z-index: 1;
+  transform: translateY(-50%);
+  user-select: none;
+  max-width: 100%;
 }
 
 .timelineBar:hover .timelineMarker {
   padding: var(--space-1) var(--space-3);
+  background: var(--bg-elevated);
 }
 
 .timelineMarker:hover {
@@ -178,7 +199,8 @@
   color: var(--primary-500);
   border-color: var(--primary-500);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-  transform: scale(1.02);
+  transform: translateY(-50%) scale(1.05);
+  z-index: 2;
 }
 
 .timelineMarker svg {
@@ -762,6 +784,7 @@
 /* Input Section - Gemini Style */
 .inputSection {
   padding: var(--space-5) var(--space-6);
+  padding-left: 60px; /* Space for sidebar toggle */
   background: var(--bg-secondary);
   border-top: 1px solid var(--border-subtle);
   position: relative;
@@ -1037,4 +1060,80 @@
 
 .messageContent p:last-child {
   margin-bottom: 0;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .chatHeader {
+    padding-left: 50px;
+  }
+  
+  .sidebarToggle {
+    left: 8px;
+    top: 8px;
+    width: 32px;
+    height: 32px;
+  }
+  
+  .chatSidebar {
+    width: 260px;
+    min-width: 260px;
+  }
+  
+  .timelineBar {
+    width: 40px;
+    min-width: 40px;
+    position: absolute;
+    right: 0;
+    top: 0;
+    bottom: 0;
+  }
+  
+  .messagesContent {
+    padding-right: 40px;
+  }
+  
+  .inputSection {
+    padding-left: 50px;
+    padding: var(--space-4) var(--space-4);
+    padding-left: 50px;
+  }
+  
+  .suggestionCards {
+    grid-template-columns: 1fr;
+  }
+  
+  .welcome h1 {
+    font-size: 2rem;
+  }
+  
+  .welcomeSubtitle {
+    font-size: 1rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .chatSidebar {
+    width: 100%;
+    min-width: 100%;
+    position: absolute;
+    z-index: 100;
+  }
+  
+  .timelineBar {
+    display: none;
+  }
+  
+  .messagesContent {
+    padding-right: 0;
+  }
+  
+  .chatHeader {
+    padding-left: 45px;
+    padding-right: var(--space-3);
+  }
+  
+  .inputSection {
+    padding-left: 45px;
+  }
 }

@@ -228,6 +228,7 @@ const STORAGE_KEYS = {
   MEMORIES: 'openharness-memories',
   CHANNELS: 'openharness-channels',
   AVAILABLE_MODELS: 'openharness-available-models',
+  OPENHARNESS_CONFIG: 'openharness-openharness-config',
 };
 
 // Helper to load from localStorage
@@ -250,6 +251,20 @@ function saveToStorage<T>(key: string, value: T): void {
   } catch (e) {
     console.error(`Failed to save ${key} to localStorage:`, e);
   }
+}
+
+// Helper to save current messages to the current chat session
+function saveMessagesToCurrentSession(
+  chatSessions: ChatSession[],
+  currentChatId: string | null,
+  messages: Message[]
+): ChatSession[] {
+  if (!currentChatId) return chatSessions;
+  return chatSessions.map((chat) =>
+    chat.id === currentChatId
+      ? { ...chat, messages, updatedAt: Date.now() }
+      : chat
+  );
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -295,7 +310,7 @@ export const useAppStore = create<AppState>((set) => ({
   skills: loadFromStorage<Skill[]>(STORAGE_KEYS.SKILLS, DEFAULT_SKILLS),
   memories: loadFromStorage<MemoryItem[]>(STORAGE_KEYS.MEMORIES, []),
   channels: loadFromStorage<ChannelConfig[]>(STORAGE_KEYS.CHANNELS, []),
-  openHarnessConfig: null,
+  openHarnessConfig: loadFromStorage<OpenHarnessConfig | null>(STORAGE_KEYS.OPENHARNESS_CONFIG, null),
   
   // Actions
   setConnected: (connected) => set({ connected }),
@@ -316,16 +331,50 @@ export const useAppStore = create<AppState>((set) => ({
       return state;
     }
     
+    const newMessages = [...state.messages, message];
+    
+    // Save messages to the current chat session for persistence
+    if (state.currentChatId) {
+      const updatedSessions = saveMessagesToCurrentSession(
+        state.chatSessions,
+        state.currentChatId,
+        newMessages
+      );
+      saveToStorage(STORAGE_KEYS.CHAT_SESSIONS, updatedSessions);
+      return {
+        messages: newMessages,
+        chatSessions: updatedSessions
+      };
+    }
+    
     return {
-      messages: [...state.messages, message]
+      messages: newMessages
     };
   }),
   
-  updateMessage: (id, updates) => set((state) => ({
-    messages: state.messages.map((msg) => 
+  updateMessage: (id, updates) => set((state) => {
+    const newMessages = state.messages.map((msg) => 
       msg.id === id ? { ...msg, ...updates } : msg
-    )
-  })),
+    );
+    
+    // Sync updates to the current chat session for persistence
+    if (state.currentChatId) {
+      const updatedSessions = saveMessagesToCurrentSession(
+        state.chatSessions,
+        state.currentChatId,
+        newMessages
+      );
+      saveToStorage(STORAGE_KEYS.CHAT_SESSIONS, updatedSessions);
+      return {
+        messages: newMessages,
+        chatSessions: updatedSessions
+      };
+    }
+    
+    return {
+      messages: newMessages
+    };
+  }),
   
   setSessionState: (state) => set((prev) => ({
     sessionState: { ...prev.sessionState, ...state }
@@ -350,7 +399,22 @@ export const useAppStore = create<AppState>((set) => ({
   toggleTerminalView: () => set((state) => ({ terminalView: state.terminalView === 'chat' ? 'terminal' : 'chat' })),
   toggleCommandPalette: () => set((state) => ({ commandPaletteOpen: !state.commandPaletteOpen })),
   setCommandPaletteOpen: (open) => set({ commandPaletteOpen: open }),
-  clearMessages: () => set({ messages: [] }),
+  clearMessages: () => set((state) => {
+    // Clear messages in the current chat session for persistence
+    if (state.currentChatId) {
+      const updatedSessions = saveMessagesToCurrentSession(
+        state.chatSessions,
+        state.currentChatId,
+        []
+      );
+      saveToStorage(STORAGE_KEYS.CHAT_SESSIONS, updatedSessions);
+      return {
+        messages: [],
+        chatSessions: updatedSessions
+      };
+    }
+    return { messages: [] };
+  }),
   
   // Modal actions
   setActiveModal: (modal) => set({ activeModal: modal }),
@@ -402,6 +466,16 @@ export const useAppStore = create<AppState>((set) => ({
   }),
   
   createNewChat: (name) => set((state) => {
+    // Save current messages to the current session before creating a new one
+    let sessionsWithSavedMessages = state.chatSessions;
+    if (state.currentChatId) {
+      sessionsWithSavedMessages = saveMessagesToCurrentSession(
+        state.chatSessions,
+        state.currentChatId,
+        state.messages
+      );
+    }
+    
     const newChat: ChatSession = {
       id: `chat-${Date.now()}`,
       name: name || `New Chat ${state.chatSessions.length + 1}`,
@@ -410,7 +484,7 @@ export const useAppStore = create<AppState>((set) => ({
       updatedAt: Date.now(),
       model: state.settings.model
     };
-    const newSessions = [newChat, ...state.chatSessions];
+    const newSessions = [newChat, ...sessionsWithSavedMessages];
     saveToStorage(STORAGE_KEYS.CHAT_SESSIONS, newSessions);
     saveToStorage(STORAGE_KEYS.CURRENT_CHAT_ID, newChat.id);
     // Call backend to clear conversation history
@@ -427,20 +501,43 @@ export const useAppStore = create<AppState>((set) => ({
   switchChat: (chatId) => set((state) => {
     const chat = state.chatSessions.find(c => c.id === chatId);
     if (!chat) return state;
+    
+    // Save current messages to the current session before switching
+    let sessionsToSave = state.chatSessions;
+    if (state.currentChatId && state.currentChatId !== chatId) {
+      sessionsToSave = saveMessagesToCurrentSession(
+        state.chatSessions,
+        state.currentChatId,
+        state.messages
+      );
+      saveToStorage(STORAGE_KEYS.CHAT_SESSIONS, sessionsToSave);
+    }
+    
     saveToStorage(STORAGE_KEYS.CURRENT_CHAT_ID, chatId);
     return {
+      chatSessions: sessionsToSave,
       currentChatId: chatId,
-      messages: chat.messages
+      messages: chat.messages || []
     };
   }),
   
   deleteChat: (chatId) => set((state) => {
-    const newSessions = state.chatSessions.filter(c => c.id !== chatId);
+    // Save current messages to the current session before deleting
+    let sessionsWithSavedMessages = state.chatSessions;
+    if (state.currentChatId && state.currentChatId !== chatId) {
+      sessionsWithSavedMessages = saveMessagesToCurrentSession(
+        state.chatSessions,
+        state.currentChatId,
+        state.messages
+      );
+    }
+    
+    const newSessions = sessionsWithSavedMessages.filter(c => c.id !== chatId);
     const newCurrentId = state.currentChatId === chatId 
       ? (newSessions.length > 0 ? newSessions[0].id : null)
       : state.currentChatId;
     const newMessages = state.currentChatId === chatId
-      ? (newSessions.length > 0 ? newSessions[0].messages : [])
+      ? (newSessions.length > 0 ? newSessions[0].messages || [] : [])
       : state.messages;
     saveToStorage(STORAGE_KEYS.CHAT_SESSIONS, newSessions);
     if (newCurrentId) saveToStorage(STORAGE_KEYS.CURRENT_CHAT_ID, newCurrentId);
@@ -597,11 +694,15 @@ export const useAppStore = create<AppState>((set) => ({
   }),
   
   // OpenHarness config actions
-  setOpenHarnessConfig: (config) => set({ openHarnessConfig: config }),
+  setOpenHarnessConfig: (config) => {
+    saveToStorage(STORAGE_KEYS.OPENHARNESS_CONFIG, config);
+    set({ openHarnessConfig: config });
+  },
   
-  updateOpenHarnessConfig: (updates) => set((state) => ({
-    openHarnessConfig: state.openHarnessConfig 
-      ? { ...state.openHarnessConfig, ...updates }
-      : null
-  })),
+  updateOpenHarnessConfig: (updates) => set((state) => {
+    if (!state.openHarnessConfig) return state;
+    const newConfig = { ...state.openHarnessConfig, ...updates };
+    saveToStorage(STORAGE_KEYS.OPENHARNESS_CONFIG, newConfig);
+    return { openHarnessConfig: newConfig };
+  }),
 }));

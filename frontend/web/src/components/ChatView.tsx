@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { Send, Bot, User, AlertCircle, Wrench, Paperclip, Maximize2, Minimize2, ChevronDown, ChevronUp, Sparkles, Brain, Plus, Copy, Check, Clock } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -30,6 +30,7 @@ export function ChatView() {
   
   const [input, setInput] = useState('');
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
+  const [messagePositions, setMessagePositions] = useState<Map<string, number>>(new Map());
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const timelineTrackRef = useRef<HTMLDivElement>(null);
@@ -46,27 +47,82 @@ export function ChatView() {
     scrollToBottom();
   }, [messages]);
 
+  // Calculate actual message positions for dynamic timeline
+  const calculateMessagePositions = useCallback(() => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+    
+    const scrollHeight = container.scrollHeight;
+    const newPositions = new Map<string, number>();
+    
+    messageRefs.current.forEach((element, messageId) => {
+      if (!element) return;
+      // Calculate position relative to scroll container
+      const offsetTop = element.offsetTop;
+      // Position as percentage of total scroll height
+      const position = scrollHeight > 0 ? offsetTop / scrollHeight : 0;
+      newPositions.set(messageId, position);
+    });
+    
+    setMessagePositions(newPositions);
+  }, []);
+
+  // Recalculate positions when messages change, expand/collapse, or container resizes
+  useEffect(() => {
+    // Small delay to allow DOM to update
+    const timer = setTimeout(() => {
+      calculateMessagePositions();
+    }, 100);
+    return () => clearTimeout(timer);
+  }, [messages, expandedMessages, calculateMessagePositions]);
+
+  // Update positions on scroll to keep timeline markers in sync
+  useEffect(() => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+    
+    const handleScroll = () => {
+      // Recalculate positions on scroll to handle dynamic content
+      calculateMessagePositions();
+    };
+    
+    container.addEventListener('scroll', handleScroll);
+    return () => container.removeEventListener('scroll', handleScroll);
+  }, [calculateMessagePositions]);
+
+  // Update positions on resize
+  useEffect(() => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+    
+    const resizeObserver = new ResizeObserver(() => {
+      calculateMessagePositions();
+    });
+    
+    resizeObserver.observe(container);
+    return () => resizeObserver.disconnect();
+  }, [calculateMessagePositions]);
+
   // Track scroll position for timeline and sync timeline scroll
   useEffect(() => {
     const container = messagesContainerRef.current;
     const timelineTrack = timelineTrackRef.current;
     const viewportIndicator = timelineTrack?.querySelector(`.${styles.timelineViewport}`) as HTMLElement;
-    if (!container) return;
+    if (!container || !timelineTrack) return;
+
+    const syncTimelineHeight = () => {
+      // Match timeline track height to message container scroll height
+      timelineTrack.style.height = `${container.scrollHeight}px`;
+    };
 
     const handleScroll = () => {
       const scrollTop = container.scrollTop;
       const scrollHeight = container.scrollHeight - container.clientHeight;
       const progress = scrollHeight > 0 ? scrollTop / scrollHeight : 0;
       
-      // Sync timeline scroll with messages scroll
-      if (timelineTrack && timelineTrack.scrollHeight > timelineTrack.clientHeight) {
-        const timelineScrollTop = progress * (timelineTrack.scrollHeight - timelineTrack.clientHeight);
-        timelineTrack.scrollTop = timelineScrollTop;
-      }
-      
       // Update viewport indicator position
       if (viewportIndicator) {
-        const trackHeight = timelineTrack?.clientHeight || 0;
+        const trackHeight = timelineTrack.clientHeight;
         const viewportHeight = Math.max(20, (container.clientHeight / container.scrollHeight) * trackHeight);
         const viewportTop = progress * (trackHeight - viewportHeight);
         viewportIndicator.style.height = `${viewportHeight}px`;
@@ -74,11 +130,24 @@ export function ChatView() {
       }
     };
 
-    // Initial call to set viewport indicator
+    // Initial sync
+    syncTimelineHeight();
     handleScroll();
     
+    // Sync on scroll
     container.addEventListener('scroll', handleScroll);
-    return () => container.removeEventListener('scroll', handleScroll);
+    
+    // Sync on resize
+    const resizeObserver = new ResizeObserver(() => {
+      syncTimelineHeight();
+      handleScroll();
+    });
+    resizeObserver.observe(container);
+    
+    return () => {
+      container.removeEventListener('scroll', handleScroll);
+      resizeObserver.disconnect();
+    };
   }, [messages, styles.timelineViewport]);
 
   // Clear copied state after 2 seconds
@@ -105,41 +174,47 @@ export function ChatView() {
     }
   };
 
-  // Generate timeline markers based on messages - positioned relative to viewport
+  // Generate timeline markers based on actual message scroll positions
   const getTimelineMarkers = () => {
     if (messages.length === 0) return [];
     
-    // Show markers at fixed intervals on the timeline
-    // Each marker represents a clickable point to jump to that message
     const markers: { id: string; position: number; label: string; timestamp: number }[] = [];
-    const numMarkers = Math.min(8, messages.length); // Max 8 markers
     
-    // Handle single message case to avoid division by zero
+    // Select messages to show as markers (first, last, and evenly distributed in between)
+    const numMarkers = Math.min(8, messages.length);
+    
+    // Get unique message indices for markers
+    const markerIndices: number[] = [];
     if (numMarkers === 1) {
-      const message = messages[0];
-      if (message?.id) {
-        markers.push({
-          id: message.id,
-          position: 0.5,
-          label: formatTime(message.timestamp),
-          timestamp: message.timestamp,
-        });
+      markerIndices.push(0);
+    } else {
+      for (let i = 0; i < numMarkers; i++) {
+        const index = Math.floor((i / (numMarkers - 1)) * (messages.length - 1));
+        if (!markerIndices.includes(index)) {
+          markerIndices.push(index);
+        }
       }
-      return markers;
     }
     
-    for (let i = 0; i < numMarkers; i++) {
-      const messageIndex = Math.floor((i / (numMarkers - 1)) * (messages.length - 1));
-      const message = messages[messageIndex];
-      if (!message?.id) continue; // Skip if message is undefined or has no id
-      const position = i / (numMarkers - 1);
+    // Create markers using actual positions from messagePositions state
+    markerIndices.forEach(index => {
+      const message = messages[index];
+      if (!message?.id) return;
+      
+      // Use actual calculated position if available, otherwise estimate
+      const actualPosition = messagePositions.get(message.id);
+      let position = actualPosition ?? (index / (messages.length - 1 || 1));
+      
+      // Clamp position to valid range (0-1) to prevent markers from going out of bounds
+      position = Math.max(0, Math.min(1, position));
+      
       markers.push({
         id: message.id,
         position,
         label: formatTime(message.timestamp),
         timestamp: message.timestamp,
       });
-    }
+    });
     
     return markers;
   };
@@ -481,6 +556,7 @@ export function ChatView() {
                   <div
                     key={marker.id}
                     className={styles.timelineMarker}
+                    style={{ top: `${marker.position * 100}%` }}
                     onClick={() => handleTimelineClick(marker.id)}
                     title={`Jump to message at ${marker.label}`}
                   >

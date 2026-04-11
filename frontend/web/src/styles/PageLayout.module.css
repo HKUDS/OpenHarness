@@ -3,9 +3,107 @@
 .page {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  flex: 1;
   overflow: hidden;
   background: var(--bg-primary);
+}
+
+/* Chat Page Specific Layout */
+.chatPageLayout {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+}
+
+/* Chat Sidebar - Left side for chat sessions */
+.chatSidebar {
+  width: 280px;
+  min-width: 280px;
+  height: 100%;
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), 
+              width 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+              min-width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  z-index: 20;
+}
+
+.chatSidebar.open {
+  transform: translateX(0);
+}
+
+.chatSidebar.closed {
+  transform: translateX(-100%);
+  width: 0;
+  min-width: 0;
+  border-right: none;
+}
+
+/* Main chat area */
+.chatMain {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+  background: var(--bg-primary);
+}
+
+/* Sidebar toggle button - Fixed position on the left edge of main chat */
+.sidebarToggle {
+  position: absolute;
+  left: 12px;
+  top: 12px;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: var(--transition-fast);
+  box-shadow: var(--shadow-md);
+}
+
+.sidebarToggle:hover {
+  background: var(--bg-tertiary);
+  color: var(--primary-500);
+  border-color: var(--primary-500);
+  transform: scale(1.05);
+}
+
+.sidebarToggle.sidebarOpen {
+  left: 12px;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .chatSidebar {
+    position: absolute;
+    z-index: 100;
+    box-shadow: var(--shadow-xl);
+  }
+  
+  .chatSidebar.closed {
+    transform: translateX(-100%);
+    width: 280px;
+    min-width: 280px;
+  }
+  
+  .sidebarToggle {
+    left: 8px;
+    top: 8px;
+    width: 32px;
+    height: 32px;
+  }
 }
 
 .pageHeader {
@@ -5381,4 +5479,86 @@
   font-size: 0.75rem;
   color: var(--text-secondary);
   font-family: monospace;
+}
+
+/* Chat Page Layout */
+.chatPageLayout {
+  display: flex;
+  height: 100%;
+  overflow: hidden;
+  position: relative;
+}
+
+.chatSidebar {
+  width: 280px;
+  flex-shrink: 0;
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  transition: width 0.3s ease, opacity 0.3s ease;
+  overflow: hidden;
+}
+
+.chatSidebar:not(.open) {
+  width: 0;
+  opacity: 0;
+  border-right: none;
+}
+
+.chatMain {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  margin-left: 0;
+  transition: margin-left 0.3s ease;
+}
+
+.sidebarToggle {
+  position: fixed;
+  top: var(--space-3);
+  left: var(--space-3);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.sidebarToggle.sidebarOpen {
+  left: 290px;
+}
+
+.sidebarToggle:hover {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  border-color: var(--primary-500);
+}
+
+.configActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-3);
+  margin-top: var(--space-6);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.infoBox {
+  padding: var(--space-3);
+  background: rgba(95, 115, 220, 0.1);
+  border: 1px solid rgba(95, 115, 220, 0.2);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-size: 0.875rem;
 }

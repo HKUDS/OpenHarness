@@ -4,22 +4,28 @@
   height: 100%;
   min-height: 0;
   overflow: hidden;
+  background: var(--bg-secondary);
 }
 
 .header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: var(--space-3) var(--space-4);
+  padding: var(--space-4);
   border-bottom: 1px solid var(--border-subtle);
-  background: var(--bg-tertiary);
+  background: var(--bg-secondary);
   flex-shrink: 0;
+  gap: var(--space-2);
 }
 
 .header h3 {
   font-size: 0.875rem;
   font-weight: 700;
   color: var(--text-primary);
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .newChatButton {
@@ -34,6 +40,7 @@
   color: white;
   cursor: pointer;
   transition: var(--transition-fast);
+  flex-shrink: 0;
 }
 
 .newChatButton:hover {
@@ -74,6 +81,7 @@
   padding: var(--space-6) var(--space-3);
   text-align: center;
   color: var(--text-tertiary);
+  height: 100%;
 }
 
 .emptyIcon {
@@ -116,6 +124,7 @@
   border-radius: var(--radius-md);
   cursor: pointer;
   transition: var(--transition-fast);
+  position: relative;
 }
 
 .session:hover {
@@ -132,8 +141,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
   background: var(--bg-tertiary);
   border-radius: var(--radius-md);
   color: var(--primary-500);
@@ -151,6 +160,7 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
+  overflow: hidden;
 }
 
 .sessionName {
@@ -178,6 +188,7 @@
   gap: var(--space-1);
   opacity: 0;
   transition: opacity var(--transition-fast);
+  flex-shrink: 0;
 }
 
 .session:hover .sessionActions {
@@ -284,4 +295,29 @@
 
 .editCancel:hover {
   background: rgba(239, 68, 68, 0.25);
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .chatSessions {
+    width: 100%;
+  }
+  
+  .header h3 {
+    font-size: 0.8125rem;
+  }
+  
+  .session {
+    padding: var(--space-2);
+    gap: var(--space-2);
+  }
+  
+  .sessionIcon {
+    width: 32px;
+    height: 32px;
+  }
+  
+  .sessionActions {
+    opacity: 1;
+  }
 }
