@@ -38,8 +38,10 @@ const { title = 'OpenHarness Docs', description, section = '', currentPath = '' 
       })();
 
       <!-- Theme Toggle Script -->
-      var themes = ['light', 'dark', 'system'];
-      var themeIndex = 2; // Start with 'system'
+      var themeState = {
+        themes: ['light', 'dark', 'system'],
+        index: 2 // Start with 'system'
+      };
 
       function getSystemTheme() {
         return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
@@ -50,6 +52,7 @@ const { title = 'OpenHarness Docs', description, section = '', currentPath = '' 
         document.documentElement.classList.toggle('dark', effective === 'dark');
         localStorage.setItem('theme', currentTheme);
         updateThemeButton(currentTheme);
+        console.log('[Theme] Applied:', currentTheme, 'Effective:', effective, 'Index:', themeState.index);
       }
 
       function updateThemeButton(currentTheme) {
@@ -95,24 +98,27 @@ const { title = 'OpenHarness Docs', description, section = '', currentPath = '' 
       }
 
       function cycleTheme() {
-        themeIndex = (themeIndex + 1) % themes.length;
-        var nextTheme = themes[themeIndex];
+        themeState.index = (themeState.index + 1) % themeState.themes.length;
+        var nextTheme = themeState.themes[themeState.index];
         applyTheme(nextTheme);
       }
 
       function initTheme() {
         var stored = localStorage.getItem('theme');
-        if (stored && themes.includes(stored)) {
-          themeIndex = themes.indexOf(stored);
+        if (stored && themeState.themes.includes(stored)) {
+          themeState.index = themeState.themes.indexOf(stored);
         } else {
-          themeIndex = 2; // Default to 'system'
+          themeState.index = 2; // Default to 'system'
         }
-        applyTheme(themes[themeIndex]);
+        var initialTheme = themeState.themes[themeState.index];
+        applyTheme(initialTheme);
+        console.log('[Theme] Initialized to:', initialTheme, '(stored:', stored + ')');
       }
 
       // System theme change handler - only respond if current mode is 'system'
       var systemHandler = function() {
-        var currentTheme = themes[themeIndex];
+        var currentTheme = themeState.themes[themeState.index];
+        console.log('[Theme] System theme changed. Current mode:', currentTheme, 'Index:', themeState.index, 'Will respond:', currentTheme === 'system');
         if (currentTheme === 'system') {
           applyTheme('system');
         }

@@ -53,8 +53,10 @@
       })();
 
       <!-- Theme Toggle Script -->
-      var themes = ['light', 'dark', 'system'];
-      var themeIndex = 2; // Start with 'system'
+      var themeState = {
+        themes: ['light', 'dark', 'system'],
+        index: 2 // Start with 'system'
+      };
 
       function getSystemTheme() {
         return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
@@ -66,6 +68,7 @@
         localStorage.setItem('theme', currentTheme);
         updateThemeButton(currentTheme);
         updateStatus();
+        console.log('[Theme] Applied:', currentTheme, 'Effective:', effective, 'Index:', themeState.index);
       }
 
       function updateThemeButton(currentTheme) {
@@ -86,19 +89,21 @@
       }
 
       function cycleTheme() {
-        themeIndex = (themeIndex + 1) % themes.length;
-        var nextTheme = themes[themeIndex];
+        themeState.index = (themeState.index + 1) % themeState.themes.length;
+        var nextTheme = themeState.themes[themeState.index];
         applyTheme(nextTheme);
       }
 
       function initTheme() {
         var stored = localStorage.getItem('theme');
-        if (stored && themes.includes(stored)) {
-          themeIndex = themes.indexOf(stored);
+        if (stored && themeState.themes.includes(stored)) {
+          themeState.index = themeState.themes.indexOf(stored);
         } else {
-          themeIndex = 2; // Default to 'system'
+          themeState.index = 2; // Default to 'system'
         }
-        applyTheme(themes[themeIndex]);
+        var initialTheme = themeState.themes[themeState.index];
+        applyTheme(initialTheme);
+        console.log('[Theme] Initialized to:', initialTheme, '(stored:', stored + ')', 'Index:', themeState.index);
       }
 
       function updateStatus() {
@@ -106,7 +111,7 @@
         if (!status) return;
 
         var storedTheme = localStorage.getItem('theme');
-        var currentTheme = themes[themeIndex];
+        var currentTheme = themeState.themes[themeState.index];
         var systemTheme = getSystemTheme();
         var isDark = document.documentElement.classList.contains('dark');
 
@@ -116,13 +121,14 @@
           Stored Theme: ${storedTheme || 'null'}<br>
           System Theme: ${systemTheme}<br>
           Is Dark Class Set: ${isDark}<br>
-          Theme Index: ${themeIndex}
+          Theme Index: ${themeState.index}
         `;
       }
 
       // System theme change handler - only respond if current mode is 'system'
       var systemHandler = function() {
-        var currentTheme = themes[themeIndex];
+        var currentTheme = themeState.themes[themeState.index];
+        console.log('[Theme] System theme changed. Current mode:', currentTheme, 'Index:', themeState.index, 'Will respond:', currentTheme === 'system');
         if (currentTheme === 'system') {
           applyTheme('system');
         }
