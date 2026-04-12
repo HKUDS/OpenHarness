@@ -8,12 +8,12 @@
 
 ## 修改文件
 - `src/pages/docs/[...slug].astro`
-`src/styles/global.css`（添加自定义 CSS）
+- `src/styles/global.css`（添加自定义 CSS）
 
 ## 具体实现
 
 ### 1. 链接使用品牌渐变色
-使用渐变起始色 `#3B82F6`（亮模式）或 `#60A5FA`（（暗模式）：
+使用渐变起始色 `#3B82F6`（亮模式）或 `#60A5FA`（暗模式）：
 ```html
 prose-a:text-[#3B82F6] dark:prose-a:text-[#60A5FA]
 ```
@@ -42,7 +42,7 @@ prose-a:text-[var(--gradient-primary-start)]
 
 .prose pre::before {
   content: '';
-  position:: absolute;
+  position: absolute;
   top: 0;
   left: 0;
   right: 0;

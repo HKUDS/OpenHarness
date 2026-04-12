@@ -11,14 +11,43 @@
 
 ## 具体实现
 
-### 1. 添加缺失的颜色变量
+### 1. 添加缺失的颜色变量和基础颜色
 ```css
 :root {
+  /* 基础颜色 */
+  --color-bg-start: #F8FAFC;
+  --color-bg-end: #E2E8F0;
+  --color-text: #1E293B;
+  --color-secondary: #64748B;
+  --color-sidebar-bg: #F1F5F9;
   --color-sidebar-bg-dim: #E8EEF5;
+  --color-border: #E2E8F0;
+
+  /* 侧边栏渐变使用的变量 */
+  --gradient-primary-start: #3B82F6;
+  --gradient-primary-end: #8B5CF6;
+  --gradient-secondary-start: #6366F1;
+  --gradient-secondary-end: #8B5CF6;
+  --gradient-code-start: #F1F5F9;
+  --gradient-code-end: #E0E7FF;
 }
 
 .dark {
+  --color-bg-start: #0F172A;
+  --color-bg-end: #1E1B4B;
+  --color-text: #F1F5F9;
+  --color-secondary: #94A3B8;
+  --color-sidebar-bg: #1E293B;
   --color-sidebar-bg-dim: #0F172A;
+  --color-border: #334155;
+
+  /* 暗模式渐变变量 */
+  --gradient-primary-start: #60A5FA;
+  --gradient-primary-end: #A78BFA;
+  --gradient-secondary-start: #818CF8;
+  --gradient-secondary-end: #C084FC;
+  --gradient-code-start: #1E293B;
+  --gradient-code-end: #312E81;
 }
 ```
 
@@ -26,17 +55,17 @@
 ```css
 :root {
   /* 渐变定义 */
-  --gradient-primary: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
-  --gradient-secondary: linear-gradient(135deg, #6366F1 0%, #8B5CF6 100%);
-  --gradient-code: linear-gradient(180deg, #F1F5F9 0%, #E0E7FF 100%);
-  --gradient-border: linear-gradient(90deg, #3B82F6, #8B5CF6, #EC4899);
+  --gradient-primary: linear-gradient(135deg, var(--gradient-primary-start) 0%, var(--gradient-primary-end) 100%);
+  --gradient-secondary: linear-gradient(135deg, var(--gradient-secondary-start) 0%, var(--gradient-secondary-end) 100%);
+  --gradient-code: linear-gradient(180deg, var(--gradient-code-start) 0%, var(--gradient-code-end) 100%);
+  --gradient-border: linear-gradient(90deg, var(--gradient-primary-start), var(--gradient-primary-end), var(--gradient-secondary-end));
 }
 
 .dark {
-  --gradient-primary: linear-gradient(135deg, #60A5FA 0%, #A78BFA 100%);
-  --gradient-secondary: linear-gradient(135deg, #818CF8 0%, #C084FC 100%);
-  --gradient-code: linear-gradient(180deg, #1E293B 0%, #312E81 100%);
-  --gradient-border: linear-gradient(90deg, #60A5FA, #A78BFA, #F472B6);
+  --gradient-primary: linear-gradient(135deg, var(--gradient-primary-start) 0%, var(--gradient-primary-end) 100%);
+  --gradient-secondary: linear-gradient(135deg, var(--gradient-secondary-start) 0%, var(--gradient-secondary-end) 100%);
+  --gradient-code: linear-gradient(180deg, var(--gradient-code-start) 0%, var(--gradient-code-end) 100%);
+  --gradient-border: linear-gradient(90deg, var(--gradient-primary-start), var(--gradient-primary-end), var(--gradient-secondary-end));
 }
 ```
 
@@ -90,6 +119,10 @@
 ```css
 :root {
   /* 阴影 */
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.05);
+  --shadow-md: 0 4px 6px rgba(0,0,0,0.1);
+  --shadow-lg: 0 10px 15px rgba(0,0,0,0.1);
+  --shadow-xl: 0 20px 25px rgba(0,0,0,0.15);
   --shadow-glow: 0 0 20px rgba(59, 130, 246, 0.3);
 }
 
@@ -98,7 +131,20 @@
 }
 ```
 
-### 7. 添加减少动效媒体查询
+### 7. 添加背景渐变类
+```css
+.sidebar-gradient-bg {
+ {
+  background: linear-gradient(180deg, var(--color-sidebar-bg) 0%, var(--color-sidebar-bg-dim) 100%);
+}
+}
+
+.main-gradient-bg {
+  background: linear-gradient(180deg, var(--color-bg-start) 0%, var(--color-bg-end) 100%);
+}
+```
+
+### 8. 添加减少动效媒体查询
 ```css
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
@@ -119,4 +165,5 @@
 - [ ] 所有变量都有亮/暗模式变体
 - [ ] 动效曲线变量已定义
 - [ ] 阴影变量已定义
+- [ ] 背景渐变类已定义
 - [ ] CSS 在亮/暗模式下都能正常工作
