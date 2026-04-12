@@ -2,6 +2,7 @@
 import { getCollection } from 'astro:content';
 import TopNav from '../components/TopNav.astro';
 import Sidebar from '../components/Sidebar.astro';
+import ScrollProgress from '../components/ScrollProgress.astro';
 import '../styles/global.css';
 
 interface Props {
@@ -98,6 +99,15 @@ const { title = 'OpenHarness Docs', description, section = '', currentPath = '' 
       }
 
       function cycleTheme() {
+        // Add rotation animation class
+        var themeIcon = document.querySelector('.theme-icon');
+        if (themeIcon) {
+          themeIcon.classList.add('rotating');
+          setTimeout(() => {
+            themeIcon?.classList.remove('rotating');
+          }, 500);
+        }
+
         themeState.index = (themeState.index + 1) % themeState.themes.length;
         var nextTheme = themeState.themes[themeState.index];
         applyTheme(nextTheme);
@@ -137,8 +147,9 @@ const { title = 'OpenHarness Docs', description, section = '', currentPath = '' 
       });
     </script>
   </head>
-  <body class="min-h-screen bg-[var(--color-bg)] dark:bg-[var(--color-bg)] text-[var(--color-text)] dark:text-[var(--color-text)] transition-colors duration-200">
+  <body class="min-h-screen breathing-bg dark:bg-[var(--color-bg)] text-[var(--color-text)] dark:text-[var(--color-text)] transition-colors duration-200">
     <TopNav title={title} />
+    <ScrollProgress />
     <div class="flex">
       <Sidebar currentPath={currentPath} />
       <main id="main-content" class="flex-1 lg:ml-64 pt-20 min-h-screen transition-all duration-300">

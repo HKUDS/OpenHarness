@@ -31,11 +31,11 @@ const currentPath = slug ? `/docs/${slug}/` : '/docs/';
   currentPath={currentPath}
 >
   <div class="prose prose-slate dark:prose-invert max-w-none
-    prose-headings:font-semibold prose-headings:text-[var(--color-text)] dark:prose-headings:text-[var(--color-text)]
+    prose-headings:font-semibold prose-headings:text-gradient
     prose-headings:font-['JetBrains_Mono']
-    prose-a:text-[var(--color-cta)] dark:prose-a:text-[var(--color-cta)] prose-a:no-underline hover:prose-a:underline
-    prose-code:text-[var(--color-cta)] dark:prose-code:text-[var(--color-cta)]
-    prose-pre:bg-[var(--color-code-bg)] dark:prose-pre:bg-[var(--color-code-bg)]
+    prose-a:text-[var(--gradient-primary-start)] hover:prose-a:underline
+    prose-code:text-[var(--gradient-primary-start)]
+    prose-pre:bg-[var(--gradient-code-start)] dark:prose-pre:bg-[var(--gradient-code-start)]
     prose-img:rounded-lg
     prose-strong:text-[var(--color-text)] dark:prose-strong:text-[var(--color-text)]
     prose-p:text-[var(--color-text)] dark:prose-p:text-[var(--color-text)]
@@ -43,3 +43,53 @@ const currentPath = slug ? `/docs/${slug}/` : '/docs/';
     <Content components={{ ImageGenIsland: ImageGenIsland as any }} />
   </div>
 </DocLayout>
+
+<style is:global>
+  /* Heading hover effects */
+  .prose h2,
+  .prose h3 {
+    position: relative;
+    transition: color 0.3s ease;
+  }
+
+  .prose h2:hover,
+  .prose h3:hover {
+    color: var(--gradient-primary-start);
+  }
+
+  .prose h2::before,
+  .prose h3::before {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 0;
+    height: 3px;
+    background: var(--gradient-primary);
+    border-radius: 2px;
+    transition: width 0.3s ease-out;
+  }
+
+  .prose h2:hover::before,
+  .prose h3:hover::before {
+    width: 100%;
+  }
+
+  /* Reduced motion support */
+  @media (prefers-reduced-motion: reduce) {
+    .prose h2,
+    .prose h3 {
+      transition: none;
+    }
+
+    .prose h2::before,
+    .prose h3::before {
+      transition: none;
+    }
+
+    .prose h2:hover::before,
+    .prose h3:hover::before {
+      width: 0;
+    }
+  }
+</style>

@@ -6,14 +6,14 @@ interface Props {
 const { title } = Astro.props;
 ---
 
-<header class="fixed top-4 left-4 right-4 z-50 h-14 bg-[var(--color-bg)]/95 backdrop-blur-md border border-[var(--color-border)] rounded-xl navbar-gradient-border animate-fade-in-down shadow-[var(--shadow-md)] transition-all duration-200">
+<header class="fixed top-4 left-4 right-4 z-50 h-14 bg-[var(--color-bg-start)]/95 backdrop-blur-md border border-[var(--color-border)] rounded-xl navbar-gradient-border animate-fade-in-down shadow-[var(--shadow-md)] transition-all duration-200">
   <div class="flex items-center justify-between w-full max-w-[1400px] mx-auto">
     <div class="flex items-center gap-3">
       <!-- Mobile sidebar toggle -->
       <button
         id="sidebar-toggle"
         type="button"
-        class="p-2 rounded-lg hover:bg-[var(--color-hover-bg)] dark:hover:bg-[var(--color-hover-bg)] transition-all duration-200 text-[var(--color-secondary)] hover:text-[var(--color-text)] lg:hidden focus:ring-2 focus:ring-[var(--gradient-primary-start)] focus:ring-offset-2"
+        class="p-2 rounded-lg hover:bg-[var(--color-hover-bg)] dark:hover:bg-[var(--color-hover-bg)] transition-all duration-200 text-[var(--color-secondary)] hover:text-[var(--color-text)] lg:hidden focus:ring-2 focus:ring-[var(--gradient-primary-start)] focus:ring-offset-2 ripple-btn"
         aria-label="Toggle sidebar"
       >
         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -26,7 +26,7 @@ const { title } = Astro.props;
       <button
         id="sidebar-collapse"
         type="button"
-        class="p-2 rounded-lg hover:bg-[var(--color-hover-bg)] dark:hover:bg-[var(--color-hover-bg)] transition-all duration-200 text-[var(--color-secondary)] hover:text-[var(--color-text)] hidden lg:flex items-center justify-center focus:ring-2 focus:ring-[var(--gradient-primary-start)] focus:ring-offset-2"
+        class="p-2 rounded-lg hover:bg-[var(--color-hover-bg)] dark:hover:bg-[var(--color-hover-bg)] transition-all duration-200 text-[var(--color-secondary)] hover:text-[var(--color-text)] hidden lg:flex items-center justify-center focus:ring-2 focus:ring-[var(--gradient-primary-start)] focus:ring-offset-2 ripple-btn"
         aria-label="Collapse sidebar"
         aria-expanded="false"
       >
@@ -48,14 +48,14 @@ const { title } = Astro.props;
       </a>
     </div>
     <nav class="flex items-center gap-3">
-      <a href="/docs/" class="nav-link text-sm text-[var(--color-secondary)] hover:text-[var(--gradient-primary-start)] transition-all duration-200 hidden md:inline focus:ring-2 focus:ring-[var(--gradient-primary-start)] focus:ring-offset-2 rounded-md px-2 py-1">Home</a>
-      <a href="/docs/user/getting-started/" class="nav-link text-sm text-[var(--color-secondary)] hover:text-[var(--gradient-primary-start)] transition-all duration-200 hidden md:inline focus:ring-2 focus:ring-[var(--gradient-primary-start)] focus:ring-offset-2 rounded-md px-2 py-1">User Guide</a>
-      <a href="/docs/dev/architecture-overview/" class="nav-link text-sm text-[var(--color-secondary)] hover:text-[var(--gradient-primary-start)] transition-all duration-200 hidden md:inline focus:ring-2 focus:ring-[var(--gradient-primary-start)] focus:ring-offset-2 rounded-md px-2 py-1">Dev Docs</a>
+      <a href="/docs/" class="smart-link text-sm transition-all duration-200 hidden md:inline focus:ring-2 focus:ring-[var(--gradient-primary-start)] focus:ring-offset-2 rounded-md px-2 py-1">Home</a>
+      <a href="/docs/user/getting-started/" class="smart-link text-sm transition-all duration-200 hidden md:inline focus:ring-2 focus:ring-[var(--gradient-primary-start)] focus:ring-offset-2 rounded-md px-2 py-1">User Guide</a>
+      <a href="/docs/dev/architecture-overview/" class="smart-link text-sm transition-all duration-200 hidden md:inline focus:ring-2 focus:ring-[var(--gradient-primary-start)] focus:ring-offset-2 rounded-md px-2 py-1">Dev Docs</a>
       <div class="w-px h-5 bg-[var(--color-border)] hidden md:block"></div>
       <button
         id="theme-toggle-btn"
         type="button"
-        class="p-2 rounded-lg hover:bg-[var(--color-hover-bg)] dark:hover:bg-[var(--color-hover-bg)] transition-all duration-200"
+        class="p-2 rounded-lg hover:bg-[var(--color-hover-bg)] dark:hover:bg-[var(--color-hover-bg)] transition-all duration-200 ripple-btn"
         aria-label="Switch theme"
         title="system"
       >

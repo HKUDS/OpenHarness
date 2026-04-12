@@ -10,6 +10,10 @@
     /* 基础颜色 */
     --color-bg-start: #F8FAFC;
     --color-bg-end: #E2E8F0;
+
+    /* 呼吸背景渐变 */
+    --bg-gradient-start: linear-gradient(135deg, #F8FAFC 0%, #EEF2FF 50%, #E0E7FF 100%);
+    --bg-gradient-end: linear-gradient(135deg, #0F172A 0%, #1E1B4B 50%, #312E81 100%);
     --color-text: #1E293B;
     --color-secondary: #64748B;
     --color-sidebar-bg: #F1F5F9;
@@ -223,6 +227,28 @@
   width: 100%;
 }
 
+/* 智能链接下划线动画（从中心扩展） */
+.smart-link {
+  position: relative;
+  color: var(--gradient-primary-start);
+}
+
+.smart-link::after {
+  content: '';
+  position: absolute;
+  bottom: -2px;
+  left: 50%;
+  width: 0;
+  height: 2px;
+  background: var(--gradient-primary);
+  transform: translateX(-50%);
+  transition: width 0.3s ease-out;
+}
+
+.smart-link:hover::after {
+  width: 100%;
+}
+
 /* 动画关键帧 */
 @keyframes fade-in-down {
   from { opacity: 0; transform: translateY(-20px); }
@@ -252,8 +278,79 @@
   animation: slide-in-left 400ms var(--ease-smooth) forwards;
 }
 
+/* 呼吸背景动画 */
+@keyframes breathing-bg {
+  0%, 100% { background-position: 0% 0%; }
+  50% { background-position: 100% 100%; }
+}
+
+.breathing-bg {
+  background-size: 200% 200%;
+  background-position: 0% 0%;
+  animation: breathing-bg 20s ease-in-out infinite;
+}
+
+/* 涟漪按钮效果 */
+.ripple-btn {
+  position: relative;
+  overflow: hidden;
+}
+
+.ripple-btn::after {
+  content: '';
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  background: radial-gradient(circle, var(--gradient-primary-start) 0%, transparent 70%);
+  opacity: 0;
+  transform: scale(0);
+  transition: opacity 0.6s, transform 0.6s;
+}
+
+.ripple-btn:active::after {
+  opacity: 1;
+  transform: scale(2);
+}
+
+/* 悬停抬升效果 */
+.hover-lift {
+  transition: transform 0.3s var(--ease-spring), box-shadow 0.3s;
+}
+
+.hover-lift:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 24px rgba(0,0,0,0.15);
+}
+
+/* 主题图标旋转 */
+.theme-icon {
+  transition: transform 0.5s var(--ease-spring);
+}
+
+.theme-icon.rotating {
+  transform: rotate(180deg);
+}
+
 /* 减少动效支持 */
 @media (prefers-reduced-motion: reduce) {
+  .breathing-bg {
+    animation: none;
+  }
+
+  .ripple-btn::after,
+  .hover-lift,
+  .theme-icon {
+    transition: none;
+  }
+
+  .hover-lift:hover {
+    transform: none;
+  }
+
+  .theme-icon.rotating {
+    transform: none;
+  }
+}
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
