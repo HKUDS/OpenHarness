@@ -183,6 +183,7 @@ async def _rg_grep(
         cwd=str(root),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        limit=8 * 1024 * 1024,  # 8 MB per line — avoids LimitOverrunError on long lines
     )
 
     matches: list[str] = []
@@ -239,6 +240,7 @@ async def _rg_grep_file(
         cwd=str(path.parent),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        limit=8 * 1024 * 1024,  # 8 MB per line — avoids LimitOverrunError on long lines
     )
 
     matches: list[str] = []
@@ -282,7 +284,11 @@ async def _collect_rg_matches(
 ) -> None:
     assert process.stdout is not None
     while len(matches) < limit:
-        raw = await process.stdout.readline()
+        try:
+            raw = await process.stdout.readline()
+        except ValueError:
+            # Line exceeded the stream buffer limit; skip it and continue.
+            continue
         if not raw:
             break
         line = raw.decode("utf-8", errors="replace").rstrip("\n")
@@ -300,7 +306,11 @@ async def _collect_rg_file_matches(
 ) -> None:
     assert process.stdout is not None
     while len(matches) < limit:
-        raw = await process.stdout.readline()
+        try:
+            raw = await process.stdout.readline()
+        except ValueError:
+            # Line exceeded the stream buffer limit; skip it and continue.
+            continue
         if not raw:
             break
         line = raw.decode("utf-8", errors="replace").rstrip("\n")

@@ -24,10 +24,13 @@ from openharness.engine.stream_events import (
 )
 from openharness.permissions import PermissionChecker, PermissionMode
 from openharness.tools import create_default_tool_registry
-from openharness.tools.base import ToolResult
+from openharness.tools.base import ToolRegistry, ToolResult
+from openharness.tools.glob_tool import GlobTool
+from openharness.tools.grep_tool import GrepTool
 from openharness.hooks import HookExecutionContext, HookExecutor, HookEvent
 from openharness.hooks.loader import HookRegistry
 from openharness.hooks.schemas import PromptHookDefinition
+from openharness.engine.query import QueryContext, _execute_tool_call
 
 
 @dataclass
@@ -138,6 +141,13 @@ class CoordinatorLoopApiClient:
             usage=UsageSnapshot(input_tokens=2, output_tokens=2),
             stop_reason=None,
         )
+
+
+class _NoopApiClient:
+    async def stream_message(self, request):
+        del request
+        if False:
+            yield None
 
 
 @pytest.mark.asyncio
@@ -571,6 +581,66 @@ async def test_query_engine_respects_pre_tool_hook_blocks(tmp_path: Path):
     assert tool_results
     assert tool_results[0].is_error is True
     assert "no reading" in tool_results[0].output
+
+
+def _tool_context(tmp_path: Path, registry: ToolRegistry, settings: PermissionSettings) -> QueryContext:
+    return QueryContext(
+        api_client=_NoopApiClient(),
+        tool_registry=registry,
+        permission_checker=PermissionChecker(settings),
+        cwd=tmp_path,
+        model="claude-test",
+        system_prompt="system",
+        max_tokens=1,
+        max_turns=1,
+    )
+
+
+@pytest.mark.asyncio
+async def test_execute_tool_call_blocks_sensitive_directory_roots(tmp_path: Path):
+    sensitive_dir = tmp_path / ".ssh"
+    sensitive_dir.mkdir()
+    (sensitive_dir / "id_rsa").write_text("PRIVATE KEY MATERIAL\n", encoding="utf-8")
+
+    registry = ToolRegistry()
+    registry.register(GrepTool())
+
+    result = await _execute_tool_call(
+        _tool_context(tmp_path, registry, PermissionSettings(mode=PermissionMode.DEFAULT)),
+        "grep",
+        "toolu_grep",
+        {"pattern": "PRIVATE", "root": str(sensitive_dir), "file_glob": "*"},
+    )
+
+    assert result.is_error is True
+    assert "sensitive credential path" in result.content
+
+
+@pytest.mark.asyncio
+async def test_execute_tool_call_applies_path_rules_to_directory_roots(tmp_path: Path):
+    blocked_dir = tmp_path / "blocked"
+    blocked_dir.mkdir()
+    (blocked_dir / "secret.txt").write_text("classified\n", encoding="utf-8")
+
+    registry = ToolRegistry()
+    registry.register(GlobTool())
+
+    result = await _execute_tool_call(
+        _tool_context(
+            tmp_path,
+            registry,
+            PermissionSettings(
+                mode=PermissionMode.DEFAULT,
+                path_rules=[{"pattern": str(blocked_dir) + "/*", "allow": False}],
+            ),
+        ),
+        "glob",
+        "toolu_glob",
+        {"pattern": "*", "root": str(blocked_dir)},
+    )
+
+    assert result.is_error is True
+    assert str(blocked_dir) in result.content
 
 
 @pytest.mark.asyncio

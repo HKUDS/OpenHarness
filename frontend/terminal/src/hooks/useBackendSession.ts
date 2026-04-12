@@ -264,13 +264,13 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 			const text = event.message ?? assistantBufferRef.current;
 			setTranscript((items) => [...items, {role: 'assistant', text}]);
 			clearAssistantDelta();
-			setBusy(false);
+			// Do NOT reset busy here: tool calls may follow this event.
+			// busy is reset by line_complete (the true end-of-turn signal).
 			setBusyLabel(undefined);
 			return;
 		}
 		if (event.type === 'line_complete') {
-			// If the line ended without an assistant_complete (e.g. errors), make sure we
-			// don't leave stale streaming text on screen.
+			// Final end-of-turn: clear everything, stop spinner.
 			clearAssistantDelta();
 			setBusy(false);
 			setBusyLabel(undefined);
@@ -278,7 +278,10 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 		}
 		if ((event.type === 'tool_started' || event.type === 'tool_completed') && event.item) {
 			if (event.type === 'tool_started') {
-				setBusyLabel(event.tool_name ? `Running ${event.tool_name}...` : 'Running...');
+				setBusy(true);
+				setBusyLabel(`Running ${event.tool_name ?? 'tool'}...`);
+			} else {
+				setBusyLabel('Processing...');
 			}
 			const enrichedItem: TranscriptItem = {
 				...event.item,

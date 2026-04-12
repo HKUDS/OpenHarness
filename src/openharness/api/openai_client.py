@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 from typing import Any, AsyncIterator
+from urllib.parse import urlsplit, urlunsplit
 
 from openai import AsyncOpenAI
 
@@ -207,6 +208,22 @@ def _parse_assistant_response(response: Any) -> ConversationMessage:
     return ConversationMessage(role="assistant", content=content)
 
 
+def _normalize_openai_base_url(base_url: str | None) -> str | None:
+    """Normalize custom OpenAI-compatible base URLs without dropping API path segments."""
+    if not base_url:
+        return None
+    trimmed = base_url.strip()
+    if not trimmed:
+        return None
+    parts = urlsplit(trimmed)
+    if not parts.scheme or not parts.netloc:
+        return trimmed.rstrip("/")
+    path = parts.path.rstrip("/")
+    if not path:
+        path = "/v1"
+    return urlunsplit((parts.scheme, parts.netloc, path, parts.query, parts.fragment))
+
+
 class OpenAICompatibleClient:
     """Client for OpenAI-compatible APIs (DashScope, GitHub Models, etc.).
 
@@ -214,10 +231,13 @@ class OpenAICompatibleClient:
     so it can be used as a drop-in replacement in the agent loop.
     """
 
-    def __init__(self, api_key: str, *, base_url: str | None = None) -> None:
+    def __init__(self, api_key: str, *, base_url: str | None = None, timeout: float | None = None) -> None:
         kwargs: dict[str, Any] = {"api_key": api_key}
-        if base_url:
-            kwargs["base_url"] = base_url
+        normalized_base_url = _normalize_openai_base_url(base_url)
+        if normalized_base_url:
+            kwargs["base_url"] = normalized_base_url
+        if timeout is not None:
+            kwargs["timeout"] = timeout
         self._client = AsyncOpenAI(**kwargs)
 
     async def stream_message(self, request: ApiMessageRequest) -> AsyncIterator[ApiStreamEvent]:

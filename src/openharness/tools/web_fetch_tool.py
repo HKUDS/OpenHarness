@@ -4,12 +4,16 @@ from __future__ import annotations
 
 import re
 from html.parser import HTMLParser
-from urllib.parse import urlparse
 
 import httpx
 from pydantic import BaseModel, Field
 
 from openharness.tools.base import BaseTool, ToolExecutionContext, ToolResult
+from openharness.utils.network_guard import (
+    NetworkGuardError,
+    fetch_public_http_response,
+    validate_http_url,
+)
 
 USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7_2) "
@@ -39,14 +43,14 @@ class WebFetchTool(BaseTool):
         if not is_valid:
             return ToolResult(output=f"web_fetch failed: {error_message}", is_error=True)
         try:
-            async with httpx.AsyncClient(
-                follow_redirects=True,
-                max_redirects=MAX_REDIRECTS,
+            response = await fetch_public_http_response(
+                arguments.url,
+                headers={"User-Agent": USER_AGENT},
                 timeout=15.0,
-            ) as client:
-                response = await client.get(arguments.url, headers={"User-Agent": USER_AGENT})
-                response.raise_for_status()
-        except httpx.HTTPError as exc:
+                max_redirects=MAX_REDIRECTS,
+            )
+            response.raise_for_status()
+        except (httpx.HTTPError, NetworkGuardError) as exc:
             return ToolResult(output=f"web_fetch failed: {exc}", is_error=True)
 
         content_type = response.headers.get("content-type", "")
@@ -81,13 +85,10 @@ def _html_to_text(html: str) -> str:
 
 
 def _validate_url(url: str) -> tuple[bool, str]:
-    parsed = urlparse(url)
-    if parsed.scheme not in {"http", "https"}:
-        return False, "only http and https URLs are allowed"
-    if not parsed.netloc:
-        return False, "URL must include a host"
-    if parsed.username or parsed.password:
-        return False, "URLs with embedded credentials are not allowed"
+    try:
+        validate_http_url(url)
+    except NetworkGuardError as exc:
+        return False, str(exc)
     return True, ""
 
 

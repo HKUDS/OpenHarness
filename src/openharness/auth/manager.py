@@ -35,6 +35,7 @@ _KNOWN_PROVIDERS = [
     "bedrock",
     "vertex",
     "moonshot",
+    "gemini",
 ]
 
 _AUTH_SOURCES = [
@@ -47,6 +48,7 @@ _AUTH_SOURCES = [
     "bedrock_api_key",
     "vertex_api_key",
     "moonshot_api_key",
+    "gemini_api_key",
 ]
 
 _PROFILE_BY_PROVIDER = {
@@ -56,6 +58,7 @@ _PROFILE_BY_PROVIDER = {
     "openai_codex": "codex",
     "copilot": "copilot",
     "moonshot": "moonshot",
+    "gemini": "gemini",
 }
 
 

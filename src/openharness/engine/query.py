@@ -598,7 +598,8 @@ async def _execute_tool_call(
         )
 
     # Normalize common tool inputs before permission checks so path rules apply
-    # consistently across built-in tools that use either `file_path` or `path`.
+    # consistently across built-in tools that use `file_path`, `path`, or
+    # directory-scoped roots such as `glob`/`grep`.
     _file_path = _resolve_permission_file_path(context.cwd, tool_input, parsed_input)
     _command = _extract_permission_command(tool_input, parsed_input)
     log.debug("permission check: %s read_only=%s path=%s cmd=%s",
@@ -676,7 +677,7 @@ def _resolve_permission_file_path(
     raw_input: dict[str, object],
     parsed_input: object,
 ) -> str | None:
-    for key in ("file_path", "path"):
+    for key in ("file_path", "path", "root"):
         value = raw_input.get(key)
         if isinstance(value, str) and value.strip():
             path = Path(value).expanduser()
@@ -684,7 +685,7 @@ def _resolve_permission_file_path(
                 path = cwd / path
             return str(path.resolve())
 
-    for attr in ("file_path", "path"):
+    for attr in ("file_path", "path", "root"):
         value = getattr(parsed_input, attr, None)
         if isinstance(value, str) and value.strip():
             path = Path(value).expanduser()

@@ -2,14 +2,19 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Iterable
+
+import yaml
 
 from openharness.config.paths import get_config_dir
 from openharness.config.settings import load_settings
 from openharness.skills.bundled import get_bundled_skills
 from openharness.skills.registry import SkillRegistry
 from openharness.skills.types import SkillDefinition
+
+logger = logging.getLogger(__name__)
 
 
 def get_user_skills_dir() -> Path:
@@ -101,21 +106,20 @@ def _parse_skill_markdown(default_name: str, content: str) -> tuple[str, str]:
     lines = content.splitlines()
 
     # Try YAML frontmatter first (--- ... ---)
-    if lines and lines[0].strip() == "---":
-        for i, line in enumerate(lines[1:], 1):
-            if line.strip() == "---":
-                # Parse frontmatter fields
-                for fm_line in lines[1:i]:
-                    fm_stripped = fm_line.strip()
-                    if fm_stripped.startswith("name:"):
-                        val = fm_stripped[5:].strip().strip("'\"")
-                        if val:
-                            name = val
-                    elif fm_stripped.startswith("description:"):
-                        val = fm_stripped[12:].strip().strip("'\"")
-                        if val:
-                            description = val
-                break
+    if content.startswith("---\n"):
+        end_index = content.find("\n---\n", 4)
+        if end_index != -1:
+            try:
+                metadata = yaml.safe_load(content[4:end_index])
+                if isinstance(metadata, dict):
+                    val = metadata.get("name")
+                    if isinstance(val, str) and val.strip():
+                        name = val.strip()
+                    val = metadata.get("description")
+                    if isinstance(val, str) and val.strip():
+                        description = val.strip()
+            except yaml.YAMLError:
+                logger.debug("Failed to parse YAML frontmatter for skill %s", default_name)
 
     # Fallback: extract from headings and first paragraph
     if not description:

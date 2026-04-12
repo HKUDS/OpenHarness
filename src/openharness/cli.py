@@ -271,6 +271,7 @@ _PROVIDER_LABELS: dict[str, str] = {
     "bedrock": "AWS Bedrock",
     "vertex": "Google Vertex AI",
     "moonshot": "Moonshot (Kimi)",
+    "gemini": "Google Gemini",
 }
 
 _AUTH_SOURCE_LABELS: dict[str, str] = {
@@ -283,6 +284,7 @@ _AUTH_SOURCE_LABELS: dict[str, str] = {
     "bedrock_api_key": "Bedrock credentials",
     "vertex_api_key": "Vertex credentials",
     "moonshot_api_key": "Moonshot API key",
+    "gemini_api_key": "Gemini API key",
 }
 
 
@@ -724,7 +726,7 @@ def _login_provider(provider: str) -> None:
         _bind_external_provider(provider)
         return
 
-    if provider in ("anthropic", "openai", "dashscope", "bedrock", "vertex", "moonshot"):
+    if provider in ("anthropic", "openai", "dashscope", "bedrock", "vertex", "moonshot", "gemini"):
         label = _PROVIDER_LABELS.get(provider, provider)
         flow = ApiKeyFlow(provider=provider, prompt_text=f"Enter your {label} API key")
         try:
@@ -1346,7 +1348,7 @@ def main(
                 model=session_data.get("model") or model,
                 backend_only=backend_only,
                 base_url=base_url,
-                system_prompt=session_data.get("system_prompt") or system_prompt,
+                system_prompt=system_prompt,
                 api_key=api_key,
                 restore_messages=session_data.get("messages"),
                 restore_tool_metadata=session_data.get("tool_metadata"),
