@@ -15,6 +15,8 @@ from openharness.config.settings import (
     load_settings,
     normalize_anthropic_model_name,
     save_settings,
+    strip_ansi_escape_sequences,
+    _apply_env_overrides,
 )
 
 
@@ -24,6 +26,7 @@ class TestSettings:
         assert s.api_key == ""
         assert s.model == "claude-sonnet-4-6"
         assert s.max_tokens == 16384
+        assert s.timeout == 30.0
         assert s.max_turns == 200
         assert s.fast_mode is False
         assert s.permission.mode == "default"
@@ -380,6 +383,7 @@ def test_normalize_anthropic_model_name_matches_hermes_behavior():
         path.write_text(json.dumps({"model": "from-file", "base_url": "https://file.example"}))
         monkeypatch.setenv("ANTHROPIC_MODEL", "from-env-model")
         monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://env.example/anthropic")
+        monkeypatch.setenv("OPENHARNESS_TIMEOUT", "42.5")
         monkeypatch.setenv("OPENHARNESS_MAX_TURNS", "42")
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-env-override")
         monkeypatch.setenv("OPENHARNESS_SANDBOX_ENABLED", "true")
@@ -389,6 +393,7 @@ def test_normalize_anthropic_model_name_matches_hermes_behavior():
 
         assert s.model == "from-env-model"
         assert s.base_url == "https://env.example/anthropic"
+        assert s.timeout == 42.5
         assert s.max_turns == 42
         assert s.api_key == "sk-env-override"
         assert s.sandbox.enabled is True
@@ -416,3 +421,44 @@ def test_normalize_anthropic_model_name_matches_hermes_behavior():
         assert s.sandbox.network.allowed_domains == ["github.com"]
         assert s.sandbox.filesystem.allow_write == [".", "/tmp"]
         assert s.sandbox.filesystem.deny_write == [".env"]
+
+
+class TestAnsiEscapeSequences:
+    """Tests for ANSI escape sequence handling in settings."""
+
+    def test_strip_ansi_escape_sequences(self):
+        """Test that ANSI escape sequences are properly stripped."""
+        # Normal model name should pass through unchanged
+        assert strip_ansi_escape_sequences("claude-opus-4-6") == "claude-opus-4-6"
+        # Bold formatting should be stripped
+        assert strip_ansi_escape_sequences("\x1b[1mclaude-opus-4-6\x1b[0m") == "claude-opus-4-6"
+        # Green + bold formatting should be stripped
+        assert strip_ansi_escape_sequences("\x1b[32m\x1b[1mclaude-opus-4-6\x1b[0m") == "claude-opus-4-6"
+        # Only bold prefix
+        assert strip_ansi_escape_sequences("\x1b[1mclaude-opus-4-6") == "claude-opus-4-6"
+        # Only reset suffix
+        assert strip_ansi_escape_sequences("claude-opus-4-6\x1b[0m") == "claude-opus-4-6"
+        # Empty string should return empty string
+        assert strip_ansi_escape_sequences("") == ""
+        # None should return None
+        assert strip_ansi_escape_sequences(None) is None
+
+    def test_env_override_strips_ansi_from_model(self, monkeypatch):
+        """Test that ANSI escape sequences are stripped from ANTHROPIC_MODEL env var."""
+        monkeypatch.setenv("ANTHROPIC_MODEL", "\x1b[1mclaude-opus-4-6\x1b[0m")
+        s = Settings()
+        updated = _apply_env_overrides(s)
+        assert updated.model == "claude-opus-4-6"
+
+    def test_env_override_strips_ansi_from_openharness_model(self, monkeypatch):
+        """Test that ANSI escape sequences are stripped from OPENHARNESS_MODEL env var."""
+        monkeypatch.setenv("OPENHARNESS_MODEL", "\x1b[32mclaude-sonnet-4-6\x1b[0m")
+        s = Settings()
+        updated = _apply_env_overrides(s)
+        assert updated.model == "claude-sonnet-4-6"
+
+    def test_merge_cli_overrides_strips_ansi_from_model(self):
+        """Test that ANSI escape sequences are stripped from CLI model override."""
+        s = Settings()
+        updated = s.merge_cli_overrides(model="\x1b[1mclaude-opus-4-6\x1b[0m")
+        assert updated.model == "claude-opus-4-6"

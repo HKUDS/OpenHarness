@@ -225,6 +225,10 @@ class OpenHarnessTerminalApp(App[None]):
         self._assistant_buffer = ""
         self._busy = False
         self.transcript_lines: list[str] = []
+        self._last_status_snapshot: tuple[object, ...] | None = None
+        self._last_tasks_snapshot: tuple[tuple[str, str, object, object], ...] | None = None
+        self._last_mcp_summary: str | None = None
+        self._last_current_response: str | None = None
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -253,8 +257,7 @@ class OpenHarnessTerminalApp(App[None]):
         )
         await start_runtime(self._bundle)
         self.query_one("#composer", Input).focus()
-        self._refresh_sidebars()
-        self.set_interval(1.0, self._refresh_sidebars)
+        self._refresh_sidebars(force=True)
         if self._config.prompt:
             self.call_later(lambda: asyncio.create_task(self._process_line(self._config.prompt or "")))
 
@@ -382,7 +385,7 @@ class OpenHarnessTerminalApp(App[None]):
         self._refresh_sidebars()
 
     def action_refresh_sidebars(self) -> None:
-        self._refresh_sidebars()
+        self._refresh_sidebars(force=True)
 
     def action_toggle_vim(self) -> None:
         if self._bundle is None:
@@ -416,38 +419,68 @@ class OpenHarnessTerminalApp(App[None]):
         self.transcript_lines.clear()
 
     def _set_current_response(self, message: str) -> None:
+        if message == self._last_current_response:
+            return
         self.query_one("#current-response", Static).update(message)
+        self._last_current_response = message
 
-    def _refresh_sidebars(self) -> None:
+    def _refresh_sidebars(self, *, force: bool = False) -> None:
         if self._bundle is None:
             return
         state = self._bundle.app_state.get()
         usage = self._bundle.engine.total_usage
-        status_lines = [
-            "[b]Status[/b]",
-            f"model: {state.model}",
-            f"permissions: {state.permission_mode}",
-            f"fast: {'on' if state.fast_mode else 'off'}",
-            f"style: {state.output_style}",
-            f"vim: {'on' if state.vim_enabled else 'off'}",
-            f"voice: {'on' if state.voice_enabled else 'off'}",
-            f"tokens: {usage.total_tokens}",
-            f"messages: {len(self._bundle.engine.messages)}",
-        ]
-        self.query_one("#status-bar", Static).update("\n".join(status_lines))
+        status_snapshot = (
+            state.model,
+            state.permission_mode,
+            state.fast_mode,
+            state.output_style,
+            state.vim_enabled,
+            state.voice_enabled,
+            usage.total_tokens,
+            len(self._bundle.engine.messages),
+        )
+        if force or status_snapshot != self._last_status_snapshot:
+            status_lines = [
+                "[b]Status[/b]",
+                f"model: {state.model}",
+                f"permissions: {state.permission_mode}",
+                f"fast: {'on' if state.fast_mode else 'off'}",
+                f"style: {state.output_style}",
+                f"vim: {'on' if state.vim_enabled else 'off'}",
+                f"voice: {'on' if state.voice_enabled else 'off'}",
+                f"tokens: {usage.total_tokens}",
+                f"messages: {len(self._bundle.engine.messages)}",
+            ]
+            self.query_one("#status-bar", Static).update("\n".join(status_lines))
+            self._last_status_snapshot = status_snapshot
 
         tasks = get_task_manager().list_tasks()
-        if tasks:
-            task_lines = ["[b]Tasks[/b]"]
-            for task in tasks[:10]:
-                suffix: list[str] = []
-                if task.metadata.get("progress"):
-                    suffix.append(f"{task.metadata['progress']}%")
-                if task.metadata.get("status_note"):
-                    suffix.append(task.metadata["status_note"])
-                detail = f" ({' | '.join(suffix)})" if suffix else ""
-                task_lines.append(f"{task.id} {task.status} {task.description}{detail}")
-        else:
-            task_lines = ["[b]Tasks[/b]", "No background tasks."]
-        self.query_one("#tasks-panel", Static).update("\n".join(task_lines))
-        self.query_one("#mcp-panel", Static).update(self._bundle.mcp_summary())
+        tasks_snapshot = tuple(
+            (
+                task.id,
+                task.status,
+                task.metadata.get("progress"),
+                task.metadata.get("status_note"),
+            )
+            for task in tasks[:10]
+        )
+        if force or tasks_snapshot != self._last_tasks_snapshot:
+            if tasks:
+                task_lines = ["[b]Tasks[/b]"]
+                for task in tasks[:10]:
+                    suffix: list[str] = []
+                    if task.metadata.get("progress"):
+                        suffix.append(f"{task.metadata['progress']}%")
+                    if task.metadata.get("status_note"):
+                        suffix.append(task.metadata["status_note"])
+                    detail = f" ({' | '.join(suffix)})" if suffix else ""
+                    task_lines.append(f"{task.id} {task.status} {task.description}{detail}")
+            else:
+                task_lines = ["[b]Tasks[/b]", "No background tasks."]
+            self.query_one("#tasks-panel", Static).update("\n".join(task_lines))
+            self._last_tasks_snapshot = tasks_snapshot
+
+        mcp_summary = self._bundle.mcp_summary()
+        if force or mcp_summary != self._last_mcp_summary:
+            self.query_one("#mcp-panel", Static).update(mcp_summary)
+            self._last_mcp_summary = mcp_summary

@@ -14,7 +14,7 @@ from uuid import uuid4
 
 from openharness.api.client import SupportsStreamingMessages
 from openharness.auth.manager import AuthManager
-from openharness.config.settings import CLAUDE_MODEL_ALIAS_OPTIONS, display_model_setting
+from openharness.config.settings import CLAUDE_MODEL_ALIAS_OPTIONS, resolve_model_setting
 from openharness.bridge import get_bridge_manager
 from openharness.themes import list_themes
 from openharness.engine.stream_events import (
@@ -405,7 +405,7 @@ class ReactBackendHost:
         settings = self._bundle.current_settings()
         state = self._bundle.app_state.get()
         _, active_profile = settings.resolve_profile()
-        current_model = display_model_setting(active_profile)
+        current_model = settings.model
 
         if command == "provider":
             statuses = AuthManager(settings).get_profile_statuses()
@@ -614,12 +614,14 @@ class ReactBackendHost:
             ]
         provider_name = provider.lower()
         if provider_name in {"anthropic", "anthropic_claude"}:
+            resolved_current = resolve_model_setting(current_model, provider_name)
             return [
                 {
                     "value": value,
                     "label": label,
                     "description": description,
-                    "active": value == current_model,
+                    "active": value == current_model
+                    or resolve_model_setting(value, provider_name) == resolved_current,
                 }
                 for value, label, description in CLAUDE_MODEL_ALIAS_OPTIONS
             ]

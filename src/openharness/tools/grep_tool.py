@@ -166,6 +166,7 @@ async def _rg_grep(
         cwd=str(root),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        limit=8 * 1024 * 1024,  # 8 MB per line — avoids LimitOverrunError on long lines
     )
 
     matches: list[str] = []
@@ -218,6 +219,7 @@ async def _rg_grep_file(
         cwd=str(path.parent),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        limit=8 * 1024 * 1024,  # 8 MB per line — avoids LimitOverrunError on long lines
     )
 
     matches: list[str] = []
@@ -238,6 +240,65 @@ async def _rg_grep_file(
 
     if process.returncode in {0, 1}:
         return matches
+    return None
+
+
+def _timeout_marker(timeout_seconds: int) -> str:
+    return f"__OPENHARNESS_GREP_TIMEOUT__:{timeout_seconds}"
+
+
+async def _collect_rg_matches(
+    process: asyncio.subprocess.Process,
+    matches: list[str],
+    *,
+    limit: int,
+) -> None:
+    assert process.stdout is not None
+    while len(matches) < limit:
+        try:
+            raw = await process.stdout.readline()
+        except ValueError:
+            # Line exceeded the stream buffer limit; skip it and continue.
+            continue
+        if not raw:
+            break
+        line = raw.decode("utf-8", errors="replace").rstrip("\n")
+        if line:
+            matches.append(line)
+
+
+async def _collect_rg_file_matches(
+    process: asyncio.subprocess.Process,
+    matches: list[str],
+    *,
+    limit: int,
+    path: Path,
+    display_base: Path,
+) -> None:
+    assert process.stdout is not None
+    while len(matches) < limit:
+        try:
+            raw = await process.stdout.readline()
+        except ValueError:
+            # Line exceeded the stream buffer limit; skip it and continue.
+            continue
+        if not raw:
+            break
+        line = raw.decode("utf-8", errors="replace").rstrip("\n")
+        if not line:
+            continue
+        matches.append(f"{_format_path(path, display_base)}:{line}")
+
+
+async def _terminate_process(process: asyncio.subprocess.Process) -> None:
+    if process.returncode is not None:
+        return
+    process.terminate()
+    try:
+        await asyncio.wait_for(process.wait(), timeout=2.0)
+    except asyncio.TimeoutError:
+        process.kill()
+        await process.wait()
     return None
 
 

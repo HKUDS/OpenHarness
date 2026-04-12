@@ -6,6 +6,26 @@ import {MarkdownText} from './MarkdownText.js';
 import {ToolCallDisplay} from './ToolCallDisplay.js';
 import {WelcomeBanner} from './WelcomeBanner.js';
 
+type ToolPair = readonly [TranscriptItem, TranscriptItem];
+type GroupedItem = TranscriptItem | ToolPair;
+
+function groupToolPairs(items: TranscriptItem[]): GroupedItem[] {
+	const result: GroupedItem[] = [];
+	let i = 0;
+	while (i < items.length) {
+		const cur = items[i];
+		const next = items[i + 1];
+		if (cur.role === 'tool' && next?.role === 'tool_result') {
+			result.push([cur, next] as const);
+			i += 2;
+		} else {
+			result.push(cur);
+			i++;
+		}
+	}
+	return result;
+}
+
 export function ConversationView({
 	items,
 	assistantBuffer,
@@ -18,14 +38,19 @@ export function ConversationView({
 	const {theme} = useTheme();
 	// Show the most recent items that fit the viewport
 	const visible = items.slice(-40);
+	const grouped = groupToolPairs(visible);
 
 	return (
 		<Box flexDirection="column" flexGrow={1}>
 			{showWelcome && items.length === 0 ? <WelcomeBanner /> : null}
 
-			{visible.map((item, index) => (
-				<MessageRow key={index} item={item} theme={theme} />
-			))}
+			{grouped.map((group, index) => {
+				if (Array.isArray(group)) {
+					const [toolItem, resultItem] = group as [TranscriptItem, TranscriptItem];
+					return <ToolCallDisplay key={index} item={toolItem} resultItem={resultItem} />;
+				}
+				return <MessageRow key={index} item={group as TranscriptItem} theme={theme} />;
+			})}
 
 			{assistantBuffer ? (
 				<Box marginTop={1} marginBottom={0} flexDirection="column">

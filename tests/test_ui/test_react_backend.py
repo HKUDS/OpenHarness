@@ -289,6 +289,33 @@ async def test_backend_host_command_does_not_reset_cli_overrides(tmp_path, monke
 
 
 @pytest.mark.asyncio
+async def test_backend_host_uses_effective_model_from_env_override(tmp_path, monkeypatch):
+    """Regression: header model should reflect effective env override, not stale profile last_model."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("OPENHARNESS_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("OPENHARNESS_MODEL", "minimax-m1")
+
+    host = ReactBackendHost(BackendHostConfig(api_client=StaticApiClient("unused")))
+    host._bundle = await build_runtime(api_client=StaticApiClient("unused"))
+    events = []
+
+    async def _emit(event):
+        events.append(event)
+
+    host._emit = _emit  # type: ignore[method-assign]
+    await start_runtime(host._bundle)
+    try:
+        assert host._bundle.app_state.get().model == "minimax-m1"
+
+        # Exercise sync_app_state through a slash command refresh path.
+        await host._process_line("/fast show")
+        assert host._bundle.app_state.get().model == "minimax-m1"
+    finally:
+        await close_runtime(host._bundle)
+
+
+@pytest.mark.asyncio
 async def test_build_runtime_leaves_interactive_sessions_unbounded_by_default(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))

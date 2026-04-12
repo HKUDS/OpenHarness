@@ -1,7 +1,16 @@
-"""Secure credential storage for OpenHarness.
+"""Credential storage for OpenHarness.
 
 Default backend: ~/.openharness/credentials.json with mode 600.
-Optional backend: system keyring (if the `keyring` package is installed).
+Optional backend: system keyring (if the `keyring` package is installed
+and a usable backend is present).
+
+Security model
+--------------
+When no keyring backend is available (common in containers, CI, and WSL),
+credentials are stored as **plain-text JSON** protected only by POSIX file
+permissions (mode 600).  The ``_obfuscate`` / ``_deobfuscate`` helpers in
+this module are a lightweight XOR round-trip used elsewhere for non-secret
+data; they are **not** encryption and must not be used to protect secrets.
 """
 
 from __future__ import annotations
@@ -66,13 +75,34 @@ def _save_creds_file(data: dict[str, Any]) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _keyring_available() -> bool:
-    try:
-        import keyring  # noqa: F401
+_keyring_checked: bool = False
+_keyring_usable: bool = False
 
-        return True
+
+def _keyring_available() -> bool:
+    """Return True when a usable system keyring backend is present.
+
+    The check is cached after the first call so the "Keyring load failed"
+    warning is emitted at most once per process.
+    """
+    global _keyring_checked, _keyring_usable  # noqa: PLW0603
+    if _keyring_checked:
+        return _keyring_usable
+    _keyring_checked = True
+    try:
+        import keyring
+
+        # Probe the backend — merely importing keyring is not enough because
+        # the package may be installed without a functioning backend (e.g. on
+        # headless Linux / WSL / containers).
+        keyring.get_password(_KEYRING_SERVICE, "__probe__")
+        _keyring_usable = True
     except ImportError:
-        return False
+        _keyring_usable = False
+    except Exception as exc:
+        log.info("System keyring unavailable, using file backend: %s", exc)
+        _keyring_usable = False
+    return _keyring_usable
 
 
 def _keyring_key(provider: str, key: str) -> str:
@@ -189,21 +219,25 @@ def load_external_binding(provider: str) -> ExternalAuthBinding | None:
 
 
 # ---------------------------------------------------------------------------
-# Encrypt/decrypt helpers (lightweight XOR obfuscation, not true encryption)
+# Obfuscation helpers (XOR round-trip — NOT encryption)
+# ---------------------------------------------------------------------------
+# These exist for lightweight obfuscation of non-secret data (e.g. session
+# tokens where the goal is to prevent casual reading, not resist attack).
+# Do NOT use for API keys or passwords — those belong in the keyring or in
+# the plain-text file protected by POSIX permissions.
 # ---------------------------------------------------------------------------
 
 
 def _obfuscation_key() -> bytes:
     """Return a per-user obfuscation key derived from the home directory path."""
     seed = str(Path.home()).encode() + b"openharness-v1"
-    # Simple repeating key stretched to 32 bytes via SHA-256 for determinism.
     import hashlib
 
     return hashlib.sha256(seed).digest()
 
 
-def encrypt(plaintext: str) -> str:
-    """Lightly obfuscate *plaintext* (base64-encoded XOR).  Not cryptographic."""
+def _obfuscate(plaintext: str) -> str:
+    """Lightly obfuscate *plaintext* (base64-encoded XOR).  **Not cryptographic.**"""
     import base64
 
     key = _obfuscation_key()
@@ -212,11 +246,16 @@ def encrypt(plaintext: str) -> str:
     return base64.urlsafe_b64encode(xored).decode("ascii")
 
 
-def decrypt(ciphertext: str) -> str:
-    """Reverse of :func:`encrypt`."""
+def _deobfuscate(ciphertext: str) -> str:
+    """Reverse of :func:`_obfuscate`."""
     import base64
 
     key = _obfuscation_key()
     data = base64.urlsafe_b64decode(ciphertext.encode("ascii"))
     xored = bytes(b ^ key[i % len(key)] for i, b in enumerate(data))
     return xored.decode("utf-8")
+
+
+# Backward compatibility — deprecated, will be removed in a future version.
+encrypt = _obfuscate
+decrypt = _deobfuscate

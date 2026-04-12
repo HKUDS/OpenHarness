@@ -104,6 +104,7 @@ oh setup
 - DeepSeek
 - GitHub Models
 - SiliconFlow
+- Google Gemini
 - Groq
 - Ollama
 - 其他 OpenAI-compatible endpoint

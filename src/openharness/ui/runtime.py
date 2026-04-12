@@ -16,7 +16,6 @@ from openharness.api.provider import auth_status, detect_provider
 from openharness.bridge import get_bridge_manager
 from openharness.commands import CommandContext, CommandResult, create_default_command_registry
 from openharness.config import get_config_file_path, load_settings
-from openharness.config.settings import display_model_setting
 from openharness.engine import QueryEngine
 from openharness.engine.messages import ConversationMessage, ToolResultBlock, ToolUseBlock
 from openharness.engine.query import MaxTurnsExceeded
@@ -152,6 +151,7 @@ def _resolve_api_client_from_settings(settings) -> SupportsStreamingMessages:
         return OpenAICompatibleClient(
             api_key=auth.value,
             base_url=settings.base_url,
+            timeout=settings.timeout,
         )
     auth = _safe_resolve_auth()
     return AnthropicApiClient(
@@ -206,11 +206,12 @@ async def build_runtime(
     await mcp_manager.connect_all()
     tool_registry = create_default_tool_registry(mcp_manager)
     provider = detect_provider(settings)
-    _, active_profile = settings.resolve_profile()
     bridge_manager = get_bridge_manager()
     app_state = AppStateStore(
         AppState(
-            model=display_model_setting(active_profile),
+            # Show the effective runtime model (after CLI/env/profile merges),
+            # not profile.last_model which may be stale.
+            model=settings.model,
             permission_mode=settings.permission.mode.value,
             theme=settings.theme,
             cwd=cwd,
@@ -336,6 +337,13 @@ async def start_runtime(bundle: RuntimeBundle) -> None:
 
 async def close_runtime(bundle: RuntimeBundle) -> None:
     """Close runtime-owned resources."""
+    # Extract local environment rules from session before closing
+    try:
+        from openharness.personalization.session_hook import update_rules_from_session
+        update_rules_from_session(bundle.engine.messages)
+    except Exception:
+        pass  # personalization is best-effort, never block session end
+
     await bundle.mcp_manager.close()
     await bundle.hook_executor.execute(
         HookEvent.SESSION_END,
@@ -412,9 +420,8 @@ def sync_app_state(bundle: RuntimeBundle) -> None:
     if bundle.enforce_max_turns:
         bundle.engine.set_max_turns(settings.max_turns)
     provider = detect_provider(settings)
-    _, active_profile = settings.resolve_profile()
     bundle.app_state.set(
-        model=display_model_setting(active_profile),
+        model=settings.model,
         permission_mode=settings.permission.mode.value,
         theme=settings.theme,
         cwd=bundle.cwd,

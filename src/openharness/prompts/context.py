@@ -9,6 +9,7 @@ from openharness.config.paths import get_project_issue_file, get_project_pr_comm
 from openharness.config.settings import Settings
 from openharness.coordinator.coordinator_mode import get_coordinator_system_prompt, is_coordinator_mode
 from openharness.memory import find_relevant_memories, load_memory_prompt
+from openharness.personalization.rules import load_local_rules
 from openharness.prompts.claudemd import load_claude_md_prompt
 from openharness.prompts.system_prompt import build_system_prompt
 from openharness.skills.loader import load_skill_registry
@@ -85,6 +86,10 @@ def build_runtime_system_prompt(
     claude_md = load_claude_md_prompt(cwd)
     if claude_md:
         sections.append(claude_md)
+
+    local_rules = load_local_rules()
+    if local_rules:
+        sections.append(f"# Local Environment Rules\n\n{local_rules}")
 
     for title, path in (
         ("Issue Context", get_project_issue_file(cwd)),
