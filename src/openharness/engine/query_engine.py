@@ -29,6 +29,8 @@ class QueryEngine:
         model: str,
         system_prompt: str,
         max_tokens: int = 4096,
+        context_window_tokens: int | None = None,
+        auto_compact_threshold_tokens: int | None = None,
         max_turns: int | None = 8,
         permission_prompt: PermissionPrompt | None = None,
         ask_user_prompt: AskUserPrompt | None = None,
@@ -42,6 +44,8 @@ class QueryEngine:
         self._model = model
         self._system_prompt = system_prompt
         self._max_tokens = max_tokens
+        self._context_window_tokens = context_window_tokens
+        self._auto_compact_threshold_tokens = auto_compact_threshold_tokens
         self._max_turns = max_turns
         self._permission_prompt = permission_prompt
         self._ask_user_prompt = ask_user_prompt
@@ -158,6 +162,8 @@ class QueryEngine:
             model=self._model,
             system_prompt=self._system_prompt,
             max_tokens=self._max_tokens,
+            context_window_tokens=self._context_window_tokens,
+            auto_compact_threshold_tokens=self._auto_compact_threshold_tokens,
             max_turns=self._max_turns,
             permission_prompt=self._permission_prompt,
             ask_user_prompt=self._ask_user_prompt,
@@ -185,6 +191,8 @@ class QueryEngine:
             model=self._model,
             system_prompt=self._system_prompt,
             max_tokens=self._max_tokens,
+            context_window_tokens=self._context_window_tokens,
+            auto_compact_threshold_tokens=self._auto_compact_threshold_tokens,
             max_turns=max_turns if max_turns is not None else self._max_turns,
             permission_prompt=self._permission_prompt,
             ask_user_prompt=self._ask_user_prompt,

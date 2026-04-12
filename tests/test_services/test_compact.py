@@ -22,6 +22,8 @@ from openharness.services import (
 from openharness.services.compact import (
     AutoCompactState,
     auto_compact_if_needed,
+    get_autocompact_threshold,
+    should_autocompact,
     try_context_collapse,
     try_session_memory_compaction,
 )
@@ -326,3 +328,22 @@ async def test_auto_compact_if_needed_returns_original_messages_after_timeout(mo
 
     assert was_compacted is False
     assert result == messages
+
+
+def test_get_autocompact_threshold_respects_manual_override():
+    assert get_autocompact_threshold(
+        "claude-sonnet-4-6",
+        auto_compact_threshold_tokens=12345,
+    ) == 12345
+
+
+def test_should_autocompact_uses_custom_context_window():
+    messages = [
+        ConversationMessage(role="user", content=[TextBlock(text="alpha " * 6000)]),
+    ]
+    assert should_autocompact(
+        messages,
+        "claude-sonnet-4-6",
+        AutoCompactState(),
+        context_window_tokens=4000,
+    ) is True

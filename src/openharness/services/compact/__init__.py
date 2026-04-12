@@ -918,8 +918,10 @@ class AutoCompactState:
 # Context window helpers
 # ---------------------------------------------------------------------------
 
-def get_context_window(model: str) -> int:
+def get_context_window(model: str, *, context_window_tokens: int | None = None) -> int:
     """Return the context window size for a model (conservative defaults)."""
+    if context_window_tokens is not None and context_window_tokens > 0:
+        return int(context_window_tokens)
     m = model.lower()
     if "opus" in m:
         return 200_000
@@ -931,9 +933,16 @@ def get_context_window(model: str) -> int:
     return _DEFAULT_CONTEXT_WINDOW
 
 
-def get_autocompact_threshold(model: str) -> int:
+def get_autocompact_threshold(
+    model: str,
+    *,
+    context_window_tokens: int | None = None,
+    auto_compact_threshold_tokens: int | None = None,
+) -> int:
     """Calculate the token count at which auto-compact fires."""
-    context_window = get_context_window(model)
+    if auto_compact_threshold_tokens is not None and auto_compact_threshold_tokens > 0:
+        return int(auto_compact_threshold_tokens)
+    context_window = get_context_window(model, context_window_tokens=context_window_tokens)
     reserved = min(MAX_OUTPUT_TOKENS_FOR_SUMMARY, 20_000)
     effective = context_window - reserved
     return effective - AUTOCOMPACT_BUFFER_TOKENS
@@ -943,12 +952,19 @@ def should_autocompact(
     messages: list[ConversationMessage],
     model: str,
     state: AutoCompactState,
+    *,
+    context_window_tokens: int | None = None,
+    auto_compact_threshold_tokens: int | None = None,
 ) -> bool:
     """Return True when the conversation should be auto-compacted."""
     if state.consecutive_failures >= MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES:
         return False
     token_count = estimate_message_tokens(messages)
-    threshold = get_autocompact_threshold(model)
+    threshold = get_autocompact_threshold(
+        model,
+        context_window_tokens=context_window_tokens,
+        auto_compact_threshold_tokens=auto_compact_threshold_tokens,
+    )
     return token_count >= threshold
 
 
@@ -1330,6 +1346,8 @@ async def auto_compact_if_needed(
     trigger: CompactTrigger = "auto",
     hook_executor: HookExecutor | None = None,
     carryover_metadata: dict[str, Any] | None = None,
+    context_window_tokens: int | None = None,
+    auto_compact_threshold_tokens: int | None = None,
 ) -> tuple[list[ConversationMessage], bool]:
     """Check if auto-compact should fire, and if so, compact.
 
@@ -1338,7 +1356,13 @@ async def auto_compact_if_needed(
     Returns:
         (messages, was_compacted) — if compacted, messages is the new list.
     """
-    if not force and not should_autocompact(messages, model, state):
+    if not force and not should_autocompact(
+        messages,
+        model,
+        state,
+        context_window_tokens=context_window_tokens,
+        auto_compact_threshold_tokens=auto_compact_threshold_tokens,
+    ):
         return messages, False
 
     log.info("Auto-compact triggered (failures=%d)", state.consecutive_failures)
@@ -1361,7 +1385,13 @@ async def auto_compact_if_needed(
         token_count=estimate_message_tokens(messages),
         details={"tokens_freed": tokens_freed},
     )
-    if tokens_freed > 0 and not should_autocompact(messages, model, state):
+    if tokens_freed > 0 and not should_autocompact(
+        messages,
+        model,
+        state,
+        context_window_tokens=context_window_tokens,
+        auto_compact_threshold_tokens=auto_compact_threshold_tokens,
+    ):
         log.info("Microcompact freed ~%d tokens, auto-compact no longer needed", tokens_freed)
         return messages, True
 
@@ -1396,7 +1426,13 @@ async def auto_compact_if_needed(
                 token_count=estimate_message_tokens(messages),
             ),
         )
-        if not force and not should_autocompact(messages, model, state):
+        if not force and not should_autocompact(
+            messages,
+            model,
+            state,
+            context_window_tokens=context_window_tokens,
+            auto_compact_threshold_tokens=auto_compact_threshold_tokens,
+        ):
             return messages, True
 
     session_memory = try_session_memory_compaction(

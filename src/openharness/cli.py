@@ -1008,6 +1008,8 @@ def provider_add(
     base_url: str | None = typer.Option(None, "--base-url", help="Optional base URL"),
     credential_slot: str | None = typer.Option(None, "--credential-slot", help="Optional profile-specific credential slot"),
     allowed_models: list[str] | None = typer.Option(None, "--allowed-model", help="Allowed model values for this profile"),
+    context_window_tokens: int | None = typer.Option(None, "--context-window-tokens", help="Optional context window override for auto-compact"),
+    auto_compact_threshold_tokens: int | None = typer.Option(None, "--auto-compact-threshold-tokens", help="Optional explicit auto-compact threshold override"),
 ) -> None:
     """Create a provider profile."""
     from openharness.auth.manager import AuthManager
@@ -1026,6 +1028,8 @@ def provider_add(
             base_url=base_url,
             credential_slot=credential_slot or _default_credential_slot_for_profile(name, auth_source),
             allowed_models=allowed_models or ([model] if credential_slot or _default_credential_slot_for_profile(name, auth_source) else []),
+            context_window_tokens=context_window_tokens,
+            auto_compact_threshold_tokens=auto_compact_threshold_tokens,
         ),
     )
     print(f"Saved provider profile: {name}", flush=True)
@@ -1042,6 +1046,8 @@ def provider_edit(
     base_url: str | None = typer.Option(None, "--base-url", help="Optional base URL"),
     credential_slot: str | None = typer.Option(None, "--credential-slot", help="Optional profile-specific credential slot"),
     allowed_models: list[str] | None = typer.Option(None, "--allowed-model", help="Allowed model values for this profile"),
+    context_window_tokens: int | None = typer.Option(None, "--context-window-tokens", help="Optional context window override for auto-compact"),
+    auto_compact_threshold_tokens: int | None = typer.Option(None, "--auto-compact-threshold-tokens", help="Optional explicit auto-compact threshold override"),
 ) -> None:
     """Edit a provider profile."""
     from openharness.auth.manager import AuthManager
@@ -1059,6 +1065,8 @@ def provider_edit(
             base_url=base_url,
             credential_slot=credential_slot,
             allowed_models=allowed_models,
+            context_window_tokens=context_window_tokens,
+            auto_compact_threshold_tokens=auto_compact_threshold_tokens,
         )
     except ValueError as exc:
         print(f"Error: {exc}", file=sys.stderr)

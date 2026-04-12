@@ -30,6 +30,16 @@ class FileWriteTool(BaseTool):
         context: ToolExecutionContext,
     ) -> ToolResult:
         path = _resolve_path(context.cwd, arguments.path)
+
+        from openharness.sandbox.session import is_docker_sandbox_active
+
+        if is_docker_sandbox_active():
+            from openharness.sandbox.path_validator import validate_sandbox_path
+
+            allowed, reason = validate_sandbox_path(path, context.cwd)
+            if not allowed:
+                return ToolResult(output=f"Sandbox: {reason}", is_error=True)
+
         if arguments.create_directories:
             path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(arguments.content, encoding="utf-8")

@@ -323,6 +323,8 @@ class AuthManager:
         last_model: str | None = None,
         credential_slot: str | None = None,
         allowed_models: list[str] | None = None,
+        context_window_tokens: int | None = None,
+        auto_compact_threshold_tokens: int | None = None,
     ) -> None:
         """Update a profile in-place."""
         profiles = self.settings.merged_profiles()
@@ -341,6 +343,16 @@ class AuthManager:
             "last_model": last_model if last_model is not None else current.last_model,
             "credential_slot": credential_slot if credential_slot is not None else current.credential_slot,
             "allowed_models": allowed_models if allowed_models is not None else current.allowed_models,
+            "context_window_tokens": (
+                context_window_tokens
+                if context_window_tokens is not None
+                else current.context_window_tokens
+            ),
+            "auto_compact_threshold_tokens": (
+                auto_compact_threshold_tokens
+                if auto_compact_threshold_tokens is not None
+                else current.auto_compact_threshold_tokens
+            ),
         }
         profiles[name] = current.model_copy(update=updates)
         updated = self.settings.model_copy(update={"profiles": profiles})

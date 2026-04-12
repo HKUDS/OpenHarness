@@ -61,6 +61,8 @@ class MemorySettings(BaseModel):
     enabled: bool = True
     max_files: int = 5
     max_entrypoint_lines: int = 200
+    context_window_tokens: int | None = None
+    auto_compact_threshold_tokens: int | None = None
 
 
 class SandboxNetworkSettings(BaseModel):
@@ -79,14 +81,27 @@ class SandboxFilesystemSettings(BaseModel):
     deny_write: list[str] = Field(default_factory=list)
 
 
+class DockerSandboxSettings(BaseModel):
+    """Docker-specific sandbox configuration."""
+
+    image: str = "openharness-sandbox:latest"
+    auto_build_image: bool = True
+    cpu_limit: float = 0.0
+    memory_limit: str = ""
+    extra_mounts: list[str] = Field(default_factory=list)
+    extra_env: dict[str, str] = Field(default_factory=dict)
+
+
 class SandboxSettings(BaseModel):
     """Sandbox-runtime integration settings."""
 
     enabled: bool = False
+    backend: str = "srt"
     fail_if_unavailable: bool = False
     enabled_platforms: list[str] = Field(default_factory=list)
     network: SandboxNetworkSettings = Field(default_factory=SandboxNetworkSettings)
     filesystem: SandboxFilesystemSettings = Field(default_factory=SandboxFilesystemSettings)
+    docker: DockerSandboxSettings = Field(default_factory=DockerSandboxSettings)
 
 
 class ProviderProfile(BaseModel):
@@ -101,6 +116,8 @@ class ProviderProfile(BaseModel):
     last_model: str | None = None
     credential_slot: str | None = None
     allowed_models: list[str] = Field(default_factory=list)
+    context_window_tokens: int | None = None
+    auto_compact_threshold_tokens: int | None = None
 
     @property
     def resolved_model(self) -> str:
@@ -416,6 +433,8 @@ class Settings(BaseModel):
     max_tokens: int = 16384
     base_url: str | None = None
     timeout: float = 30.0
+    context_window_tokens: int | None = None
+    auto_compact_threshold_tokens: int | None = None
     api_format: str = "anthropic"  # "anthropic", "openai", or "copilot"
     provider: str = ""
     active_profile: str = "claude-api"
@@ -477,6 +496,8 @@ class Settings(BaseModel):
                 "provider": profile.provider,
                 "api_format": profile.api_format,
                 "base_url": profile.base_url,
+                "context_window_tokens": profile.context_window_tokens,
+                "auto_compact_threshold_tokens": profile.auto_compact_threshold_tokens,
                 "model": resolve_model_setting(
                     configured_model,
                     profile.provider,
@@ -497,6 +518,16 @@ class Settings(BaseModel):
         next_provider = (self.provider or "").strip() or profile.provider
         next_api_format = (self.api_format or "").strip() or profile.api_format
         next_base_url = self.base_url if self.base_url is not None else profile.base_url
+        next_context_window_tokens = (
+            self.context_window_tokens
+            if self.context_window_tokens is not None
+            else profile.context_window_tokens
+        )
+        next_auto_compact_threshold_tokens = (
+            self.auto_compact_threshold_tokens
+            if self.auto_compact_threshold_tokens is not None
+            else profile.auto_compact_threshold_tokens
+        )
         flat_model = (self.model or "").strip()
         resolved_profile_model = resolve_model_setting(
             (profile.last_model or "").strip() or profile.default_model,
@@ -520,6 +551,8 @@ class Settings(BaseModel):
                 "base_url": next_base_url,
                 "auth_source": next_auth_source,
                 "last_model": next_model,
+                "context_window_tokens": next_context_window_tokens,
+                "auto_compact_threshold_tokens": next_auto_compact_threshold_tokens,
             }
         )
         profiles = self.merged_profiles()
@@ -685,7 +718,17 @@ class Settings(BaseModel):
         merged = self.model_copy(update=updates)
         if not updates:
             return merged
-        profile_keys = {"model", "base_url", "api_format", "provider", "api_key", "active_profile", "profiles"}
+        profile_keys = {
+            "model",
+            "base_url",
+            "api_format",
+            "provider",
+            "api_key",
+            "active_profile",
+            "profiles",
+            "context_window_tokens",
+            "auto_compact_threshold_tokens",
+        }
         profile_updates = profile_keys.intersection(updates)
         if not profile_updates:
             return merged
@@ -723,6 +766,14 @@ def _apply_env_overrides(settings: Settings) -> Settings:
     if max_turns:
         updates["max_turns"] = int(max_turns)
 
+    context_window_tokens = os.environ.get("OPENHARNESS_CONTEXT_WINDOW_TOKENS")
+    if context_window_tokens:
+        updates["context_window_tokens"] = int(context_window_tokens)
+
+    auto_compact_threshold_tokens = os.environ.get("OPENHARNESS_AUTO_COMPACT_THRESHOLD_TOKENS")
+    if auto_compact_threshold_tokens:
+        updates["auto_compact_threshold_tokens"] = int(auto_compact_threshold_tokens)
+
     api_key = os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("OPENAI_API_KEY")
     if api_key:
         updates["api_key"] = api_key
@@ -737,11 +788,19 @@ def _apply_env_overrides(settings: Settings) -> Settings:
 
     sandbox_enabled = os.environ.get("OPENHARNESS_SANDBOX_ENABLED")
     sandbox_fail = os.environ.get("OPENHARNESS_SANDBOX_FAIL_IF_UNAVAILABLE")
+    sandbox_backend = os.environ.get("OPENHARNESS_SANDBOX_BACKEND")
+    sandbox_docker_image = os.environ.get("OPENHARNESS_SANDBOX_DOCKER_IMAGE")
     sandbox_updates: dict[str, Any] = {}
     if sandbox_enabled is not None:
         sandbox_updates["enabled"] = _parse_bool_env(sandbox_enabled)
     if sandbox_fail is not None:
         sandbox_updates["fail_if_unavailable"] = _parse_bool_env(sandbox_fail)
+    if sandbox_backend is not None:
+        sandbox_updates["backend"] = sandbox_backend
+    if sandbox_docker_image is not None:
+        sandbox_updates["docker"] = settings.sandbox.docker.model_copy(
+            update={"image": sandbox_docker_image}
+        )
     if sandbox_updates:
         updates["sandbox"] = settings.sandbox.model_copy(update=sandbox_updates)
 

@@ -21,6 +21,7 @@ class PlatformCapabilities:
     supports_tmux: bool
     supports_swarm_mailbox: bool
     supports_sandbox_runtime: bool
+    supports_docker_sandbox: bool
 
 
 def detect_platform(
@@ -62,6 +63,7 @@ def get_platform_capabilities(platform_name: PlatformName | None = None) -> Plat
             supports_tmux=True,
             supports_swarm_mailbox=True,
             supports_sandbox_runtime=True,
+            supports_docker_sandbox=True,
         )
     if name == "windows":
         return PlatformCapabilities(
@@ -71,6 +73,7 @@ def get_platform_capabilities(platform_name: PlatformName | None = None) -> Plat
             supports_tmux=False,
             supports_swarm_mailbox=False,
             supports_sandbox_runtime=False,
+            supports_docker_sandbox=False,
         )
     return PlatformCapabilities(
         name=name,
@@ -79,5 +82,6 @@ def get_platform_capabilities(platform_name: PlatformName | None = None) -> Plat
         supports_tmux=False,
         supports_swarm_mailbox=False,
         supports_sandbox_runtime=False,
+        supports_docker_sandbox=False,
     )
 

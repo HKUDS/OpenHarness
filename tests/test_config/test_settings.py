@@ -103,6 +103,15 @@ class TestSettings:
         s = load_settings(path)
         assert s.base_url == "https://relay.example.com/v1"
 
+    def test_env_overrides_pick_up_compact_threshold_settings(self, tmp_path: Path, monkeypatch):
+        monkeypatch.setenv("OPENHARNESS_CONTEXT_WINDOW_TOKENS", "123456")
+        monkeypatch.setenv("OPENHARNESS_AUTO_COMPACT_THRESHOLD_TOKENS", "120000")
+        path = tmp_path / "settings.json"
+        path.write_text(json.dumps({}))
+        s = load_settings(path)
+        assert s.context_window_tokens == 123456
+        assert s.auto_compact_threshold_tokens == 120000
+
     def test_anthropic_base_url_takes_precedence_over_openai(self, tmp_path: Path, monkeypatch):
         """ANTHROPIC_BASE_URL should take precedence over OPENAI_BASE_URL."""
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
@@ -201,6 +210,27 @@ class TestLoadSaveSettings:
         assert materialized.api_format == "openai"
         assert materialized.model == "gpt-5"
 
+    def test_materialize_active_profile_projects_compact_threshold_settings(self):
+        settings = Settings(
+            active_profile="openai-compatible",
+            profiles={
+                "openai-compatible": ProviderProfile(
+                    label="OpenAI-Compatible API",
+                    provider="openai",
+                    api_format="openai",
+                    auth_source="openai_api_key",
+                    default_model="gpt-5.4",
+                    context_window_tokens=100000,
+                    auto_compact_threshold_tokens=90000,
+                )
+            },
+        )
+
+        materialized = settings.materialize_active_profile()
+
+        assert materialized.context_window_tokens == 100000
+        assert materialized.auto_compact_threshold_tokens == 90000
+
     def test_merge_cli_active_profile_does_not_inherit_flat_provider_fields(self):
         settings = Settings(
             active_profile="moonshot",
@@ -238,6 +268,43 @@ class TestLoadSaveSettings:
         assert updated.model == "gpt-5.4"
         assert profile.provider == "openai_codex"
         assert profile.auth_source == "codex_subscription"
+
+    def test_merge_cli_active_profile_keeps_profile_compact_threshold_settings(self):
+        settings = Settings(
+            active_profile="moonshot",
+            context_window_tokens=64000,
+            auto_compact_threshold_tokens=60000,
+            profiles={
+                "moonshot": ProviderProfile(
+                    label="Moonshot",
+                    provider="moonshot",
+                    api_format="openai",
+                    auth_source="moonshot_api_key",
+                    default_model="kimi-k2.5",
+                    last_model="kimi-k2.5",
+                    base_url="https://api.moonshot.cn/v1",
+                    context_window_tokens=64000,
+                    auto_compact_threshold_tokens=60000,
+                ),
+                "openai-compatible": ProviderProfile(
+                    label="OpenAI-Compatible API",
+                    provider="openai",
+                    api_format="openai",
+                    auth_source="openai_api_key",
+                    default_model="gpt-5.4",
+                    last_model="gpt-5.4",
+                    base_url="https://relay.example.com/v1",
+                    context_window_tokens=200000,
+                    auto_compact_threshold_tokens=180000,
+                ),
+            },
+        )
+
+        updated = settings.merge_cli_overrides(active_profile="openai-compatible")
+
+        assert updated.base_url == "https://relay.example.com/v1"
+        assert updated.context_window_tokens == 200000
+        assert updated.auto_compact_threshold_tokens == 180000
 
     def test_claude_profile_materializes_alias_to_concrete_model(self):
         settings = Settings(

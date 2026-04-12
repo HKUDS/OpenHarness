@@ -86,6 +86,8 @@ class QueryContext:
     model: str
     system_prompt: str
     max_tokens: int
+    context_window_tokens: int | None = None
+    auto_compact_threshold_tokens: int | None = None
     permission_prompt: PermissionPrompt | None = None
     ask_user_prompt: AskUserPrompt | None = None
     max_turns: int | None = 200
@@ -435,6 +437,8 @@ async def run_query(
                 trigger=trigger,
                 hook_executor=context.hook_executor,
                 carryover_metadata=context.tool_metadata,
+                context_window_tokens=context.context_window_tokens,
+                auto_compact_threshold_tokens=context.auto_compact_threshold_tokens,
             )
         )
         while True:
