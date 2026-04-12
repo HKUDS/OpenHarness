@@ -34,6 +34,16 @@ class FileReadTool(BaseTool):
         context: ToolExecutionContext,
     ) -> ToolResult:
         path = _resolve_path(context.cwd, arguments.path)
+
+        from openharness.sandbox.session import is_docker_sandbox_active
+
+        if is_docker_sandbox_active():
+            from openharness.sandbox.path_validator import validate_sandbox_path
+
+            allowed, reason = validate_sandbox_path(path, context.cwd)
+            if not allowed:
+                return ToolResult(output=f"Sandbox: {reason}", is_error=True)
+
         if not path.exists():
             return ToolResult(output=f"File not found: {path}", is_error=True)
         if path.is_dir():

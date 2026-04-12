@@ -301,6 +301,12 @@ async def build_runtime(
         ]
         engine.load_messages(restored)
 
+    # Start Docker sandbox if configured
+    if settings.sandbox.enabled and settings.sandbox.backend == "docker":
+        from openharness.sandbox.session import start_docker_sandbox
+
+        await start_docker_sandbox(settings, session_id, Path(cwd))
+
     return RuntimeBundle(
         api_client=resolved_api_client,
         cwd=cwd,
@@ -337,6 +343,9 @@ async def start_runtime(bundle: RuntimeBundle) -> None:
 
 async def close_runtime(bundle: RuntimeBundle) -> None:
     """Close runtime-owned resources."""
+    from openharness.sandbox.session import stop_docker_sandbox
+
+    await stop_docker_sandbox()
     # Extract local environment rules from session before closing
     try:
         from openharness.personalization.session_hook import update_rules_from_session

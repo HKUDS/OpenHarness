@@ -82,6 +82,7 @@ def test_load_claude_external_credential(monkeypatch, tmp_path: Path):
         encoding="utf-8",
     )
     monkeypatch.setenv("CLAUDE_HOME", str(claude_home))
+    monkeypatch.setattr("openharness.auth.external.platform.system", lambda: "Linux")
 
     binding = default_binding_for_provider(CLAUDE_PROVIDER)
     credential = load_external_credential(binding)
@@ -91,6 +92,73 @@ def test_load_claude_external_credential(monkeypatch, tmp_path: Path):
     assert credential.value == "claude-access-token"
     assert credential.refresh_token == "claude-refresh-token"
     assert credential.expires_at_ms == 4_102_444_800_000
+
+
+def test_default_claude_binding_uses_keychain_on_macos(monkeypatch, tmp_path: Path):
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
+    monkeypatch.delenv("CLAUDE_HOME", raising=False)
+    monkeypatch.setattr("openharness.auth.external.platform.system", lambda: "Darwin")
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+    binding = default_binding_for_provider(CLAUDE_PROVIDER)
+
+    assert binding.source_kind == "claude_credentials_keychain"
+    assert binding.source_path == "keychain:Claude Code-credentials"
+
+
+def test_default_claude_binding_prefers_config_dir_on_macos(monkeypatch, tmp_path: Path):
+    config_dir = tmp_path / "claude-config"
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config_dir))
+    monkeypatch.setattr("openharness.auth.external.platform.system", lambda: "Darwin")
+
+    binding = default_binding_for_provider(CLAUDE_PROVIDER)
+
+    assert binding.source_kind == "claude_credentials_json"
+    assert Path(binding.source_path) == config_dir / ".credentials.json"
+
+
+def test_load_claude_external_credential_from_keychain(monkeypatch, tmp_path: Path):
+    login_keychain = tmp_path / "login.keychain-db"
+
+    def _fake_check_output(args, text=True):
+        if args == ["security", "find-generic-password", "-w", "-s", "Claude Code-credentials"]:
+            return json.dumps(
+                {
+                    "claudeAiOauth": {
+                        "accessToken": "claude-access-token",
+                        "refreshToken": "claude-refresh-token",
+                        "expiresAt": 4_102_444_800_000,
+                    }
+                }
+            )
+        if args == ["security", "find-generic-password", "-s", "Claude Code-credentials"]:
+            return (
+                f'keychain: "{login_keychain}"\n'
+                'attributes:\n'
+                '    "acct"<blob>="yanchundong"\n'
+                '    "svce"<blob>="Claude Code-credentials"\n'
+            )
+        raise AssertionError(args)
+
+    monkeypatch.setattr("openharness.auth.external.subprocess.check_output", _fake_check_output)
+
+    credential = load_external_credential(
+        ExternalAuthBinding(
+            provider=CLAUDE_PROVIDER,
+            source_path="keychain:Claude Code-credentials",
+            source_kind="claude_credentials_keychain",
+            managed_by="claude-cli",
+            profile_label="Claude CLI",
+        )
+    )
+
+    assert credential.provider == CLAUDE_PROVIDER
+    assert credential.auth_kind == "auth_token"
+    assert credential.value == "claude-access-token"
+    assert credential.refresh_token == "claude-refresh-token"
+    assert credential.expires_at_ms == 4_102_444_800_000
+    assert credential.source_path == login_keychain
+    assert credential.profile_label == "yanchundong"
 
 
 def test_settings_resolve_auth_uses_external_binding(monkeypatch, tmp_path: Path):
@@ -235,6 +303,7 @@ def test_cli_claude_login_binds_without_switching(monkeypatch, tmp_path: Path):
     )
     monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(config_dir))
     monkeypatch.setenv("CLAUDE_HOME", str(claude_home))
+    monkeypatch.setattr("openharness.auth.external.platform.system", lambda: "Linux")
 
     runner = CliRunner()
     result = runner.invoke(app, ["auth", "claude-login"])
@@ -270,6 +339,7 @@ def test_cli_claude_login_refreshes_expired_credentials(monkeypatch, tmp_path: P
     )
     monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(config_dir))
     monkeypatch.setenv("CLAUDE_HOME", str(claude_home))
+    monkeypatch.setattr("openharness.auth.external.platform.system", lambda: "Linux")
     monkeypatch.setattr(
         "openharness.auth.external.refresh_claude_oauth_credential",
         lambda refresh_token: {
@@ -286,6 +356,70 @@ def test_cli_claude_login_refreshes_expired_credentials(monkeypatch, tmp_path: P
     persisted = json.loads(source.read_text(encoding="utf-8"))
     assert persisted["claudeAiOauth"]["accessToken"] == "fresh-token"
     assert persisted["claudeAiOauth"]["scopes"] == ["user:inference"]
+
+
+def test_load_claude_external_credential_refreshes_expired_keychain(monkeypatch, tmp_path: Path):
+    login_keychain = tmp_path / "login.keychain-db"
+    writes: list[list[str]] = []
+
+    def _fake_check_output(args, text=True):
+        if args == ["security", "find-generic-password", "-w", "-s", "Claude Code-credentials"]:
+            return json.dumps(
+                {
+                    "claudeAiOauth": {
+                        "accessToken": "expired-token",
+                        "refreshToken": "refresh-token",
+                        "expiresAt": 1,
+                        "scopes": ["user:inference"],
+                    }
+                }
+            )
+        if args == ["security", "find-generic-password", "-s", "Claude Code-credentials"]:
+            return (
+                f'keychain: "{login_keychain}"\n'
+                'attributes:\n'
+                '    "acct"<blob>="yanchundong"\n'
+                '    "svce"<blob>="Claude Code-credentials"\n'
+            )
+        raise AssertionError(args)
+
+    def _fake_run(args, check=True, capture_output=True, text=True):
+        writes.append(args)
+        return None
+
+    monkeypatch.setattr("openharness.auth.external.subprocess.check_output", _fake_check_output)
+    monkeypatch.setattr("openharness.auth.external.subprocess.run", _fake_run)
+    monkeypatch.setattr(
+        "openharness.auth.external.refresh_claude_oauth_credential",
+        lambda refresh_token: {
+            "access_token": "fresh-token",
+            "refresh_token": refresh_token,
+            "expires_at_ms": 4_102_444_800_000,
+        },
+    )
+
+    credential = load_external_credential(
+        ExternalAuthBinding(
+            provider=CLAUDE_PROVIDER,
+            source_path="keychain:Claude Code-credentials",
+            source_kind="claude_credentials_keychain",
+            managed_by="claude-cli",
+            profile_label="Claude CLI",
+        ),
+        refresh_if_needed=True,
+    )
+
+    assert credential.value == "fresh-token"
+    assert writes
+    assert writes[0][:6] == [
+        "security",
+        "add-generic-password",
+        "-U",
+        "-s",
+        "Claude Code-credentials",
+        "-a",
+    ]
+    assert "yanchundong" in writes[0]
 
 
 def test_cli_provider_use_activates_codex_profile(monkeypatch, tmp_path: Path):
@@ -389,6 +523,51 @@ def test_describe_external_binding_reports_refreshable_claude_token(tmp_path: Pa
         state="refreshable",
         source="external",
         detail=f"expired token can be refreshed from {source}",
+    )
+
+
+def test_describe_external_binding_reports_configured_claude_keychain(
+    monkeypatch, tmp_path: Path
+):
+    login_keychain = tmp_path / "login.keychain-db"
+
+    def _fake_check_output(args, text=True):
+        if args == ["security", "find-generic-password", "-w", "-s", "Claude Code-credentials"]:
+            return json.dumps(
+                {
+                    "claudeAiOauth": {
+                        "accessToken": "claude-access-token",
+                        "refreshToken": "claude-refresh-token",
+                        "expiresAt": 4_102_444_800_000,
+                    }
+                }
+            )
+        if args == ["security", "find-generic-password", "-s", "Claude Code-credentials"]:
+            return (
+                f'keychain: "{login_keychain}"\n'
+                'attributes:\n'
+                '    "acct"<blob>="yanchundong"\n'
+                '    "svce"<blob>="Claude Code-credentials"\n'
+            )
+        raise AssertionError(args)
+
+    monkeypatch.setattr("openharness.auth.external.subprocess.check_output", _fake_check_output)
+
+    state = describe_external_binding(
+        ExternalAuthBinding(
+            provider=CLAUDE_PROVIDER,
+            source_path="keychain:Claude Code-credentials",
+            source_kind="claude_credentials_keychain",
+            managed_by="claude-cli",
+            profile_label="Claude CLI",
+        )
+    )
+
+    assert state == ExternalAuthState(
+        configured=True,
+        state="configured",
+        source="external",
+        detail=str(login_keychain),
     )
 
 
