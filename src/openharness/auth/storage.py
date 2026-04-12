@@ -22,11 +22,17 @@ from pathlib import Path
 from typing import Any
 
 from openharness.config.paths import get_config_dir
+from openharness.utils.file_lock import exclusive_file_lock
+from openharness.utils.fs import atomic_write_text
 
 log = logging.getLogger(__name__)
 
 _CREDS_FILE_NAME = "credentials.json"
 _KEYRING_SERVICE = "openharness"
+
+
+def _creds_lock_path() -> Path:
+    return _creds_path().with_suffix(".json.lock")
 
 
 @dataclass(frozen=True)
@@ -62,12 +68,11 @@ def _load_creds_file() -> dict[str, Any]:
 
 def _save_creds_file(data: dict[str, Any]) -> None:
     path = _creds_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-    try:
-        path.chmod(0o600)
-    except OSError:
-        pass
+    atomic_write_text(
+        path,
+        json.dumps(data, indent=2) + "\n",
+        mode=0o600,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -132,9 +137,10 @@ def store_credential(provider: str, key: str, value: str, *, use_keyring: bool |
         except Exception as exc:
             log.warning("Keyring store failed, falling back to file: %s", exc)
 
-    data = _load_creds_file()
-    data.setdefault(provider, {})[key] = value
-    _save_creds_file(data)
+    with exclusive_file_lock(_creds_lock_path()):
+        data = _load_creds_file()
+        data.setdefault(provider, {})[key] = value
+        _save_creds_file(data)
     log.debug("Stored %s/%s in credentials file", provider, key)
 
 
@@ -176,10 +182,11 @@ def clear_provider_credentials(provider: str, *, use_keyring: bool | None = None
         except ImportError:
             pass
 
-    data = _load_creds_file()
-    if provider in data:
-        del data[provider]
-        _save_creds_file(data)
+    with exclusive_file_lock(_creds_lock_path()):
+        data = _load_creds_file()
+        if provider in data:
+            del data[provider]
+            _save_creds_file(data)
     log.debug("Cleared credentials for provider: %s", provider)
 
 
@@ -190,10 +197,11 @@ def list_stored_providers() -> list[str]:
 
 def store_external_binding(binding: ExternalAuthBinding) -> None:
     """Persist metadata describing an external auth source for *provider*."""
-    data = _load_creds_file()
-    entry = data.setdefault(binding.provider, {})
-    entry["external_binding"] = asdict(binding)
-    _save_creds_file(data)
+    with exclusive_file_lock(_creds_lock_path()):
+        data = _load_creds_file()
+        entry = data.setdefault(binding.provider, {})
+        entry["external_binding"] = asdict(binding)
+        _save_creds_file(data)
     log.debug("Stored external auth binding for provider: %s", binding.provider)
 
 

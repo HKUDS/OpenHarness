@@ -6,6 +6,12 @@ from pathlib import Path
 from re import sub
 
 from openharness.memory.paths import get_memory_entrypoint, get_project_memory_dir
+from openharness.utils.file_lock import exclusive_file_lock
+from openharness.utils.fs import atomic_write_text
+
+
+def _memory_lock_path(cwd: str | Path) -> Path:
+    return get_project_memory_dir(cwd) / ".memory.lock"
 
 
 def list_memory_files(cwd: str | Path) -> list[Path]:
@@ -19,13 +25,14 @@ def add_memory_entry(cwd: str | Path, title: str, content: str) -> Path:
     memory_dir = get_project_memory_dir(cwd)
     slug = sub(r"[^a-zA-Z0-9]+", "_", title.strip().lower()).strip("_") or "memory"
     path = memory_dir / f"{slug}.md"
-    path.write_text(content.strip() + "\n", encoding="utf-8")
+    with exclusive_file_lock(_memory_lock_path(cwd)):
+        atomic_write_text(path, content.strip() + "\n")
 
-    entrypoint = get_memory_entrypoint(cwd)
-    existing = entrypoint.read_text(encoding="utf-8") if entrypoint.exists() else "# Memory Index\n"
-    if path.name not in existing:
-        existing = existing.rstrip() + f"\n- [{title}]({path.name})\n"
-        entrypoint.write_text(existing, encoding="utf-8")
+        entrypoint = get_memory_entrypoint(cwd)
+        existing = entrypoint.read_text(encoding="utf-8") if entrypoint.exists() else "# Memory Index\n"
+        if path.name not in existing:
+            existing = existing.rstrip() + f"\n- [{title}]({path.name})\n"
+            atomic_write_text(entrypoint, existing)
     return path
 
 
@@ -36,15 +43,16 @@ def remove_memory_entry(cwd: str | Path, name: str) -> bool:
     if not matches:
         return False
     path = matches[0]
-    if path.exists():
-        path.unlink()
+    with exclusive_file_lock(_memory_lock_path(cwd)):
+        if path.exists():
+            path.unlink()
 
-    entrypoint = get_memory_entrypoint(cwd)
-    if entrypoint.exists():
-        lines = [
-            line
-            for line in entrypoint.read_text(encoding="utf-8").splitlines()
-            if path.name not in line
-        ]
-        entrypoint.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+        entrypoint = get_memory_entrypoint(cwd)
+        if entrypoint.exists():
+            lines = [
+                line
+                for line in entrypoint.read_text(encoding="utf-8").splitlines()
+                if path.name not in line
+            ]
+            atomic_write_text(entrypoint, "\n".join(lines).rstrip() + "\n")
     return True

@@ -21,6 +21,8 @@ from pydantic import BaseModel, Field
 from openharness.hooks.schemas import HookDefinition
 from openharness.mcp.types import McpServerConfig
 from openharness.permissions.modes import PermissionMode
+from openharness.utils.file_lock import exclusive_file_lock
+from openharness.utils.fs import atomic_write_text
 
 
 # ANSI escape sequence pattern
@@ -859,8 +861,9 @@ def save_settings(settings: Settings, config_path: Path | None = None) -> None:
         config_path = get_config_file_path()
 
     settings = settings.sync_active_profile_from_flat_fields().materialize_active_profile()
-    config_path.parent.mkdir(parents=True, exist_ok=True)
-    config_path.write_text(
-        settings.model_dump_json(indent=2) + "\n",
-        encoding="utf-8",
-    )
+    lock_path = config_path.with_suffix(config_path.suffix + ".lock")
+    with exclusive_file_lock(lock_path):
+        atomic_write_text(
+            config_path,
+            settings.model_dump_json(indent=2) + "\n",
+        )

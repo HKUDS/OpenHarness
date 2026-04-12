@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from openharness.auth.storage import ExternalAuthBinding
+from openharness.utils.fs import atomic_write_text
 
 CODEX_PROVIDER = "openai_codex"
 CLAUDE_PROVIDER = "anthropic_claude"
@@ -494,12 +495,11 @@ def write_claude_credentials(
         refresh_token=refresh_token,
         expires_at_ms=expires_at_ms,
     )
-    source_path.parent.mkdir(parents=True, exist_ok=True)
-    source_path.write_text(json.dumps(existing, indent=2) + "\n", encoding="utf-8")
-    try:
-        source_path.chmod(0o600)
-    except OSError:
-        pass
+    atomic_write_text(
+        source_path,
+        json.dumps(existing, indent=2) + "\n",
+        mode=0o600,
+    )
 
 
 def _write_claude_credentials_to_keychain(

@@ -13,6 +13,7 @@ from openharness.api.usage import UsageSnapshot
 from openharness.engine.messages import ConversationMessage
 from openharness.services.session_backend import SessionBackend
 from openharness.services.session_storage import _persistable_tool_metadata
+from openharness.utils.fs import atomic_write_text
 
 from ohmo.workspace import get_sessions_dir
 
@@ -72,11 +73,11 @@ def save_session_snapshot(
     }
     data = json.dumps(payload, indent=2) + "\n"
     latest_path = session_dir / "latest.json"
-    latest_path.write_text(data, encoding="utf-8")
+    atomic_write_text(latest_path, data)
     if session_key:
-        _session_key_latest_path(workspace, session_key).write_text(data, encoding="utf-8")
+        atomic_write_text(_session_key_latest_path(workspace, session_key), data)
     session_path = session_dir / f"session-{sid}.json"
-    session_path.write_text(data, encoding="utf-8")
+    atomic_write_text(session_path, data)
     return latest_path
 
 
@@ -139,7 +140,7 @@ def export_session_markdown(
         text = message.text.strip()
         if text:
             parts.append(text)
-    path.write_text("\n".join(parts).strip() + "\n", encoding="utf-8")
+    atomic_write_text(path, "\n".join(parts).strip() + "\n")
     return path
 
 

@@ -12,6 +12,7 @@ from uuid import uuid4
 from openharness.api.usage import UsageSnapshot
 from openharness.config.paths import get_sessions_dir
 from openharness.engine.messages import ConversationMessage
+from openharness.utils.fs import atomic_write_text
 
 
 _PERSISTED_TOOL_METADATA_KEYS = (
@@ -95,11 +96,11 @@ def save_session_snapshot(
 
     # Save as latest
     latest_path = session_dir / "latest.json"
-    latest_path.write_text(data, encoding="utf-8")
+    atomic_write_text(latest_path, data)
 
     # Save by session ID
     session_path = session_dir / f"session-{sid}.json"
-    session_path.write_text(data, encoding="utf-8")
+    atomic_write_text(session_path, data)
 
     return latest_path
 
@@ -210,5 +211,5 @@ def export_session_markdown(
         for block in message.content:
             if getattr(block, "type", "") == "tool_result":
                 parts.append(f"\n```tool-result\n{block.content}\n```")
-    path.write_text("\n".join(parts).strip() + "\n", encoding="utf-8")
+    atomic_write_text(path, "\n".join(parts).strip() + "\n")
     return path
