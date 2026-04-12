@@ -756,20 +756,38 @@ class FeishuChannel(BaseChannel):
 
         return None, f"[{msg_type}: download failed]"
 
-    def _send_message_sync(self, receive_id_type: str, receive_id: str, msg_type: str, content: str) -> bool:
-        """Send a single message (text/image/file/interactive) synchronously."""
+    def _send_message_sync(self, receive_id_type: str, receive_id: str, msg_type: str, content: str, reply_in_thread: str | None = None) -> bool:
+        """Send a single message (text/image/file/interactive) synchronously.
+
+        When *reply_in_thread* (a message_id) is provided, the message is
+        posted as a reply inside the originating thread via
+        ``ReplyMessageRequest`` instead of a standalone message.
+        """
         from lark_oapi.api.im.v1 import CreateMessageRequest, CreateMessageRequestBody
         try:
-            request = CreateMessageRequest.builder() \
-                .receive_id_type(receive_id_type) \
-                .request_body(
-                    CreateMessageRequestBody.builder()
-                    .receive_id(receive_id)
-                    .msg_type(msg_type)
-                    .content(content)
-                    .build()
-                ).build()
-            response = self._client.im.v1.message.create(request)
+            if reply_in_thread:
+                from lark_oapi.api.im.v1 import ReplyMessageRequest, ReplyMessageRequestBody
+                request = ReplyMessageRequest.builder() \
+                    .message_id(reply_in_thread) \
+                    .request_body(
+                        ReplyMessageRequestBody.builder()
+                        .msg_type(msg_type)
+                        .content(content)
+                        .reply_in_thread(True)
+                        .build()
+                    ).build()
+                response = self._client.im.v1.message.reply(request)
+            else:
+                request = CreateMessageRequest.builder() \
+                    .receive_id_type(receive_id_type) \
+                    .request_body(
+                        CreateMessageRequestBody.builder()
+                        .receive_id(receive_id)
+                        .msg_type(msg_type)
+                        .content(content)
+                        .build()
+                    ).build()
+                response = self._client.im.v1.message.create(request)
             if not response.success():
                 logger.error(
                     "Failed to send Feishu %s message: code=%s, msg=%s, log_id=%s",
@@ -791,6 +809,7 @@ class FeishuChannel(BaseChannel):
         try:
             receive_id_type = "chat_id" if msg.chat_id.startswith("oc_") else "open_id"
             loop = asyncio.get_running_loop()
+            reply_mid = msg.metadata.get("message_id")
 
             for file_path in msg.media:
                 if not os.path.isfile(file_path):
@@ -803,6 +822,7 @@ class FeishuChannel(BaseChannel):
                         await loop.run_in_executor(
                             None, self._send_message_sync,
                             receive_id_type, msg.chat_id, "image", json.dumps({"image_key": key}, ensure_ascii=False),
+                            reply_mid,
                         )
                 else:
                     key = await loop.run_in_executor(None, self._upload_file_sync, file_path)
@@ -816,6 +836,7 @@ class FeishuChannel(BaseChannel):
                         await loop.run_in_executor(
                             None, self._send_message_sync,
                             receive_id_type, msg.chat_id, media_type, json.dumps({"file_key": key}, ensure_ascii=False),
+                            reply_mid,
                         )
 
             if msg.content and msg.content.strip():
@@ -827,6 +848,7 @@ class FeishuChannel(BaseChannel):
                     await loop.run_in_executor(
                         None, self._send_message_sync,
                         receive_id_type, msg.chat_id, "text", text_body,
+                        reply_mid,
                     )
 
                 elif fmt == "post":
@@ -835,6 +857,7 @@ class FeishuChannel(BaseChannel):
                     await loop.run_in_executor(
                         None, self._send_message_sync,
                         receive_id_type, msg.chat_id, "post", post_body,
+                        reply_mid,
                     )
 
                 else:
@@ -845,6 +868,7 @@ class FeishuChannel(BaseChannel):
                         await loop.run_in_executor(
                             None, self._send_message_sync,
                             receive_id_type, msg.chat_id, "interactive", json.dumps(card, ensure_ascii=False),
+                            reply_mid,
                         )
 
         except Exception as e:
@@ -980,6 +1004,10 @@ class FeishuChannel(BaseChannel):
 
             # Forward to message bus
             reply_to = chat_id if chat_type == "group" else sender_id
+
+            # thread_id enables per-topic session routing in router.py
+            thread_id = getattr(message, "thread_id", None) or getattr(message, "root_id", None)
+
             await self._handle_message(
                 sender_id=sender_id,
                 chat_id=reply_to,
@@ -987,6 +1015,8 @@ class FeishuChannel(BaseChannel):
                 media=media_paths,
                 metadata={
                     "message_id": message_id,
+                    "thread_id": thread_id,
+                    "root_id": getattr(message, "root_id", None),
                     "chat_type": chat_type,
                     "msg_type": msg_type,
                     "sender_display_name": sender_display_name,

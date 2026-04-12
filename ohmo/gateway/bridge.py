@@ -169,6 +169,10 @@ class OhmoGatewayBridge:
         return True
 
     async def _process_message(self, message, session_key: str) -> None:
+        # Preserve inbound message_id so channels can reply in-thread
+        inbound_meta = {
+            k: message.metadata[k] for k in ("message_id", "thread_id") if k in message.metadata
+        }
         try:
             reply = ""
             async for update in self._runtime_pool.stream_message(message, session_key):
@@ -190,7 +194,7 @@ class OhmoGatewayBridge:
                         channel=message.channel,
                         chat_id=message.chat_id,
                         content=update.text,
-                        metadata=update.metadata,
+                        metadata={**inbound_meta, **(update.metadata or {})},
                     )
                 )
         except asyncio.CancelledError:
@@ -232,7 +236,7 @@ class OhmoGatewayBridge:
                 channel=message.channel,
                 chat_id=message.chat_id,
                 content=reply,
-                metadata={"_session_key": session_key},
+                metadata={**inbound_meta, "_session_key": session_key},
             )
         )
 
