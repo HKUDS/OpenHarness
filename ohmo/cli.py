@@ -306,6 +306,22 @@ def _run_gateway_config_wizard(workspace: str | Path) -> GatewayConfig:
         "Send tool hints to channels?",
         default=existing.send_tool_hints,
     )
+    allow_remote_admin_commands = _confirm_prompt(
+        "Allow explicitly listed administrative slash commands from remote channels?",
+        default=existing.allow_remote_admin_commands,
+    )
+    default_allowlist = ", ".join(existing.allowed_remote_admin_commands)
+    allowed_remote_admin_commands: list[str] = []
+    if allow_remote_admin_commands:
+        allowlist_raw = _text_prompt(
+            "Allowed remote admin commands (comma-separated, e.g. permissions, plan)",
+            default=default_allowlist,
+        )
+        allowed_remote_admin_commands = [
+            item.strip().lstrip("/")
+            for item in allowlist_raw.split(",")
+            if item.strip()
+        ]
     config = existing.model_copy(
         update={
             "provider_profile": provider_profile,
@@ -313,6 +329,8 @@ def _run_gateway_config_wizard(workspace: str | Path) -> GatewayConfig:
             "channel_configs": channel_configs,
             "send_progress": send_progress,
             "send_tool_hints": send_tool_hints,
+            "allow_remote_admin_commands": allow_remote_admin_commands,
+            "allowed_remote_admin_commands": allowed_remote_admin_commands,
         }
     )
     save_gateway_config(config, workspace)
@@ -328,6 +346,13 @@ def _print_gateway_config_summary(config: GatewayConfig) -> None:
         )
     else:
         print(f"Configured provider_profile={config.provider_profile}; no channels enabled yet.")
+    if config.allow_remote_admin_commands and config.allowed_remote_admin_commands:
+        print(
+            "Remote admin opt-in enabled for: "
+            + ", ".join(f"/{name}" for name in config.allowed_remote_admin_commands)
+        )
+    else:
+        print("Remote admin commands remain local-only.")
 
 
 def _maybe_restart_gateway(*, cwd: str | Path, workspace: str | Path) -> None:

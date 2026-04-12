@@ -101,6 +101,7 @@ class SlashCommand:
     description: str
     handler: CommandHandler
     remote_invocable: bool = True
+    remote_admin_opt_in: bool = False
 
 
 class CommandRegistry:
@@ -1552,6 +1553,7 @@ def create_default_command_registry(
             "Show or update permission mode",
             _permissions_handler,
             remote_invocable=False,
+            remote_admin_opt_in=True,
         )
     )
     registry.register(
@@ -1560,6 +1562,7 @@ def create_default_command_registry(
             "Toggle plan permission mode",
             _plan_handler,
             remote_invocable=False,
+            remote_admin_opt_in=True,
         )
     )
     registry.register(SlashCommand("fast", "Show or update fast mode", _fast_handler))

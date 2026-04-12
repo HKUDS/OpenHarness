@@ -15,6 +15,8 @@ class GatewayConfig(BaseModel):
     send_tool_hints: bool = True
     permission_mode: str = "default"
     sandbox_enabled: bool = False
+    allow_remote_admin_commands: bool = False
+    allowed_remote_admin_commands: list[str] = Field(default_factory=list)
     log_level: str = "INFO"
     channel_configs: dict[str, dict] = Field(default_factory=dict)
 

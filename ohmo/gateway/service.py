@@ -43,6 +43,11 @@ class OhmoGatewayService:
         root = initialize_workspace(self._workspace)
         os.environ["OHMO_WORKSPACE"] = str(root)
         self._config = load_gateway_config(self._workspace)
+        if self._config.allow_remote_admin_commands and self._config.allowed_remote_admin_commands:
+            logger.warning(
+                "ohmo gateway remote administrative commands enabled commands=%s",
+                ",".join(self._config.allowed_remote_admin_commands),
+            )
         self._bus = MessageBus()
         self._runtime_pool = OhmoSessionRuntimePool(
             cwd=self._cwd,

@@ -283,6 +283,8 @@ def initialize_workspace(workspace: str | Path | None = None) -> Path:
                     "send_tool_hints": True,
                     "permission_mode": "default",
                     "sandbox_enabled": False,
+                    "allow_remote_admin_commands": False,
+                    "allowed_remote_admin_commands": [],
                     "log_level": "INFO",
                     "channel_configs": {},
                 },

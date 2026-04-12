@@ -85,6 +85,15 @@ async def test_permissions_command_is_marked_local_only(tmp_path: Path, monkeypa
 
 
 @pytest.mark.asyncio
+async def test_permissions_command_supports_explicit_remote_admin_opt_in(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
+    registry = create_default_command_registry()
+    command, _ = registry.lookup("/permissions set full_auto")
+    assert command is not None
+    assert getattr(command, "remote_admin_opt_in", False) is True
+
+
+@pytest.mark.asyncio
 async def test_memory_show_rejects_path_traversal(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
     monkeypatch.setenv("OPENHARNESS_DATA_DIR", str(tmp_path / "data"))
