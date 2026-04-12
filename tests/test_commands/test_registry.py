@@ -76,6 +76,44 @@ async def test_permissions_command_persists(tmp_path: Path, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_permissions_command_is_marked_local_only(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
+    registry = create_default_command_registry()
+    command, _ = registry.lookup("/permissions set full_auto")
+    assert command is not None
+    assert command.remote_invocable is False
+
+
+@pytest.mark.asyncio
+async def test_memory_show_rejects_path_traversal(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("OPENHARNESS_DATA_DIR", str(tmp_path / "data"))
+    registry = create_default_command_registry()
+    command, args = registry.lookup("/memory show ../../../../../../etc/hosts")
+    assert command is not None
+
+    result = await command.handler(args, CommandContext(engine=_make_engine(tmp_path), cwd=str(tmp_path)))
+
+    assert result.message == "Memory entry path must stay within the project memory directory."
+
+
+@pytest.mark.asyncio
+async def test_memory_show_reads_normal_entries_with_md_fallback(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("OPENHARNESS_DATA_DIR", str(tmp_path / "data"))
+    registry = create_default_command_registry()
+
+    add_command, add_args = registry.lookup("/memory add Notes :: hello world")
+    assert add_command is not None
+    await add_command.handler(add_args, CommandContext(engine=_make_engine(tmp_path), cwd=str(tmp_path)))
+
+    show_command, show_args = registry.lookup("/memory show Notes")
+    result = await show_command.handler(show_args, CommandContext(engine=_make_engine(tmp_path), cwd=str(tmp_path)))
+
+    assert "hello world" in result.message
+
+
+@pytest.mark.asyncio
 async def test_model_command_persists(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
     registry = create_default_command_registry()

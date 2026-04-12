@@ -100,6 +100,7 @@ class SlashCommand:
     name: str
     description: str
     handler: CommandHandler
+    remote_invocable: bool = True
 
 
 class CommandRegistry:
@@ -375,9 +376,9 @@ def create_default_command_registry(
             return CommandResult(message="\n".join(path.name for path in memory_files))
         if action == "show" and rest:
             memory_dir = get_project_memory_dir(context.cwd)
-            path = memory_dir / rest
-            if not path.exists():
-                path = memory_dir / f"{rest}.md"
+            path = _resolve_memory_entry_path(memory_dir, rest)
+            if path is None:
+                return CommandResult(message="Memory entry path must stay within the project memory directory.")
             if not path.exists():
                 return CommandResult(message=f"Memory entry not found: {rest}")
             return CommandResult(message=path.read_text(encoding="utf-8"))
@@ -1545,8 +1546,22 @@ def create_default_command_registry(
     registry.register(SlashCommand("mcp", "Show MCP status", _mcp_handler))
     registry.register(SlashCommand("plugin", "Manage plugins", _plugin_handler))
     registry.register(SlashCommand("reload-plugins", "Reload plugin discovery for this workspace", _reload_plugins_handler))
-    registry.register(SlashCommand("permissions", "Show or update permission mode", _permissions_handler))
-    registry.register(SlashCommand("plan", "Toggle plan permission mode", _plan_handler))
+    registry.register(
+        SlashCommand(
+            "permissions",
+            "Show or update permission mode",
+            _permissions_handler,
+            remote_invocable=False,
+        )
+    )
+    registry.register(
+        SlashCommand(
+            "plan",
+            "Toggle plan permission mode",
+            _plan_handler,
+            remote_invocable=False,
+        )
+    )
     registry.register(SlashCommand("fast", "Show or update fast mode", _fast_handler))
     registry.register(SlashCommand("effort", "Show or update reasoning effort", _effort_handler))
     registry.register(SlashCommand("passes", "Show or update reasoning pass count", _passes_handler))
@@ -1602,3 +1617,28 @@ def create_default_command_registry(
             )
         )
     return registry
+
+
+def _resolve_memory_entry_path(memory_dir: Path, candidate: str) -> Path | None:
+    """Resolve a memory entry path while enforcing containment under ``memory_dir``."""
+
+    base = memory_dir.resolve()
+    resolved = _resolve_memory_candidate(base, candidate)
+    if resolved is not None and resolved.exists():
+        return resolved
+    fallback = _resolve_memory_candidate(base, f"{candidate}.md")
+    if fallback is not None:
+        return fallback
+    return None
+
+
+def _resolve_memory_candidate(memory_dir: Path, candidate: str) -> Path | None:
+    path = Path(candidate).expanduser()
+    if not path.is_absolute():
+        path = memory_dir / path
+    resolved = path.resolve()
+    try:
+        resolved.relative_to(memory_dir)
+    except ValueError:
+        return None
+    return resolved

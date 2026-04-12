@@ -12,6 +12,7 @@ from openharness.api.usage import UsageSnapshot
 from openharness.channels.bus.events import InboundMessage
 from openharness.channels.bus.queue import MessageBus
 from openharness.commands import CommandResult
+from openharness.commands.registry import SlashCommand
 from openharness.engine.messages import ConversationMessage, ImageBlock, TextBlock
 from openharness.engine.stream_events import AssistantTextDelta, CompactProgressEvent, ToolExecutionStarted
 
@@ -354,6 +355,53 @@ async def test_runtime_pool_stream_message_uses_english_progress_for_english_inp
     assert "Thinking" in updates[0].text or "Working" in updates[0].text or "Looking" in updates[0].text or "Following" in updates[0].text or "Pulling" in updates[0].text
     assert updates[1].kind == "tool_hint"
     assert updates[1].text.startswith("🛠️ Using web_fetch")
+
+
+@pytest.mark.asyncio
+async def test_runtime_pool_blocks_local_only_commands_from_remote_messages(tmp_path, monkeypatch):
+    workspace = tmp_path / ".ohmo-home"
+    initialize_workspace(workspace)
+    handler_called = False
+
+    async def forbidden_handler(args, context):
+        nonlocal handler_called
+        handler_called = True
+        return CommandResult(message="should not run")
+
+    async def fake_build_runtime(**kwargs):
+        class FakeEngine:
+            messages = []
+            total_usage = UsageSnapshot()
+
+            def set_system_prompt(self, prompt):
+                return None
+
+        command = SlashCommand(
+            "permissions",
+            "Show or update permission mode",
+            forbidden_handler,
+            remote_invocable=False,
+        )
+        return SimpleNamespace(
+            engine=FakeEngine(),
+            session_id="sess123",
+            current_settings=lambda: SimpleNamespace(model="gpt-5.4"),
+            commands=SimpleNamespace(lookup=lambda raw: (command, "full_auto")),
+        )
+
+    async def fake_start_runtime(bundle):
+        return None
+
+    monkeypatch.setattr("ohmo.gateway.runtime.build_runtime", fake_build_runtime)
+    monkeypatch.setattr("ohmo.gateway.runtime.start_runtime", fake_start_runtime)
+
+    pool = OhmoSessionRuntimePool(cwd=tmp_path, workspace=workspace, provider_profile="codex")
+    message = InboundMessage(channel="feishu", sender_id="u1", chat_id="c1", content="/permissions full_auto")
+    updates = [u async for u in pool.stream_message(message, "feishu:c1")]
+
+    assert handler_called is False
+    assert updates[-1].kind == "final"
+    assert updates[-1].text == "/permissions is only available in the local OpenHarness UI."
 
 
 @pytest.mark.asyncio

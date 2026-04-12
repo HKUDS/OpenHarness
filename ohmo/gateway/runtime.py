@@ -12,7 +12,7 @@ import os
 import string
 
 from openharness.channels.bus.events import InboundMessage
-from openharness.commands import CommandContext
+from openharness.commands import CommandContext, CommandResult
 from openharness.engine.messages import ConversationMessage, ImageBlock, TextBlock
 from openharness.engine.query import MaxTurnsExceeded
 from openharness.engine.stream_events import (
@@ -149,6 +149,19 @@ class OhmoSessionRuntimePool:
         parsed = bundle.commands.lookup(user_prompt)
         if parsed is not None and not message.media:
             command, args = parsed
+            if not getattr(command, "remote_invocable", True):
+                result = CommandResult(
+                    message=f"/{command.name} is only available in the local OpenHarness UI."
+                )
+                async for update in self._stream_command_result(
+                    bundle=bundle,
+                    message=message,
+                    session_key=session_key,
+                    user_prompt=user_prompt,
+                    result=result,
+                ):
+                    yield update
+                return
             result = await command.handler(
                 args,
                 CommandContext(
