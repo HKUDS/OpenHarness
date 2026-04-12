@@ -3,6 +3,7 @@ import { getCollection } from 'astro:content';
 import TopNav from '../components/TopNav.astro';
 import Sidebar from '../components/Sidebar.astro';
 import ScrollProgress from '../components/ScrollProgress.astro';
+import FloatingShapes from '../components/FloatingShapes.astro';
 import '../styles/global.css';
 
 interface Props {
@@ -148,6 +149,7 @@ const { title = 'OpenHarness Docs', description, section = '', currentPath = '' 
     </script>
   </head>
   <body class="min-h-screen breathing-bg dark:bg-[var(--color-bg)] text-[var(--color-text)] dark:text-[var(--color-text)] transition-colors duration-200">
+    <FloatingShapes />
     <TopNav title={title} />
     <ScrollProgress />
     <div class="flex">

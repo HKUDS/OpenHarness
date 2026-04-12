@@ -350,11 +350,39 @@
   .theme-icon.rotating {
     transform: none;
   }
-}
+
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+}
+
+/* Sidebar smooth expand/collapse animations */
+.sidebar-section-content {
+  max-height: 0;
+  overflow: hidden;
+  opacity: 0;
+  transform: translateY(-8px);
+  transition: max-height 0.4s var(--ease-smooth),
+              opacity 0.3s var(--ease-smooth),
+              transform 0.3s var(--ease-smooth);
+}
+
+.sidebar-section-content.is-open {
+  max-height: 1000px; /* Large enough to contain content */
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Chevron rotation for sidebar */
+.sidebar-chevron {
+  transition: transform 0.3s var(--ease-spring);
+}
+
+.sidebar-section[data-open="true"] .sidebar-chevron,
+.sidebar-section-content.is-open + .sidebar-section-toggle .sidebar-chevron,
+.sidebar-section-toggle[aria-expanded="true"] .sidebar-chevron {
+  transform: rotate(180deg);
 }

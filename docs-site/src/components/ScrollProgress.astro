@@ -3,26 +3,28 @@
 <div id="scroll-progress" class="fixed top-0 left-0 right-0 h-1 z-50"></div>
 
 <script>
-  // 监听滚动，更新进度条宽度
-  const progress = document.getElementById('scroll-progress');
-  if (!progress) return;
+  (function() {
+    // 监听滚动，更新进度条宽度
+    const progress = document.getElementById('scroll-progress');
+    if (!progress) return;
 
-  let ticking = false;
+    let ticking = false;
 
-  const updateProgress = () => {
-    if (!ticking) {
-      window.requestAnimationFrame(() => {
-        const scrollTop = window.scrollY;
-        const docHeight = document.documentElement.scrollHeight - window.innerHeight;
-        const percent = scrollTop / docHeight;
-        progress!.style.transform = `scaleX(${percent})`;
-        ticking = false;
-      });
-      ticking = true;
-    }
-  };
+    const updateProgress = () => {
+      if (!ticking) {
+        window.requestAnimationFrame(() => {
+          const scrollTop = window.scrollY;
+          const docHeight = document.documentElement.scrollHeight - window.innerHeight;
+          const percent = docHeight > 0 ? scrollTop / docHeight : 0;
+          progress.style.transform = `scaleX(${percent})`;
+          ticking = false;
+        });
+        ticking = true;
+      }
+    };
 
-  window.addEventListener('scroll', updateProgress, { passive: true });
+    window.addEventListener('scroll', updateProgress, { passive: true });
+  })();
 </script>
 
 <style>

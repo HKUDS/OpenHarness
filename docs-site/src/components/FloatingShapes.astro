@@ -1,0 +1,100 @@
+---
+---
+<div class="floating-shapes-container" aria-hidden="true">
+  <div class="floating-shape shape-1"></div>
+  <div class="floating-shape shape-2"></div>
+  <div class="floating-shape shape-3"></div>
+  <div class="floating-shape shape-4"></div>
+</div>
+
+<style>
+  .floating-shapes-container {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: -1;
+    overflow: hidden;
+  }
+
+  .floating-shape {
+    position: absolute;
+    opacity: 0.08;
+    border-radius: 50%;
+    animation: float-soft 20s ease-in-out infinite;
+    will-change: transform;
+  }
+
+  /* Shape 1: Large circle - top left */
+  .shape-1 {
+    width: 300px;
+    height: 300px;
+    top: 5%;
+    left: -5%;
+    background: var(--gradient-primary);
+    animation-delay: 0s;
+    filter: blur(60px);
+  }
+
+  /* Shape 2: Medium circle - top right */
+  .shape-2 {
+    width: 200px;
+    height: 200px;
+    top: 15%;
+    right: 5%;
+    background: var(--gradient-secondary);
+    animation-delay: -5s;
+    filter: blur(40px);
+  }
+
+  /* Shape 3: Small circle - bottom left */
+  .shape-3 {
+    width: 150px;
+    height: 150px;
+    bottom: 20%;
+    left: 10%;
+    background: var(--gradient-border);
+    animation-delay: -10s;
+    filter: blur(30px);
+  }
+
+  /* Shape 4: Rectangle-ish - bottom right */
+  .shape-4 {
+    width: 250px;
+    height: 180px;
+    bottom: 10%;
+    right: -5%;
+    border-radius: 40% 60% 70% 30% / 40% 50% 60% 50%;
+    background: var(--gradient-primary);
+    animation-delay: -15s;
+    filter: blur(50px);
+  }
+
+  @keyframes float-soft {
+    0%, 100% {
+      transform: translateY(0) rotate(0deg) scale(1);
+    }
+    25% {
+      transform: translateY(-15px) rotate(3deg) scale(1.02);
+    }
+    50% {
+      transform: translateY(-25px) rotate(-2deg) scale(0.98);
+    }
+    75% {
+      transform: translateY(-10px) rotate(2deg) scale(1.01);
+    }
+  }
+
+  /* Hide on mobile to save performance */
+  @media (max-width: 768px) {
+    .floating-shapes-container {
+      display: none;
+    }
+  }
+
+  /* Respect reduced motion preference */
+  @media (prefers-reduced-motion: reduce) {
+    .floating-shapes-container {
+      display: none;
+    }
+  }
+</style>

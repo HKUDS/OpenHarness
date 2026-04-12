@@ -77,6 +77,15 @@ test.describe('Playful Dynamic UI Features', () => {
     expect(hasHoverLift).toBe(true);
   });
 
+  test('floating shapes component exists', async ({ page }) => {
+    const floatingShapes = await page.locator('.floating-shapes-container');
+    await expect(floatingShapes).toHaveCount(1);
+
+    // Check that shapes exist
+    const shapes = await page.locator('.floating-shape');
+    await expect(shapes).toHaveCount(4);
+  });
+
   test('reduced motion media query is respected', async ({ page }) => {
     // Emulate reduced motion preference
     await page.emulateMedia({ reducedMotion: 'reduce' });
@@ -110,21 +119,21 @@ test.describe('Playful Dynamic UI Features', () => {
   test('scroll progress updates on scroll', async ({ page }) => {
     const progressBar = await page.locator('#scroll-progress');
 
-    // Get initial scale
-    const initialTransform = await progressBar.evaluate(el =>
-      window.getComputedStyle(el).transform
-    );
+    // Wait for scroll handler to be attached
+    await page.waitForLoadState('networkidle');
 
-    // Scroll down
-    await page.evaluate(() => window.scrollTo(0, 500));
-    await page.waitForTimeout(100);
+    // Scroll down significantly
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight / 2));
+    await page.waitForTimeout(200);
 
-    // Get updated scale
-    const updatedTransform = await progressBar.evaluate(el =>
-      window.getComputedStyle(el).transform
-    );
+    // Get the current scaleX value from computed style
+    const scaleValue = await progressBar.evaluate(el => {
+      const style = window.getComputedStyle(el);
+      const matrix = new DOMMatrix(style.transform);
+      return matrix.m11; // scaleX is m11 in the matrix
+    });
 
-    // Transform should have changed (indicating progress)
-    expect(updatedTransform).not.toBe(initialTransform);
+    // Progress should be > 0 after scrolling
+    expect(scaleValue).toBeGreaterThan(0);
   });
 });
