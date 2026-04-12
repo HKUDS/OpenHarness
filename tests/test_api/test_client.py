@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from openharness.engine.messages import ConversationMessage, ImageBlock, TextBlock
 from openharness.api.client import AnthropicApiClient, OAUTH_BETA_HEADER
 
 
@@ -69,6 +70,31 @@ def test_anthropic_client_adds_claude_oauth_identity_headers(monkeypatch):
     assert "claude-code-20250219" in headers["anthropic-beta"]
 
 
+def test_conversation_message_serializes_image_block_for_anthropic():
+    message = ConversationMessage(
+        role="user",
+        content=[
+            TextBlock(text="Describe this."),
+            ImageBlock(media_type="image/png", data="YWJj", source_path="/tmp/example.png"),
+        ],
+    )
+
+    assert message.to_api_param() == {
+        "role": "user",
+        "content": [
+            {"type": "text", "text": "Describe this."},
+            {
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": "image/png",
+                    "data": "YWJj",
+                },
+            },
+        ],
+    }
+
+
 def test_anthropic_client_refreshes_claude_token_on_request(monkeypatch):
     captured_tokens: list[str] = []
 
@@ -123,6 +149,10 @@ def test_anthropic_client_refreshes_claude_token_on_request(monkeypatch):
     monkeypatch.setattr(
         "openharness.api.client.get_claude_code_session_id",
         lambda: "session-123",
+    )
+    monkeypatch.setattr(
+        "openharness.api.client.claude_attribution_header",
+        lambda: "x-anthropic-billing-header: cc_version=2.1.92; cc_entrypoint=cli;",
     )
 
     current_token = {"value": "initial-token"}

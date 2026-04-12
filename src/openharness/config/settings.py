@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -20,6 +21,21 @@ from pydantic import BaseModel, Field
 from openharness.hooks.schemas import HookDefinition
 from openharness.mcp.types import McpServerConfig
 from openharness.permissions.modes import PermissionMode
+
+
+# ANSI escape sequence pattern
+_ANSI_ESCAPE_PATTERN = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def strip_ansi_escape_sequences(text: str) -> str:
+    """Remove ANSI escape sequences from text.
+
+    This is used to clean environment variables that may contain terminal
+    formatting codes (e.g., '[1m' for bold) which can corrupt API requests.
+    """
+    if not text:
+        return text
+    return _ANSI_ESCAPE_PATTERN.sub("", text)
 
 
 class PathRuleConfig(BaseModel):
@@ -202,6 +218,14 @@ def default_provider_profiles() -> dict[str, ProviderProfile]:
             default_model="kimi-k2.5",
             base_url="https://api.moonshot.cn/v1",
         ),
+        "gemini": ProviderProfile(
+            label="Google Gemini",
+            provider="gemini",
+            api_format="openai",
+            auth_source="gemini_api_key",
+            default_model="gemini-2.5-flash",
+            base_url="https://generativelanguage.googleapis.com/v1beta/openai",
+        ),
     }
 
 
@@ -288,6 +312,7 @@ def auth_source_provider_name(auth_source: str) -> str:
         "bedrock_api_key": "bedrock",
         "vertex_api_key": "vertex",
         "moonshot_api_key": "moonshot",
+        "gemini_api_key": "gemini",
     }
     return mapping.get(auth_source, auth_source)
 
@@ -325,6 +350,8 @@ def default_auth_source_for_provider(provider: str, api_format: str | None = Non
         return "vertex_api_key"
     if provider == "moonshot":
         return "moonshot_api_key"
+    if provider == "gemini":
+        return "gemini_api_key"
     if provider == "openai" or api_format == "openai":
         return "openai_api_key"
     return "anthropic_api_key"
@@ -401,6 +428,7 @@ class Settings(BaseModel):
     model: str = "claude-sonnet-4-6"
     max_tokens: int = 16384
     base_url: str | None = None
+    timeout: float = 30.0
     api_format: str = "anthropic"  # "anthropic", "openai", or "copilot"
     provider: str = ""
     active_profile: str = "claude-api"
@@ -664,12 +692,18 @@ class Settings(BaseModel):
     def merge_cli_overrides(self, **overrides: Any) -> Settings:
         """Return a new Settings with CLI overrides applied (non-None values only)."""
         updates = {k: v for k, v in overrides.items() if v is not None}
+        # Strip ANSI escape sequences from model name if present
+        if "model" in updates and isinstance(updates["model"], str):
+            updates["model"] = strip_ansi_escape_sequences(updates["model"])
         merged = self.model_copy(update=updates)
         if not updates:
             return merged
         profile_keys = {"model", "base_url", "api_format", "provider", "api_key", "active_profile", "profiles"}
-        if profile_keys.isdisjoint(updates):
+        profile_updates = profile_keys.intersection(updates)
+        if not profile_updates:
             return merged
+        if profile_updates.issubset({"active_profile"}):
+            return merged.materialize_active_profile()
         return merged.sync_active_profile_from_flat_fields().materialize_active_profile()
 
 
@@ -678,7 +712,9 @@ def _apply_env_overrides(settings: Settings) -> Settings:
     updates: dict[str, Any] = {}
     model = os.environ.get("ANTHROPIC_MODEL") or os.environ.get("OPENHARNESS_MODEL")
     if model:
-        updates["model"] = model
+        # Strip ANSI escape sequences that may be present if the environment
+        # variable was set with terminal formatting (e.g., bold text)
+        updates["model"] = strip_ansi_escape_sequences(model)
 
     base_url = (
         os.environ.get("ANTHROPIC_BASE_URL")
@@ -691,6 +727,10 @@ def _apply_env_overrides(settings: Settings) -> Settings:
     max_tokens = os.environ.get("OPENHARNESS_MAX_TOKENS")
     if max_tokens:
         updates["max_tokens"] = int(max_tokens)
+
+    timeout = os.environ.get("OPENHARNESS_TIMEOUT")
+    if timeout:
+        updates["timeout"] = float(timeout)
 
     max_turns = os.environ.get("OPENHARNESS_MAX_TURNS")
     if max_turns:

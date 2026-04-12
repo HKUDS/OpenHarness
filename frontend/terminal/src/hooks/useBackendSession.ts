@@ -18,6 +18,8 @@ const PROTOCOL_PREFIX = 'OHJSON:';
 const ASSISTANT_DELTA_FLUSH_MS = 33;
 const ASSISTANT_DELTA_FLUSH_CHARS = 256;
 
+const stableStringify = (value: unknown): string => JSON.stringify(value);
+
 export function useBackendSession(config: FrontendConfig, onExit: (code?: number | null) => void) {
 	const [transcript, setTranscript] = useState<TranscriptItem[]>([]);
 	const [assistantBuffer, setAssistantBuffer] = useState('');
@@ -29,12 +31,17 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 	const [modal, setModal] = useState<Record<string, unknown> | null>(null);
 	const [selectRequest, setSelectRequest] = useState<{title: string; command: string; options: SelectOptionPayload[]} | null>(null);
 	const [busy, setBusy] = useState(false);
+	const [busyLabel, setBusyLabel] = useState<string | undefined>(undefined);
 	const [ready, setReady] = useState(false);
 	const [todoMarkdown, setTodoMarkdown] = useState('');
 	const [swarmTeammates, setSwarmTeammates] = useState<SwarmTeammateSnapshot[]>([]);
 	const [swarmNotifications, setSwarmNotifications] = useState<SwarmNotificationSnapshot[]>([]);
 	const childRef = useRef<ChildProcessWithoutNullStreams | null>(null);
 	const sentInitialPrompt = useRef(false);
+	const lastStatusSnapshotRef = useRef('');
+	const lastTasksSnapshotRef = useRef('');
+	const lastMcpSnapshotRef = useRef('');
+	const lastBridgeSnapshotRef = useRef('');
 
 	// Streaming deltas can arrive one token at a time; updating Ink state for each
 	// delta causes heavy re-rendering/flicker. Buffer and flush at ~30fps.
@@ -135,10 +142,18 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 	const handleEvent = (event: BackendEvent): void => {
 		if (event.type === 'ready') {
 			setReady(true);
+			const statusSnapshot = stableStringify(event.state ?? {});
+			lastStatusSnapshotRef.current = statusSnapshot;
 			setStatus(event.state ?? {});
+			const tasksSnapshot = stableStringify(event.tasks ?? []);
+			lastTasksSnapshotRef.current = tasksSnapshot;
 			setTasks(event.tasks ?? []);
 			setCommands(event.commands ?? []);
+			const mcpSnapshot = stableStringify(event.mcp_servers ?? []);
+			lastMcpSnapshotRef.current = mcpSnapshot;
 			setMcpServers(event.mcp_servers ?? []);
+			const bridgeSnapshot = stableStringify(event.bridge_sessions ?? []);
+			lastBridgeSnapshotRef.current = bridgeSnapshot;
 			setBridgeSessions(event.bridge_sessions ?? []);
 			if (config.initial_prompt && !sentInitialPrompt.current) {
 				sentInitialPrompt.current = true;
@@ -148,17 +163,78 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 			return;
 		}
 		if (event.type === 'state_snapshot') {
-			setStatus(event.state ?? {});
-			setMcpServers(event.mcp_servers ?? []);
-			setBridgeSessions(event.bridge_sessions ?? []);
+			const statusSnapshot = stableStringify(event.state ?? {});
+			if (statusSnapshot !== lastStatusSnapshotRef.current) {
+				lastStatusSnapshotRef.current = statusSnapshot;
+				setStatus(event.state ?? {});
+			}
+			const mcpSnapshot = stableStringify(event.mcp_servers ?? []);
+			if (mcpSnapshot !== lastMcpSnapshotRef.current) {
+				lastMcpSnapshotRef.current = mcpSnapshot;
+				setMcpServers(event.mcp_servers ?? []);
+			}
+			const bridgeSnapshot = stableStringify(event.bridge_sessions ?? []);
+			if (bridgeSnapshot !== lastBridgeSnapshotRef.current) {
+				lastBridgeSnapshotRef.current = bridgeSnapshot;
+				setBridgeSessions(event.bridge_sessions ?? []);
+			}
 			return;
 		}
 		if (event.type === 'tasks_snapshot') {
-			setTasks(event.tasks ?? []);
+			const tasksSnapshot = stableStringify(event.tasks ?? []);
+			if (tasksSnapshot !== lastTasksSnapshotRef.current) {
+				lastTasksSnapshotRef.current = tasksSnapshot;
+				setTasks(event.tasks ?? []);
+			}
 			return;
 		}
 		if (event.type === 'transcript_item' && event.item) {
 			setTranscript((items) => [...items, event.item as TranscriptItem]);
+			return;
+		}
+		if (event.type === 'status') {
+			const message = event.message?.trim();
+			if (!message) {
+				return;
+			}
+			setTranscript((items) => [...items, {role: 'status', text: message}]);
+			if (busy) {
+				setBusyLabel(message);
+			}
+			return;
+		}
+		if (event.type === 'compact_progress') {
+			const phase = String(event.compact_phase ?? '');
+			const trigger = String(event.compact_trigger ?? '');
+			const attempt = event.attempt != null ? Number(event.attempt) : undefined;
+			if (phase === 'hooks_start') {
+				setBusyLabel(
+					trigger === 'reactive'
+						? 'Preparing retry compaction…'
+						: 'Preparing conversation compaction…',
+				);
+			} else if (phase === 'context_collapse_start') {
+				setBusyLabel('Collapsing oversized context…');
+			} else if (phase === 'context_collapse_end') {
+				setBusyLabel('Context collapse complete…');
+			} else if (phase === 'session_memory_start') {
+				setBusyLabel('Condensing earlier conversation…');
+			} else if (phase === 'compact_start') {
+				setBusyLabel(
+					trigger === 'reactive'
+						? 'Context is too large. Compacting and retrying…'
+						: 'Compacting conversation memory…',
+				);
+			} else if (phase === 'compact_retry') {
+				setBusyLabel(attempt ? `Retrying compaction (${attempt})…` : 'Retrying compaction…');
+			} else if (phase === 'compact_end') {
+				setBusyLabel('Compaction complete. Continuing…');
+			} else if (phase === 'compact_failed') {
+				setBusyLabel('Compaction failed. Continuing without it…');
+			}
+			if (event.message) {
+				setTranscript((items) => [...items, {role: 'status', text: event.message!}]);
+			}
 			return;
 		}
 		if (event.type === 'assistant_delta') {
@@ -188,17 +264,25 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 			const text = event.message ?? assistantBufferRef.current;
 			setTranscript((items) => [...items, {role: 'assistant', text}]);
 			clearAssistantDelta();
-			setBusy(false);
+			// Do NOT reset busy here: tool calls may follow this event.
+			// busy is reset by line_complete (the true end-of-turn signal).
+			setBusyLabel(undefined);
 			return;
 		}
 		if (event.type === 'line_complete') {
-			// If the line ended without an assistant_complete (e.g. errors), make sure we
-			// don't leave stale streaming text on screen.
+			// Final end-of-turn: clear everything, stop spinner.
 			clearAssistantDelta();
 			setBusy(false);
+			setBusyLabel(undefined);
 			return;
 		}
 		if ((event.type === 'tool_started' || event.type === 'tool_completed') && event.item) {
+			if (event.type === 'tool_started') {
+				setBusy(true);
+				setBusyLabel(`Running ${event.tool_name ?? 'tool'}...`);
+			} else {
+				setBusyLabel('Processing...');
+			}
 			const enrichedItem: TranscriptItem = {
 				...event.item,
 				tool_name: event.item.tool_name ?? event.tool_name ?? undefined,
@@ -211,6 +295,7 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 		if (event.type === 'clear_transcript') {
 			setTranscript([]);
 			clearAssistantDelta();
+			setBusyLabel(undefined);
 			return;
 		}
 		if (event.type === 'select_request') {
@@ -230,6 +315,7 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 			setTranscript((items) => [...items, {role: 'system', text: `error: ${event.message ?? 'unknown error'}`}]);
 			clearAssistantDelta();
 			setBusy(false);
+			setBusyLabel(undefined);
 			return;
 		}
 		if (event.type === 'todo_update') {
@@ -270,6 +356,7 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 			modal,
 			selectRequest,
 			busy,
+			busyLabel,
 			ready,
 			todoMarkdown,
 			swarmTeammates,
@@ -279,6 +366,6 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 			setBusy,
 			sendRequest,
 		}),
-		[assistantBuffer, bridgeSessions, busy, commands, mcpServers, modal, ready, selectRequest, status, swarmNotifications, swarmTeammates, tasks, todoMarkdown, transcript]
+		[assistantBuffer, bridgeSessions, busy, busyLabel, commands, mcpServers, modal, ready, selectRequest, status, swarmNotifications, swarmTeammates, tasks, todoMarkdown, transcript]
 	);
 }

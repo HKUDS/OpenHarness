@@ -9,16 +9,18 @@ import logging
 import os
 import sys
 from dataclasses import dataclass
+from pathlib import Path
 from uuid import uuid4
 
 from openharness.api.client import SupportsStreamingMessages
 from openharness.auth.manager import AuthManager
-from openharness.config.settings import CLAUDE_MODEL_ALIAS_OPTIONS, display_model_setting
+from openharness.config.settings import CLAUDE_MODEL_ALIAS_OPTIONS, resolve_model_setting
 from openharness.bridge import get_bridge_manager
 from openharness.themes import list_themes
 from openharness.engine.stream_events import (
     AssistantTextDelta,
     AssistantTurnComplete,
+    CompactProgressEvent,
     ErrorEvent,
     StatusEvent,
     StreamEvent,
@@ -50,9 +52,14 @@ class BackendHostConfig:
     api_format: str | None = None
     active_profile: str | None = None
     api_client: SupportsStreamingMessages | None = None
+    cwd: str | None = None
     restore_messages: list[dict] | None = None
+    restore_tool_metadata: dict[str, object] | None = None
     enforce_max_turns: bool = True
+    permission_mode: str | None = None
     session_backend: SessionBackend | None = None
+    extra_skill_dirs: tuple[str, ...] = ()
+    extra_plugin_roots: tuple[str, ...] = ()
 
 
 class ReactBackendHost:
@@ -65,6 +72,7 @@ class ReactBackendHost:
         self._request_queue: asyncio.Queue[FrontendRequest] = asyncio.Queue()
         self._permission_requests: dict[str, asyncio.Future[bool]] = {}
         self._question_requests: dict[str, asyncio.Future[str]] = {}
+        self._permission_lock = asyncio.Lock()
         self._busy = False
         self._running = True
         # Track last tool input per name for rich event emission
@@ -80,11 +88,16 @@ class ReactBackendHost:
             api_format=self._config.api_format,
             active_profile=self._config.active_profile,
             api_client=self._config.api_client,
+            cwd=self._config.cwd,
             restore_messages=self._config.restore_messages,
+            restore_tool_metadata=self._config.restore_tool_metadata,
             permission_prompt=self._ask_permission,
             ask_user_prompt=self._ask_question,
             enforce_max_turns=self._config.enforce_max_turns,
+            permission_mode=self._config.permission_mode,
             session_backend=self._config.session_backend,
+            extra_skill_dirs=self._config.extra_skill_dirs,
+            extra_plugin_roots=self._config.extra_plugin_roots,
         )
         await start_runtime(self._bundle)
         await self._emit(
@@ -192,6 +205,19 @@ class ReactBackendHost:
         async def _render_event(event: StreamEvent) -> None:
             if isinstance(event, AssistantTextDelta):
                 await self._emit(BackendEvent(type="assistant_delta", message=event.text))
+                return
+            if isinstance(event, CompactProgressEvent):
+                await self._emit(
+                    BackendEvent(
+                        type="compact_progress",
+                        compact_phase=event.phase,
+                        compact_trigger=event.trigger,
+                        attempt=event.attempt,
+                        compact_checkpoint=event.checkpoint,
+                        compact_metadata=event.metadata,
+                        message=event.message,
+                    )
+                )
                 return
             if isinstance(event, AssistantTurnComplete):
                 await self._emit(
@@ -379,7 +405,7 @@ class ReactBackendHost:
         settings = self._bundle.current_settings()
         state = self._bundle.app_state.get()
         _, active_profile = settings.resolve_profile()
-        current_model = display_model_setting(active_profile)
+        current_model = settings.model
 
         if command == "provider":
             statuses = AuthManager(settings).get_profile_statuses()
@@ -588,12 +614,14 @@ class ReactBackendHost:
             ]
         provider_name = provider.lower()
         if provider_name in {"anthropic", "anthropic_claude"}:
+            resolved_current = resolve_model_setting(current_model, provider_name)
             return [
                 {
                     "value": value,
                     "label": label,
                     "description": description,
-                    "active": value == current_model,
+                    "active": value == current_model
+                    or resolve_model_setting(value, provider_name) == resolved_current,
                 }
                 for value, label, description in CLAUDE_MODEL_ALIAS_OPTIONS
             ]
@@ -647,27 +675,28 @@ class ReactBackendHost:
         return options
 
     async def _ask_permission(self, tool_name: str, reason: str) -> bool:
-        request_id = uuid4().hex
-        future: asyncio.Future[bool] = asyncio.get_running_loop().create_future()
-        self._permission_requests[request_id] = future
-        await self._emit(
-            BackendEvent(
-                type="modal_request",
-                modal={
-                    "kind": "permission",
-                    "request_id": request_id,
-                    "tool_name": tool_name,
-                    "reason": reason,
-                },
+        async with self._permission_lock:
+            request_id = uuid4().hex
+            future: asyncio.Future[bool] = asyncio.get_running_loop().create_future()
+            self._permission_requests[request_id] = future
+            await self._emit(
+                BackendEvent(
+                    type="modal_request",
+                    modal={
+                        "kind": "permission",
+                        "request_id": request_id,
+                        "tool_name": tool_name,
+                        "reason": reason,
+                    },
+                )
             )
-        )
-        try:
-            return await asyncio.wait_for(future, timeout=300)
-        except asyncio.TimeoutError:
-            log.warning("Permission request %s timed out after 300s, denying", request_id)
-            return False
-        finally:
-            self._permission_requests.pop(request_id, None)
+            try:
+                return await asyncio.wait_for(future, timeout=300)
+            except asyncio.TimeoutError:
+                log.warning("Permission request %s timed out after 300s, denying", request_id)
+                return False
+            finally:
+                self._permission_requests.pop(request_id, None)
 
     async def _ask_question(self, question: str) -> str:
         request_id = uuid4().hex
@@ -713,8 +742,12 @@ async def run_backend_host(
     cwd: str | None = None,
     api_client: SupportsStreamingMessages | None = None,
     restore_messages: list[dict] | None = None,
+    restore_tool_metadata: dict[str, object] | None = None,
     enforce_max_turns: bool = True,
+    permission_mode: str | None = None,
     session_backend: SessionBackend | None = None,
+    extra_skill_dirs: tuple[str | Path, ...] = (),
+    extra_plugin_roots: tuple[str | Path, ...] = (),
 ) -> int:
     """Run the structured React backend host."""
     if cwd:
@@ -729,9 +762,14 @@ async def run_backend_host(
             api_format=api_format,
             active_profile=active_profile,
             api_client=api_client,
+            cwd=cwd,
             restore_messages=restore_messages,
+            restore_tool_metadata=restore_tool_metadata,
             enforce_max_turns=enforce_max_turns,
+            permission_mode=permission_mode,
             session_backend=session_backend,
+            extra_skill_dirs=tuple(str(Path(path).expanduser().resolve()) for path in extra_skill_dirs),
+            extra_plugin_roots=tuple(str(Path(path).expanduser().resolve()) for path in extra_plugin_roots),
         )
     )
     return await host.run()

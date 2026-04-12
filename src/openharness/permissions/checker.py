@@ -86,15 +86,16 @@ class PermissionChecker:
         # defence-in-depth measure against LLM-directed or prompt-injection
         # driven access to credential files.
         if file_path:
-            for pattern in SENSITIVE_PATH_PATTERNS:
-                if fnmatch.fnmatch(file_path, pattern):
-                    return PermissionDecision(
-                        allowed=False,
-                        reason=(
-                            f"Access denied: {file_path} is a sensitive credential path "
-                            f"(matched built-in pattern '{pattern}')"
-                        ),
-                    )
+            for candidate_path in _policy_match_paths(file_path):
+                for pattern in SENSITIVE_PATH_PATTERNS:
+                    if fnmatch.fnmatch(candidate_path, pattern):
+                        return PermissionDecision(
+                            allowed=False,
+                            reason=(
+                                f"Access denied: {file_path} is a sensitive credential path "
+                                f"(matched built-in pattern '{pattern}')"
+                            ),
+                        )
 
         # Explicit tool deny list
         if tool_name in self._settings.denied_tools:
@@ -106,13 +107,14 @@ class PermissionChecker:
 
         # Check path-level rules
         if file_path and self._path_rules:
-            for rule in self._path_rules:
-                if fnmatch.fnmatch(file_path, rule.pattern):
-                    if not rule.allow:
-                        return PermissionDecision(
-                            allowed=False,
-                            reason=f"Path {file_path} matches deny rule: {rule.pattern}",
-                        )
+            for candidate_path in _policy_match_paths(file_path):
+                for rule in self._path_rules:
+                    if fnmatch.fnmatch(candidate_path, rule.pattern):
+                        if not rule.allow:
+                            return PermissionDecision(
+                                allowed=False,
+                                reason=f"Path {file_path} matches deny rule: {rule.pattern}",
+                            )
 
         # Check command deny patterns (e.g. deny "rm -rf /")
         if command:
@@ -144,3 +146,16 @@ class PermissionChecker:
             requires_confirmation=True,
             reason="Mutating tools require user confirmation in default mode",
         )
+
+
+def _policy_match_paths(file_path: str) -> tuple[str, ...]:
+    """Return path forms that should participate in policy matching.
+
+    Directory-scoped tools like ``grep`` and ``glob`` may operate on a root such
+    as ``/home/user/.ssh``. Appending a trailing slash lets glob-style deny
+    patterns like ``*/.ssh/*`` and ``/etc/*`` match the directory root itself.
+    """
+    normalized = file_path.rstrip("/")
+    if not normalized:
+        return (file_path,)
+    return (normalized, normalized + "/")

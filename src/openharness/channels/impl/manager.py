@@ -46,7 +46,7 @@ class ChannelManager:
                 )
                 logger.info("Telegram channel enabled")
             except ImportError as e:
-                logger.warning("Telegram channel not available: {}", e)
+                logger.warning("Telegram channel not available: %s", e)
 
         # WhatsApp channel
         if self.config.channels.whatsapp.enabled:
@@ -57,7 +57,7 @@ class ChannelManager:
                 )
                 logger.info("WhatsApp channel enabled")
             except ImportError as e:
-                logger.warning("WhatsApp channel not available: {}", e)
+                logger.warning("WhatsApp channel not available: %s", e)
 
         # Discord channel
         if self.config.channels.discord.enabled:
@@ -68,7 +68,7 @@ class ChannelManager:
                 )
                 logger.info("Discord channel enabled")
             except ImportError as e:
-                logger.warning("Discord channel not available: {}", e)
+                logger.warning("Discord channel not available: %s", e)
 
         # Feishu channel
         if self.config.channels.feishu.enabled:
@@ -79,7 +79,7 @@ class ChannelManager:
                 )
                 logger.info("Feishu channel enabled")
             except ImportError as e:
-                logger.warning("Feishu channel not available: {}", e)
+                logger.warning("Feishu channel not available: %s", e)
 
         # Mochat channel
         if self.config.channels.mochat.enabled:
@@ -91,7 +91,7 @@ class ChannelManager:
                 )
                 logger.info("Mochat channel enabled")
             except ImportError as e:
-                logger.warning("Mochat channel not available: {}", e)
+                logger.warning("Mochat channel not available: %s", e)
 
         # DingTalk channel
         if self.config.channels.dingtalk.enabled:
@@ -102,7 +102,7 @@ class ChannelManager:
                 )
                 logger.info("DingTalk channel enabled")
             except ImportError as e:
-                logger.warning("DingTalk channel not available: {}", e)
+                logger.warning("DingTalk channel not available: %s", e)
 
         # Email channel
         if self.config.channels.email.enabled:
@@ -113,7 +113,7 @@ class ChannelManager:
                 )
                 logger.info("Email channel enabled")
             except ImportError as e:
-                logger.warning("Email channel not available: {}", e)
+                logger.warning("Email channel not available: %s", e)
 
         # Slack channel
         if self.config.channels.slack.enabled:
@@ -124,7 +124,7 @@ class ChannelManager:
                 )
                 logger.info("Slack channel enabled")
             except ImportError as e:
-                logger.warning("Slack channel not available: {}", e)
+                logger.warning("Slack channel not available: %s", e)
 
         # QQ channel
         if self.config.channels.qq.enabled:
@@ -136,7 +136,7 @@ class ChannelManager:
                 )
                 logger.info("QQ channel enabled")
             except ImportError as e:
-                logger.warning("QQ channel not available: {}", e)
+                logger.warning("QQ channel not available: %s", e)
 
         # Matrix channel
         if self.config.channels.matrix.enabled:
@@ -148,7 +148,7 @@ class ChannelManager:
                 )
                 logger.info("Matrix channel enabled")
             except ImportError as e:
-                logger.warning("Matrix channel not available: {}", e)
+                logger.warning("Matrix channel not available: %s", e)
 
         self._validate_allow_from()
 
@@ -165,7 +165,7 @@ class ChannelManager:
         try:
             await channel.start()
         except Exception as e:
-            logger.error("Failed to start channel {}: {}", name, e)
+            logger.error("Failed to start channel %s: %s", name, e)
 
     async def start_all(self) -> None:
         """Start all channels and the outbound dispatcher."""
@@ -179,7 +179,7 @@ class ChannelManager:
         # Start channels
         tasks = []
         for name, channel in self.channels.items():
-            logger.info("Starting {} channel...", name)
+            logger.info("Starting %s channel...", name)
             tasks.append(asyncio.create_task(self._start_channel(name, channel)))
 
         # Wait for all to complete (they should run forever)
@@ -201,9 +201,9 @@ class ChannelManager:
         for name, channel in self.channels.items():
             try:
                 await channel.stop()
-                logger.info("Stopped {} channel", name)
+                logger.info("Stopped %s channel", name)
             except Exception as e:
-                logger.error("Error stopping {}: {}", name, e)
+                logger.error("Error stopping %s: %s", name, e)
 
     async def _dispatch_outbound(self) -> None:
         """Dispatch outbound messages to the appropriate channel."""
@@ -227,9 +227,9 @@ class ChannelManager:
                     try:
                         await channel.send(msg)
                     except Exception as e:
-                        logger.error("Error sending to {}: {}", msg.channel, e)
+                        logger.error("Error sending to %s: %s", msg.channel, e)
                 else:
-                    logger.warning("Unknown channel: {}", msg.channel)
+                    logger.warning("Unknown channel: %s", msg.channel)
 
             except asyncio.TimeoutError:
                 continue

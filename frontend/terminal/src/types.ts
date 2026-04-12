@@ -4,7 +4,7 @@ export type FrontendConfig = {
 };
 
 export type TranscriptItem = {
-	role: 'system' | 'user' | 'assistant' | 'tool' | 'tool_result' | 'log';
+	role: 'system' | 'user' | 'assistant' | 'tool' | 'tool_result' | 'log' | 'status';
 	text: string;
 	tool_name?: string;
 	tool_input?: Record<string, unknown>;
@@ -78,6 +78,11 @@ export type BackendEvent = {
 	tool_name?: string | null;
 	output?: string | null;
 	is_error?: boolean | null;
+	compact_phase?: string | null;
+	compact_trigger?: string | null;
+	attempt?: number | null;
+	compact_checkpoint?: string | null;
+	compact_metadata?: Record<string, unknown> | null;
 	// New event payloads
 	todo_items?: TodoItemSnapshot[] | null;
 	todo_markdown?: string | null;

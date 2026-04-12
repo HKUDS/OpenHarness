@@ -129,3 +129,18 @@ def test_dangerously_skip_permissions_passes_full_auto_to_run_repl(monkeypatch):
 
     assert result.exit_code == 0
     assert captured["permission_mode"] == "full_auto"
+
+
+def test_task_worker_flag_routes_to_run_task_worker(monkeypatch):
+    runner = CliRunner()
+    captured = {}
+
+    async def fake_run_task_worker(**kwargs):
+        captured.update(kwargs)
+
+    monkeypatch.setattr("openharness.ui.app.run_task_worker", fake_run_task_worker)
+
+    result = runner.invoke(app, ["--task-worker", "--model", "kimi-k2.5"])
+
+    assert result.exit_code == 0
+    assert captured["model"] == "kimi-k2.5"

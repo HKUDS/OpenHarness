@@ -10,6 +10,7 @@ build/
 .mypy_cache/
 .ruff_cache/
 .venv/
+.openharness-venv/
 venv/
 env/
 .env

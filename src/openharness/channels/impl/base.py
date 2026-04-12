@@ -1,14 +1,34 @@
 """Base channel interface for chat platforms."""
 
+import os
 import logging
 from abc import ABC, abstractmethod
+from pathlib import Path
 from typing import Any
-
 
 from openharness.channels.bus.events import InboundMessage, OutboundMessage
 from openharness.channels.bus.queue import MessageBus
+from openharness.config.paths import get_data_dir
 
 logger = logging.getLogger(__name__)
+
+
+def resolve_channel_media_dir(channel_name: str) -> Path:
+    """Return the local download directory for inbound channel media."""
+    custom_root = os.environ.get("OPENHARNESS_CHANNEL_MEDIA_DIR")
+    if custom_root:
+        root = Path(custom_root).expanduser().resolve()
+    else:
+        ohmo_workspace = os.environ.get("OHMO_WORKSPACE")
+        if ohmo_workspace:
+            from ohmo.workspace import get_attachments_dir
+
+            root = get_attachments_dir(ohmo_workspace)
+        else:
+            root = get_data_dir() / "media"
+    media_dir = root / channel_name
+    media_dir.mkdir(parents=True, exist_ok=True)
+    return media_dir
 
 
 class BaseChannel(ABC):
@@ -64,7 +84,7 @@ class BaseChannel(ABC):
         """Check if *sender_id* is permitted.  Empty list → deny all; ``"*"`` → allow all."""
         allow_list = getattr(self.config, "allow_from", [])
         if not allow_list:
-            logger.warning("{}: allow_from is empty — all access denied", self.name)
+            logger.warning("%s: allow_from is empty — all access denied", self.name)
             return False
         if "*" in allow_list:
             return True
@@ -97,7 +117,7 @@ class BaseChannel(ABC):
         """
         if not self.is_allowed(sender_id):
             logger.warning(
-                "Access denied for sender {} on channel {}. "
+                "Access denied for sender %s on channel %s. "
                 "Add them to allowFrom list in config to grant access.",
                 sender_id, self.name,
             )

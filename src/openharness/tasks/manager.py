@@ -73,7 +73,7 @@ class BackgroundTaskManager:
                 raise ValueError(
                     "Local agent tasks require ANTHROPIC_API_KEY or an explicit command override"
                 )
-            cmd = ["python", "-m", "openharness", "--headless", "--api-key", effective_api_key]
+            cmd = ["python", "-m", "openharness", "--api-key", effective_api_key]
             if model:
                 cmd.extend(["--model", model])
             command = " ".join(shlex.quote(part) for part in cmd)

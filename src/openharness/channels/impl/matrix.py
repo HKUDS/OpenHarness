@@ -395,7 +395,7 @@ class MatrixChannel(BaseChannel):
         code = getattr(response, "status_code", None)
         is_auth = code in {"M_UNKNOWN_TOKEN", "M_FORBIDDEN", "M_UNAUTHORIZED"}
         is_fatal = is_auth or getattr(response, "soft_logout", False)
-        (logger.error if is_fatal else logger.warning)("Matrix {} failed: {}", label, response)
+        (logger.error if is_fatal else logger.warning)("Matrix %s failed: %s", label, response)
 
     async def _on_sync_error(self, response: SyncError) -> None:
         self._log_response_error("sync", response)
@@ -414,7 +414,7 @@ class MatrixChannel(BaseChannel):
             response = await self.client.room_typing(room_id=room_id, typing_state=typing,
                                                      timeout=TYPING_NOTICE_TIMEOUT_MS)
             if isinstance(response, RoomTypingError):
-                logger.debug("Matrix typing failed for {}: {}", room_id, response)
+                logger.debug("Matrix typing failed for %s: %s", room_id, response)
         except Exception:
             pass
 
@@ -578,7 +578,7 @@ class MatrixChannel(BaseChannel):
             return None
         response = await self.client.download(mxc=mxc_url)
         if isinstance(response, DownloadError):
-            logger.warning("Matrix download failed for {}: {}", mxc_url, response)
+            logger.warning("Matrix download failed for %s: %s", mxc_url, response)
             return None
         body = getattr(response, "body", None)
         if isinstance(body, (bytes, bytearray)):
@@ -603,7 +603,7 @@ class MatrixChannel(BaseChannel):
         try:
             return decrypt_attachment(ciphertext, key, sha256, iv)
         except (EncryptionError, ValueError, TypeError):
-            logger.warning("Matrix decrypt failed for event {}", getattr(event, "event_id", ""))
+            logger.warning("Matrix decrypt failed for event %s", getattr(event, "event_id", ""))
             return None
 
     async def _fetch_media_attachment(

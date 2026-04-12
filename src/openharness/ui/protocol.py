@@ -70,6 +70,7 @@ class BackendEvent(BaseModel):
         "state_snapshot",
         "tasks_snapshot",
         "transcript_item",
+        "compact_progress",
         "assistant_delta",
         "assistant_complete",
         "line_complete",
@@ -97,6 +98,11 @@ class BackendEvent(BaseModel):
     tool_input: dict[str, Any] | None = None
     output: str | None = None
     is_error: bool | None = None
+    compact_phase: str | None = None
+    compact_trigger: str | None = None
+    attempt: int | None = None
+    compact_checkpoint: str | None = None
+    compact_metadata: dict[str, Any] | None = None
     # New fields for enhanced events
     todo_markdown: str | None = None
     plan_mode: str | None = None

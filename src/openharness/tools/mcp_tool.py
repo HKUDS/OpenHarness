@@ -29,11 +29,21 @@ class McpToolAdapter(BaseTool):
             output = await self._manager.call_tool(
                 self._tool_info.server_name,
                 self._tool_info.name,
-                arguments.model_dump(mode="json"),
+                arguments.model_dump(mode="json", exclude_none=True),
             )
         except McpServerNotConnectedError as exc:
             return ToolResult(output=str(exc), is_error=True)
         return ToolResult(output=output)
+
+
+_JSON_TYPE_MAP: dict[str, type] = {
+    "string": str,
+    "integer": int,
+    "number": float,
+    "boolean": bool,
+    "array": list,
+    "object": dict,
+}
 
 
 def _input_model_from_schema(tool_name: str, schema: dict[str, object]) -> type[BaseModel]:
@@ -44,8 +54,12 @@ def _input_model_from_schema(tool_name: str, schema: dict[str, object]) -> type[
     fields = {}
     required = set(schema.get("required", [])) if isinstance(schema.get("required", []), list) else set()
     for key in properties:
-        default = ... if key in required else None
-        fields[key] = (object | None, Field(default=default))
+        prop = properties[key] if isinstance(properties[key], dict) else {}
+        py_type = _JSON_TYPE_MAP.get(str(prop.get("type", "")), object)
+        if key in required:
+            fields[key] = (py_type, Field(default=...))
+        else:
+            fields[key] = (py_type | None, Field(default=None))
     return create_model(f"{tool_name.title().replace('-', '_')}Input", **fields)
 
 

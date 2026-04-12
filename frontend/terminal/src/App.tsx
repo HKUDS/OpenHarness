@@ -64,6 +64,7 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 	const [modalInput, setModalInput] = useState('');
 	const [history, setHistory] = useState<string[]>([]);
 	const [historyIndex, setHistoryIndex] = useState(-1);
+	const [lastEscapeAt, setLastEscapeAt] = useState(0);
 	const [scriptIndex, setScriptIndex] = useState(0);
 	const [pickerIndex, setPickerIndex] = useState(0);
 	const [selectModal, setSelectModal] = useState<SelectModalState>(null);
@@ -298,6 +299,18 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 			}
 		}
 
+		if (key.escape) {
+			const now = Date.now();
+			if (input && now - lastEscapeAt < 500) {
+				setInput('');
+				setHistoryIndex(-1);
+				setLastEscapeAt(0);
+				return;
+			}
+			setLastEscapeAt(now);
+			return;
+		}
+
 		// --- History navigation ---
 		if (!showPicker && key.upArrow) {
 			const nextIndex = Math.min(history.length - 1, historyIndex + 1);
@@ -424,12 +437,13 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 					setInput={setInput}
 					onSubmit={onSubmit}
 					toolName={session.busy ? currentToolName : undefined}
+					statusLabel={session.busy ? (session.busyLabel ?? (currentToolName ? `Running ${currentToolName}...` : 'Running agent loop...')) : undefined}
 					suppressSubmit={showPicker}
 				/>
 			)}
 
 			{/* Keyboard hints (only after backend is ready) */}
-			{session.ready && !session.modal && !session.busy && !selectModal ? (
+			{session.ready && !session.modal && !selectModal ? (
 				<Box>
 					<Text dimColor>
 						<Text color={theme.colors.primary}>enter</Text> send{'  '}

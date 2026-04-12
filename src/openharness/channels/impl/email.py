@@ -96,7 +96,7 @@ class EmailChannel(BaseChannel):
                         metadata=item.get("metadata", {}),
                     )
             except Exception as e:
-                logger.error("Email polling error: {}", e)
+                logger.error("Email polling error: %s", e)
 
             await asyncio.sleep(poll_seconds)
 
@@ -125,7 +125,7 @@ class EmailChannel(BaseChannel):
 
         # autoReplyEnabled only controls automatic replies, not proactive sends
         if is_reply and not self.config.auto_reply_enabled and not force_send:
-            logger.info("Skip automatic email reply to {}: auto_reply_enabled is false", to_addr)
+            logger.info("Skip automatic email reply to %s: auto_reply_enabled is false", to_addr)
             return
 
         base_subject = self._last_subject_by_chat.get(to_addr, "nanobot reply")
@@ -149,7 +149,7 @@ class EmailChannel(BaseChannel):
         try:
             await asyncio.to_thread(self._smtp_send, email_msg)
         except Exception as e:
-            logger.error("Error sending email to {}: {}", to_addr, e)
+            logger.error("Error sending email to %s: %s", to_addr, e)
             raise
 
     def _validate_config(self) -> bool:
@@ -168,7 +168,7 @@ class EmailChannel(BaseChannel):
             missing.append("smtp_password")
 
         if missing:
-            logger.error("Email channel not configured, missing: {}", ', '.join(missing))
+            logger.error("Email channel not configured, missing: %s", ', '.join(missing))
             return False
         return True
 

@@ -37,7 +37,7 @@ def _make_bot_class(channel: "QQChannel") -> "type[botpy.Client]":
             super().__init__(intents=intents, ext_handlers=False)
 
         async def on_ready(self):
-            logger.info("QQ bot ready: {}", self.robot.name)
+            logger.info("QQ bot ready: %s", self.robot.name)
 
         async def on_c2c_message_create(self, message: "C2CMessage"):
             await channel._on_message(message)
@@ -83,7 +83,7 @@ class QQChannel(BaseChannel):
             try:
                 await self._client.start(appid=self.config.app_id, secret=self.config.secret)
             except Exception as e:
-                logger.warning("QQ bot error: {}", e)
+                logger.warning("QQ bot error: %s", e)
             if self._running:
                 logger.info("Reconnecting QQ bot in 5 seconds...")
                 await asyncio.sleep(5)
@@ -114,7 +114,7 @@ class QQChannel(BaseChannel):
                 msg_seq=self._msg_seq,  # 添加序列号避免去重
             )
         except Exception as e:
-            logger.error("Error sending QQ message: {}", e)
+            logger.error("Error sending QQ message: %s", e)
 
     async def _on_message(self, data: "C2CMessage") -> None:
         """Handle incoming message from QQ."""

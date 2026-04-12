@@ -10,8 +10,9 @@ import pytest
 
 from openharness.api.client import ApiMessageCompleteEvent
 from openharness.api.usage import UsageSnapshot
+from openharness.engine.stream_events import CompactProgressEvent
 from openharness.engine.messages import ConversationMessage, TextBlock
-from openharness.ui.backend_host import BackendHostConfig, ReactBackendHost
+from openharness.ui.backend_host import BackendHostConfig, ReactBackendHost, run_backend_host
 from openharness.ui.protocol import BackendEvent
 from openharness.ui.runtime import build_runtime, close_runtime, start_runtime
 
@@ -52,6 +53,25 @@ class FakeBinaryStdout:
 
     def flush(self) -> None:
         return None
+
+
+@pytest.mark.asyncio
+async def test_run_backend_host_accepts_permission_mode(monkeypatch):
+    captured: dict[str, str | None] = {}
+
+    async def _fake_run(self):
+        captured["permission_mode"] = self._config.permission_mode
+        return 0
+
+    monkeypatch.setattr("openharness.ui.backend_host.ReactBackendHost.run", _fake_run)
+
+    result = await run_backend_host(
+        api_client=StaticApiClient("unused"),
+        permission_mode="full_auto",
+    )
+
+    assert result == 0
+    assert captured["permission_mode"] == "full_auto"
 
 
 @pytest.mark.asyncio
@@ -153,6 +173,50 @@ async def test_backend_host_processes_model_turn(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_backend_host_emits_compact_progress_event(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("OPENHARNESS_DATA_DIR", str(tmp_path / "data"))
+
+    host = ReactBackendHost(BackendHostConfig(api_client=StaticApiClient("unused")))
+    host._bundle = await build_runtime(api_client=StaticApiClient("unused"))
+    events = []
+
+    async def _emit(event):
+        events.append(event)
+
+    async def _fake_handle_line(bundle, line, print_system, render_event, clear_output):
+        del bundle, line, print_system, clear_output
+        await render_event(
+            CompactProgressEvent(
+                phase="compact_start",
+                trigger="auto",
+                message="Compacting conversation memory.",
+                checkpoint="compact_start",
+                metadata={"token_count": 12345},
+            )
+        )
+        return True
+
+    monkeypatch.setattr("openharness.ui.backend_host.handle_line", _fake_handle_line)
+    host._emit = _emit  # type: ignore[method-assign]
+    await start_runtime(host._bundle)
+    try:
+        should_continue = await host._process_line("hi")
+    finally:
+        await close_runtime(host._bundle)
+
+    assert should_continue is True
+    assert any(
+        event.type == "compact_progress"
+        and event.compact_phase == "compact_start"
+        and event.compact_checkpoint == "compact_start"
+        and event.compact_metadata == {"token_count": 12345}
+        for event in events
+    )
+
+
+@pytest.mark.asyncio
 async def test_backend_host_surfaces_query_errors(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
@@ -220,6 +284,33 @@ async def test_backend_host_command_does_not_reset_cli_overrides(tmp_path, monke
         # CLI overrides should remain in effect.
         assert host._bundle.app_state.get().model == "5.4"
         assert host._bundle.app_state.get().provider == "openai-compatible"
+    finally:
+        await close_runtime(host._bundle)
+
+
+@pytest.mark.asyncio
+async def test_backend_host_uses_effective_model_from_env_override(tmp_path, monkeypatch):
+    """Regression: header model should reflect effective env override, not stale profile last_model."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("OPENHARNESS_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("OPENHARNESS_MODEL", "minimax-m1")
+
+    host = ReactBackendHost(BackendHostConfig(api_client=StaticApiClient("unused")))
+    host._bundle = await build_runtime(api_client=StaticApiClient("unused"))
+    events = []
+
+    async def _emit(event):
+        events.append(event)
+
+    host._emit = _emit  # type: ignore[method-assign]
+    await start_runtime(host._bundle)
+    try:
+        assert host._bundle.app_state.get().model == "minimax-m1"
+
+        # Exercise sync_app_state through a slash command refresh path.
+        await host._process_line("/fast show")
+        assert host._bundle.app_state.get().model == "minimax-m1"
     finally:
         await close_runtime(host._bundle)
 
@@ -406,3 +497,51 @@ async def test_backend_host_apply_provider_select_command_shows_single_segment_t
     assert should_continue is True
     user_event = next(item for item in events if item.type == "transcript_item" and item.item and item.item.role == "user")
     assert user_event.item.text == "/provider"
+
+
+@pytest.mark.asyncio
+async def test_concurrent_ask_permission_are_serialised():
+    """Concurrent _ask_permission calls must be serialised so the frontend
+    never receives two overlapping modal_request events.
+
+    Without _permission_lock the second call emits a modal_request before the
+    first future is resolved, overwriting the frontend's modal state. The first
+    tool then silently waits 300 s and gets Permission denied.
+    """
+    host = ReactBackendHost(BackendHostConfig(api_client=StaticApiClient("unused")))
+
+    emitted_order: list[str] = []
+
+    async def _fake_emit(event: BackendEvent) -> None:
+        if event.type == "modal_request" and event.modal:
+            emitted_order.append(str(event.modal.get("request_id", "")))
+
+    host._emit = _fake_emit  # type: ignore[method-assign]
+
+    async def _ask_and_approve(tool: str) -> bool:
+        # Start the ask; a background task resolves the future once it appears.
+        async def _resolver():
+            # Busy-wait until this tool's future is registered.
+            while True:
+                await asyncio.sleep(0)
+                for rid, fut in list(host._permission_requests.items()):
+                    if not fut.done():
+                        fut.set_result(True)
+                        return
+
+        asyncio.create_task(_resolver())
+        return await host._ask_permission(tool, "reason")
+
+    # Fire two permission requests concurrently.
+    result_a, result_b = await asyncio.gather(
+        _ask_and_approve("write_file"),
+        _ask_and_approve("bash"),
+    )
+
+    assert result_a is True
+    assert result_b is True
+    # With the lock in place the two modal_request events must be emitted
+    # sequentially (one completes before the other starts), so exactly two
+    # distinct request IDs must have been emitted.
+    assert len(emitted_order) == 2
+    assert emitted_order[0] != emitted_order[1]

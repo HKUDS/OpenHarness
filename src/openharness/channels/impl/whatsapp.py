@@ -37,7 +37,7 @@ class WhatsAppChannel(BaseChannel):
 
         bridge_url = self.config.bridge_url
 
-        logger.info("Connecting to WhatsApp bridge at {}...", bridge_url)
+        logger.info("Connecting to WhatsApp bridge at %s...", bridge_url)
 
         self._running = True
 
@@ -56,14 +56,14 @@ class WhatsAppChannel(BaseChannel):
                         try:
                             await self._handle_bridge_message(message)
                         except Exception as e:
-                            logger.error("Error handling bridge message: {}", e)
+                            logger.error("Error handling bridge message: %s", e)
 
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 self._connected = False
                 self._ws = None
-                logger.warning("WhatsApp bridge connection error: {}", e)
+                logger.warning("WhatsApp bridge connection error: %s", e)
 
                 if self._running:
                     logger.info("Reconnecting in 5 seconds...")
@@ -92,14 +92,14 @@ class WhatsAppChannel(BaseChannel):
             }
             await self._ws.send(json.dumps(payload, ensure_ascii=False))
         except Exception as e:
-            logger.error("Error sending WhatsApp message: {}", e)
+            logger.error("Error sending WhatsApp message: %s", e)
 
     async def _handle_bridge_message(self, raw: str) -> None:
         """Handle a message from the bridge."""
         try:
             data = json.loads(raw)
         except json.JSONDecodeError:
-            logger.warning("Invalid JSON from bridge: {}", raw[:100])
+            logger.warning("Invalid JSON from bridge: %s", raw[:100])
             return
 
         msg_type = data.get("type")
@@ -123,11 +123,11 @@ class WhatsAppChannel(BaseChannel):
             # Extract just the phone number or lid as chat_id
             user_id = pn if pn else sender
             sender_id = user_id.split("@")[0] if "@" in user_id else user_id
-            logger.info("Sender {}", sender)
+            logger.info("Sender %s", sender)
 
             # Handle voice transcription if it's a voice message
             if content == "[Voice Message]":
-                logger.info("Voice message received from {}, but direct download from bridge is not yet supported.", sender_id)
+                logger.info("Voice message received from %s, but direct download from bridge is not yet supported.", sender_id)
                 content = "[Voice Message: Transcription not available for WhatsApp yet]"
 
             await self._handle_message(
@@ -144,7 +144,7 @@ class WhatsAppChannel(BaseChannel):
         elif msg_type == "status":
             # Connection status update
             status = data.get("status")
-            logger.info("WhatsApp status: {}", status)
+            logger.info("WhatsApp status: %s", status)
 
             if status == "connected":
                 self._connected = True
@@ -156,4 +156,4 @@ class WhatsAppChannel(BaseChannel):
             logger.info("Scan QR code in the bridge terminal to connect WhatsApp")
 
         elif msg_type == "error":
-            logger.error("WhatsApp bridge error: {}", data.get('error'))
+            logger.error("WhatsApp bridge error: %s", data.get('error'))

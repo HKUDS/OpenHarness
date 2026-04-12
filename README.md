@@ -1,4 +1,10 @@
-<h1 align="center"><img src="assets/logo.png" alt="OpenHarness" width="64" style="vertical-align: middle;">&nbsp; <code>oh</code> — OpenHarness: Open Agent Harness</h1>
+<h1 align="center">
+  <img src="assets/logo.png" alt="OpenHarness" width="64" style="vertical-align: middle;">
+  &nbsp;&nbsp;
+  <img src="assets/ohmo.png" alt="ohmo" width="64" style="vertical-align: middle;">
+  <br>
+  <code>oh</code> — OpenHarness &amp; <code>ohmo</code>
+</h1>
 
 <p align="center">
   <a href="README.md"><strong>English</strong></a> ·
@@ -6,6 +12,8 @@
 </p>
 
 **OpenHarness** delivers core lightweight agent infrastructure: tool-use, skills, memory, and multi-agent coordination.
+
+**ohmo** is a personal AI agent built on OpenHarness — not another chatbot, but an assistant that actually works for you over long sessions. Chat with ohmo in Feishu / Slack / Telegram / Discord, and it forks branches, writes code, runs tests, and opens PRs on its own. ohmo runs on your existing Claude Code or Codex subscription — no extra API key needed.
 
 **Join the community**: contribute **Harness** for open agent development.
 
@@ -34,10 +42,6 @@ Supports CLI agent integration including OpenClaw, nanobot, Cursor, and more.
 
 <p align="center">
   <img src="assets/cli-typing.gif" alt="OpenHarness Terminal Demo" width="800">
-</p>
-
-<p align="center">
-  <img src="assets/architecture-comic.png" alt="How Agent Harness Works" width="800">
 </p>
 
 ---
@@ -149,6 +153,22 @@ OpenHarness is an open-source Python implementation designed for **researchers, 
 
 ## 📰 What's New
 
+- **2026-04-10** 🧠 **v0.1.6** — Auto-Compaction & Markdown TUI:
+  - Auto-Compaction preserves task state and channel logs across context compression — agents can run multi-day sessions without manual compact/clear
+  - Subprocess teammates run in headless worker mode; agent team creation stabilized
+  - Assistant messages now render full Markdown in the React TUI
+  - `ohmo` gains channel slash commands and multimodal attachment support
+- **2026-04-08** 🔌 **v0.1.5** — MCP HTTP transport & Swarm polling:
+  - MCP protocol adds HTTP transport, auto-reconnect on disconnect, and tool-only server compatibility
+  - JSON Schema types inferred for MCP tool inputs — no manual type mapping needed
+  - `ohmo` channels support file attachments and multimodal gateway messages
+  - Subprocess agents are now pollable in real runs; permission modals serialized to prevent input swallowing
+- **2026-04-08** 🌙 **v0.1.4** — Multi-provider auth & Moonshot/Kimi:
+  - Native Moonshot/Kimi provider with `reasoning_content` support for thinking models
+  - Auth overhaul: fixed provider-switching key mismatch, `OPENAI_BASE_URL` env override, profile-scoped credential priority
+  - MCP gracefully handles disconnected servers in `call_tool` / `read_resource`
+  - Security: built-in sensitive-path protection in PermissionChecker, hardened `web_fetch` URL validation
+  - Stability: EIO crash recovery in Ink TUI, `--debug` logging, Windows cmd flash fix
 - **2026-04-06** 🚀 **v0.1.2** — Unified setup flows and `ohmo` personal-agent app:
   - `oh setup` now guides provider selection as workflows instead of exposing raw auth/provider internals
   - Compatible API setup is now profile-scoped, so Anthropic/OpenAI-compatible endpoints can keep separate keys
@@ -168,119 +188,45 @@ OpenHarness is an open-source Python implementation designed for **researchers, 
 
 ## 🚀 Quick Start
 
-### One-Click Install
-
-The fastest way to get started — a single command handles OS detection, dependency checks, and installation:
+### 1. Install
 
 ```bash
+# One-click install (Linux / macOS / WSL)
 curl -fsSL https://raw.githubusercontent.com/HKUDS/OpenHarness/main/scripts/install.sh | bash
+
+# Or via pip
+pip install openharness-ai
 ```
 
-**Options:**
-
-| Flag | Description |
-|------|-------------|
-| `--from-source` | Clone from GitHub and install in editable mode (`pip install -e .`) |
-| `--with-channels` | Also install IM channel dependencies (`slack-sdk`, `python-telegram-bot`, `discord.py`) |
+### 2. Configure
 
 ```bash
-# Install from source (for contributors / latest code)
-curl -fsSL https://raw.githubusercontent.com/HKUDS/OpenHarness/main/scripts/install.sh | bash -s -- --from-source
-
-# Install with IM channel support
-curl -fsSL https://raw.githubusercontent.com/HKUDS/OpenHarness/main/scripts/install.sh | bash -s -- --with-channels
-
-# Or run locally after cloning
-bash scripts/install.sh --from-source --with-channels
+oh setup    # interactive wizard — pick a provider, authenticate, done
 ```
 
-The script will:
-1. Detect your OS (Linux / macOS / WSL)
-2. Verify Python ≥ 3.10 and Node.js ≥ 18
-3. Install OpenHarness via `pip`
-4. Set up the React TUI (`npm install`) if Node.js is available
-5. Create `~/.openharness/` config directory
-6. Confirm with `oh --version`
+Supports **Claude / OpenAI / Copilot / Codex / Moonshot(Kimi) / GLM / MiniMax** and any compatible endpoint.
 
-### Prerequisites
-
-- **Python 3.10+** and [uv](https://docs.astral.sh/uv/)
-- **Node.js 18+** (optional, for the React terminal UI)
-- An LLM API key
-
-### One-Command Demo
+### 3. Run
 
 ```bash
-ANTHROPIC_API_KEY=your_key uv run oh -p "Inspect this repository and list the top 3 refactors"
+oh
 ```
-
-### Install & Run
-
-```bash
-# Clone and install
-git clone https://github.com/HKUDS/OpenHarness.git
-cd OpenHarness
-uv sync --extra dev
-
-# Example: use Kimi as the backend
-export ANTHROPIC_BASE_URL=https://api.moonshot.cn/anthropic
-export ANTHROPIC_API_KEY=your_kimi_api_key
-export ANTHROPIC_MODEL=kimi-k2.5
-
-# Launch
-oh                    # if venv is activated
-uv run oh             # without activating venv
-```
-
-### Configure A Workflow
-
-Use the unified setup flow instead of manually thinking about `auth -> provider -> model`:
-
-```bash
-uv run oh setup
-```
-
-`oh setup` walks through:
-
-1. Choose a workflow:
-   - `Anthropic-Compatible API`
-   - `Claude Subscription`
-   - `OpenAI-Compatible API`
-   - `Codex Subscription`
-   - `GitHub Copilot`
-2. For compatible API families, choose a concrete backend preset
-3. If needed, authenticate the selected workflow
-4. Pick or confirm the model
-5. Save and activate the profile
-
-Compatible API families currently guide you through presets such as:
-
-- `Anthropic-Compatible API`:
-  - Claude official
-  - Moonshot / Kimi
-  - Zhipu / GLM
-  - MiniMax
-- `OpenAI-Compatible API`:
-  - OpenAI official
-  - OpenRouter
-
-Arbitrary compatible endpoints are still supported through advanced profile commands:
-
-```bash
-oh provider add my-endpoint \
-  --label "My Endpoint" \
-  --provider anthropic \
-  --api-format anthropic \
-  --auth-source anthropic_api_key \
-  --model my-model \
-  --base-url https://example.com/anthropic
-```
-
-OpenHarness stores API-key-backed compatible profiles with profile-scoped credentials when appropriate, so different compatible endpoints do not have to share one global key.
 
 <p align="center">
   <img src="assets/landing.png" alt="OpenHarness Landing Screen" width="700">
 </p>
+
+### 4. Set up ohmo (Personal Agent)
+
+Want an AI agent that works for you from Feishu / Slack / Telegram / Discord?
+
+```bash
+ohmo init             # initialize ~/.ohmo workspace
+ohmo config           # configure channels and provider
+ohmo gateway start    # start the gateway — ohmo is now live in your chat app
+```
+
+ohmo runs on your existing **Claude Code subscription** or **Codex subscription** — no extra API key needed.
 
 ### Non-Interactive Mode (Pipes & Scripts)
 
@@ -340,6 +286,7 @@ Any provider implementing the OpenAI `/v1/chat/completions` style API works:
 | **DeepSeek** | `https://api.deepseek.com` | `deepseek-chat`, `deepseek-reasoner` |
 | **GitHub Models** | `https://models.inference.ai.azure.com` | `gpt-4o`, `Meta-Llama-3.1-405B-Instruct` |
 | **SiliconFlow** | `https://api.siliconflow.cn/v1` | `deepseek-ai/DeepSeek-V3` |
+| **Google Gemini** | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-2.5-flash`, `gemini-2.5-pro` |
 | **Groq** | `https://api.groq.com/openai/v1` | `llama-3.3-70b-versatile` |
 | **Ollama (local)** | `http://localhost:11434/v1` | any local model |
 

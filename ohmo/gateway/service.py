@@ -4,13 +4,16 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import logging
 import os
+import os.path
 import signal
 import subprocess
 import sys
 from pathlib import Path
 
+from openharness.channels.bus.events import OutboundMessage
 from openharness.channels.bus.queue import MessageBus
 from openharness.channels.impl.manager import ChannelManager
 
@@ -18,7 +21,13 @@ from ohmo.gateway.bridge import OhmoGatewayBridge
 from ohmo.gateway.config import build_channel_manager_config, load_gateway_config
 from ohmo.gateway.models import GatewayState
 from ohmo.gateway.runtime import OhmoSessionRuntimePool
-from ohmo.workspace import get_logs_dir, get_state_path, get_workspace_root, initialize_workspace
+from ohmo.workspace import (
+    get_gateway_restart_notice_path,
+    get_logs_dir,
+    get_state_path,
+    get_workspace_root,
+    initialize_workspace,
+)
 
 logger = logging.getLogger(__name__)
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -31,7 +40,8 @@ class OhmoGatewayService:
         self._cwd = str(Path(cwd or Path.cwd()).resolve())
         self._workspace = workspace
         os.chdir(self._cwd)
-        initialize_workspace(self._workspace)
+        root = initialize_workspace(self._workspace)
+        os.environ["OHMO_WORKSPACE"] = str(root)
         self._config = load_gateway_config(self._workspace)
         self._bus = MessageBus()
         self._runtime_pool = OhmoSessionRuntimePool(
@@ -39,7 +49,13 @@ class OhmoGatewayService:
             workspace=self._workspace,
             provider_profile=self._config.provider_profile,
         )
-        self._bridge = OhmoGatewayBridge(bus=self._bus, runtime_pool=self._runtime_pool)
+        self._stop_event: asyncio.Event | None = None
+        self._restart_requested = False
+        self._bridge = OhmoGatewayBridge(
+            bus=self._bus,
+            runtime_pool=self._runtime_pool,
+            restart_gateway=self.request_restart,
+        )
         self._manager = ChannelManager(build_channel_manager_config(self._config), self._bus)
 
     @property
@@ -65,12 +81,83 @@ class OhmoGatewayService:
         )
         self.state_file.write_text(state.model_dump_json(indent=2) + "\n", encoding="utf-8")
 
+    async def request_restart(self, message, session_key: str) -> None:
+        """Ask the foreground gateway loop to restart itself."""
+        restart_notice = {
+            "channel": message.channel,
+            "chat_id": message.chat_id,
+            "session_key": session_key,
+            "content": "✅ gateway 已经重新连上，可以继续了。\nGateway is back online. We can continue.",
+        }
+        get_gateway_restart_notice_path(self._workspace).write_text(
+            json.dumps(restart_notice, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        self._restart_requested = True
+        # Let the outbound dispatcher flush the restart notice to the IM channel
+        # before we tear down the bridge and channel connections.
+        await asyncio.sleep(0.75)
+        if self._stop_event is not None:
+            self._stop_event.set()
+
+    def _exec_restart(self) -> None:
+        root = str(get_workspace_root(self._workspace))
+        argv = [
+            sys.executable,
+            "-m",
+            "ohmo",
+            "gateway",
+            "run",
+            "--cwd",
+            self._cwd,
+            "--workspace",
+            root,
+        ]
+        logger.info("ohmo gateway restarting in-place argv=%s", argv)
+        os.execv(sys.executable, argv)
+
+    async def _publish_pending_restart_notice(self) -> None:
+        path = get_gateway_restart_notice_path(self._workspace)
+        if not path.exists():
+            return
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            channel = payload.get("channel")
+            chat_id = payload.get("chat_id")
+            content = payload.get("content")
+            session_key = payload.get("session_key")
+            if not isinstance(channel, str) or not isinstance(chat_id, str) or not isinstance(content, str):
+                return
+            await asyncio.sleep(2.0)
+            await self._bus.publish_outbound(
+                OutboundMessage(
+                    channel=channel,
+                    chat_id=chat_id,
+                    content=content,
+                    metadata={"_session_key": session_key} if isinstance(session_key, str) else {},
+                )
+            )
+            logger.info(
+                "ohmo gateway published restart confirmation channel=%s chat_id=%s session_key=%s",
+                channel,
+                chat_id,
+                session_key,
+            )
+        finally:
+            path.unlink(missing_ok=True)
+
     async def run_foreground(self) -> int:
         self.pid_file.write_text(str(os.getpid()), encoding="utf-8")
         self.write_state(running=True)
         bridge_task = asyncio.create_task(self._bridge.run(), name="ohmo-gateway-bridge")
         manager_task = asyncio.create_task(self._manager.start_all(), name="ohmo-gateway-channels")
+        restart_notice_task = asyncio.create_task(
+            self._publish_pending_restart_notice(),
+            name="ohmo-gateway-restart-notice",
+        )
         stop_event = asyncio.Event()
+        self._stop_event = stop_event
+        self._restart_requested = False
 
         def _stop(*_: object) -> None:
             stop_event.set()
@@ -90,9 +177,16 @@ class OhmoGatewayService:
                 await bridge_task
             with contextlib.suppress(asyncio.CancelledError):
                 await manager_task
+            if not restart_notice_task.done():
+                restart_notice_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await restart_notice_task
             await self._manager.stop_all()
             self.write_state(running=False)
             self.pid_file.unlink(missing_ok=True)
+            self._stop_event = None
+        if self._restart_requested:
+            self._exec_restart()
         return 0
 
 

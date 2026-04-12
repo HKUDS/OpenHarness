@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 from typing import Any, AsyncIterator
+from urllib.parse import urlsplit, urlunsplit
 
 from openai import AsyncOpenAI
 
@@ -26,6 +27,7 @@ from openharness.api.usage import UsageSnapshot
 from openharness.engine.messages import (
     ConversationMessage,
     ContentBlock,
+    ImageBlock,
     TextBlock,
     ToolResultBlock,
     ToolUseBlock,
@@ -98,7 +100,7 @@ def _convert_messages_to_openai(
         elif msg.role == "user":
             # User messages may contain text or tool_result blocks
             tool_results = [b for b in msg.content if isinstance(b, ToolResultBlock)]
-            text_blocks = [b for b in msg.content if isinstance(b, TextBlock)]
+            user_blocks = [b for b in msg.content if isinstance(b, (TextBlock, ImageBlock))]
 
             if tool_results:
                 # Each tool result becomes a separate message with role="tool"
@@ -108,15 +110,38 @@ def _convert_messages_to_openai(
                         "tool_call_id": tr.tool_use_id,
                         "content": tr.content,
                     })
-            if text_blocks:
-                text = "".join(b.text for b in text_blocks)
-                if text.strip():
-                    openai_messages.append({"role": "user", "content": text})
-            if not tool_results and not text_blocks:
+            if user_blocks:
+                content = _convert_user_content_to_openai(user_blocks)
+                if isinstance(content, str):
+                    if content.strip():
+                        openai_messages.append({"role": "user", "content": content})
+                elif content:
+                    openai_messages.append({"role": "user", "content": content})
+            if not tool_results and not user_blocks:
                 # Empty user message (shouldn't happen, but handle gracefully)
                 openai_messages.append({"role": "user", "content": ""})
 
     return openai_messages
+
+
+def _convert_user_content_to_openai(blocks: list[ContentBlock]) -> str | list[dict[str, Any]]:
+    """Convert user text/image blocks into OpenAI chat content."""
+    has_image = any(isinstance(block, ImageBlock) for block in blocks)
+    if not has_image:
+        return "".join(block.text for block in blocks if isinstance(block, TextBlock))
+
+    content: list[dict[str, Any]] = []
+    for block in blocks:
+        if isinstance(block, TextBlock) and block.text:
+            content.append({"type": "text", "text": block.text})
+        elif isinstance(block, ImageBlock):
+            content.append({
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:{block.media_type};base64,{block.data}",
+                },
+            })
+    return content
 
 
 def _convert_assistant_message(msg: ConversationMessage) -> dict[str, Any]:
@@ -183,6 +208,22 @@ def _parse_assistant_response(response: Any) -> ConversationMessage:
     return ConversationMessage(role="assistant", content=content)
 
 
+def _normalize_openai_base_url(base_url: str | None) -> str | None:
+    """Normalize custom OpenAI-compatible base URLs without dropping API path segments."""
+    if not base_url:
+        return None
+    trimmed = base_url.strip()
+    if not trimmed:
+        return None
+    parts = urlsplit(trimmed)
+    if not parts.scheme or not parts.netloc:
+        return trimmed.rstrip("/")
+    path = parts.path.rstrip("/")
+    if not path:
+        path = "/v1"
+    return urlunsplit((parts.scheme, parts.netloc, path, parts.query, parts.fragment))
+
+
 class OpenAICompatibleClient:
     """Client for OpenAI-compatible APIs (DashScope, GitHub Models, etc.).
 
@@ -190,10 +231,13 @@ class OpenAICompatibleClient:
     so it can be used as a drop-in replacement in the agent loop.
     """
 
-    def __init__(self, api_key: str, *, base_url: str | None = None) -> None:
+    def __init__(self, api_key: str, *, base_url: str | None = None, timeout: float | None = None) -> None:
         kwargs: dict[str, Any] = {"api_key": api_key}
-        if base_url:
-            kwargs["base_url"] = base_url
+        normalized_base_url = _normalize_openai_base_url(base_url)
+        if normalized_base_url:
+            kwargs["base_url"] = normalized_base_url
+        if timeout is not None:
+            kwargs["timeout"] = timeout
         self._client = AsyncOpenAI(**kwargs)
 
     async def stream_message(self, request: ApiMessageRequest) -> AsyncIterator[ApiStreamEvent]:

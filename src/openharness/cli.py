@@ -10,7 +10,7 @@ from typing import Optional
 
 import typer
 
-__version__ = "0.1.2"
+__version__ = "0.1.6"
 
 
 def _version_callback(value: bool) -> None:
@@ -271,6 +271,7 @@ _PROVIDER_LABELS: dict[str, str] = {
     "bedrock": "AWS Bedrock",
     "vertex": "Google Vertex AI",
     "moonshot": "Moonshot (Kimi)",
+    "gemini": "Google Gemini",
 }
 
 _AUTH_SOURCE_LABELS: dict[str, str] = {
@@ -283,6 +284,7 @@ _AUTH_SOURCE_LABELS: dict[str, str] = {
     "bedrock_api_key": "Bedrock credentials",
     "vertex_api_key": "Vertex credentials",
     "moonshot_api_key": "Moonshot API key",
+    "gemini_api_key": "Gemini API key",
 }
 
 
@@ -724,7 +726,7 @@ def _login_provider(provider: str) -> None:
         _bind_external_provider(provider)
         return
 
-    if provider in ("anthropic", "openai", "dashscope", "bedrock", "vertex", "moonshot"):
+    if provider in ("anthropic", "openai", "dashscope", "bedrock", "vertex", "moonshot", "gemini"):
         label = _PROVIDER_LABELS.get(provider, provider)
         flow = ApiKeyFlow(provider=provider, prompt_text=f"Enter your {label} API key")
         try:
@@ -1257,6 +1259,12 @@ def main(
         help="Run the structured backend host for the React terminal UI",
         hidden=True,
     ),
+    task_worker: bool = typer.Option(
+        False,
+        "--task-worker",
+        help="Run the stdin-driven headless worker loop used for background agent tasks",
+        hidden=True,
+    ),
 ) -> None:
     """Start an interactive session or run a single prompt."""
     if ctx.invoked_subcommand is not None:
@@ -1287,7 +1295,7 @@ def main(
         settings.theme = theme
         save_settings(settings)
 
-    from openharness.ui.app import run_print_mode, run_repl
+    from openharness.ui.app import run_print_mode, run_repl, run_task_worker
 
     # Handle --continue and --resume flags
     if continue_session or resume is not None:
@@ -1340,9 +1348,10 @@ def main(
                 model=session_data.get("model") or model,
                 backend_only=backend_only,
                 base_url=base_url,
-                system_prompt=session_data.get("system_prompt") or system_prompt,
+                system_prompt=system_prompt,
                 api_key=api_key,
                 restore_messages=session_data.get("messages"),
+                restore_tool_metadata=session_data.get("tool_metadata"),
                 permission_mode=permission_mode,
                 api_format=api_format,
             )
@@ -1367,6 +1376,21 @@ def main(
                 api_format=api_format,
                 permission_mode=permission_mode,
                 max_turns=max_turns,
+            )
+        )
+        return
+
+    if task_worker:
+        asyncio.run(
+            run_task_worker(
+                cwd=cwd,
+                model=model,
+                max_turns=max_turns,
+                base_url=base_url,
+                system_prompt=system_prompt,
+                api_key=api_key,
+                api_format=api_format,
+                permission_mode=permission_mode,
             )
         )
         return

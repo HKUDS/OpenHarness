@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import AsyncMock
+import asyncio
+from contextlib import AsyncExitStack
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -73,6 +75,58 @@ async def test_read_resource_raises_when_session_errors():
 
     with pytest.raises(McpServerNotConnectedError, match="broken pipe"):
         await manager.read_resource("flaky", "res://data")
+
+
+@pytest.mark.asyncio
+async def test_register_connected_session_tolerates_missing_resources_list():
+    manager = McpClientManager({})
+    session = AsyncMock()
+    session.initialize.return_value = None
+    session.list_tools.return_value.tools = []
+    session.list_resources.side_effect = RuntimeError("Method not found")
+    stack = AsyncExitStack()
+    await stack.__aenter__()
+    stack.enter_async_context = AsyncMock(return_value=session)
+
+    await manager._register_connected_session(
+        name="context7",
+        config=McpStdioServerConfig(command="npx", args=[]),
+        stack=stack,
+        read_stream=object(),
+        write_stream=object(),
+        auth_configured=False,
+    )
+
+    assert manager._statuses["context7"].state == "connected"
+    assert manager._statuses["context7"].resources == []
+
+
+@pytest.mark.asyncio
+async def test_close_suppresses_known_runtime_error_from_stdio_cleanup():
+    manager = McpClientManager({})
+    stack = MagicMock()
+    stack.aclose = AsyncMock(side_effect=RuntimeError("Attempted to exit cancel scope in a different task than it was entered in"))
+    manager._stacks["context7"] = stack
+    manager._sessions["context7"] = AsyncMock()
+
+    await manager.close()
+
+    assert manager._stacks == {}
+    assert manager._sessions == {}
+
+
+@pytest.mark.asyncio
+async def test_close_suppresses_cancelled_error_from_stdio_cleanup():
+    manager = McpClientManager({})
+    stack = MagicMock()
+    stack.aclose = AsyncMock(side_effect=asyncio.CancelledError())
+    manager._stacks["context7"] = stack
+    manager._sessions["context7"] = AsyncMock()
+
+    await manager.close()
+
+    assert manager._stacks == {}
+    assert manager._sessions == {}
 
 
 # --- McpToolAdapter catches error and returns ToolResult(is_error=True) ---

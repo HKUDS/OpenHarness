@@ -64,7 +64,7 @@ class NanobotDingTalkHandler(CallbackHandler):
 
             if not content:
                 logger.warning(
-                    "Received empty or unsupported message type: {}",
+                    "Received empty or unsupported message type: %s",
                     chatbot_msg.message_type,
                 )
                 return AckMessage.STATUS_OK, "OK"
@@ -72,7 +72,7 @@ class NanobotDingTalkHandler(CallbackHandler):
             sender_id = chatbot_msg.sender_staff_id or chatbot_msg.sender_id
             sender_name = chatbot_msg.sender_nick or "Unknown"
 
-            logger.info("Received DingTalk message from {} ({}): {}", sender_name, sender_id, content)
+            logger.info("Received DingTalk message from %s (%s): %s", sender_name, sender_id, content)
 
             # Forward to Nanobot via _on_message (non-blocking).
             # Store reference to prevent GC before task completes.
@@ -85,7 +85,7 @@ class NanobotDingTalkHandler(CallbackHandler):
             return AckMessage.STATUS_OK, "OK"
 
         except Exception as e:
-            logger.error("Error processing DingTalk message: {}", e)
+            logger.error("Error processing DingTalk message: %s", e)
             # Return OK to avoid retry loop from DingTalk server
             return AckMessage.STATUS_OK, "Error"
 
@@ -136,7 +136,7 @@ class DingTalkChannel(BaseChannel):
             self._http = httpx.AsyncClient()
 
             logger.info(
-                "Initializing DingTalk Stream Client with Client ID: {}...",
+                "Initializing DingTalk Stream Client with Client ID: %s...",
                 self.config.client_id,
             )
             credential = Credential(self.config.client_id, self.config.client_secret)
@@ -153,13 +153,13 @@ class DingTalkChannel(BaseChannel):
                 try:
                     await self._client.start()
                 except Exception as e:
-                    logger.warning("DingTalk stream error: {}", e)
+                    logger.warning("DingTalk stream error: %s", e)
                 if self._running:
                     logger.info("Reconnecting DingTalk stream in 5 seconds...")
                     await asyncio.sleep(5)
 
         except Exception as e:
-            logger.exception("Failed to start DingTalk channel: {}", e)
+            logger.exception("Failed to start DingTalk channel: %s", e)
 
     async def stop(self) -> None:
         """Stop the DingTalk bot."""
@@ -197,7 +197,7 @@ class DingTalkChannel(BaseChannel):
             self._token_expiry = time.time() + int(res_data.get("expireIn", 7200)) - 60
             return self._access_token
         except Exception as e:
-            logger.error("Failed to get DingTalk access token: {}", e)
+            logger.error("Failed to get DingTalk access token: %s", e)
             return None
 
     @staticmethod
@@ -232,7 +232,7 @@ class DingTalkChannel(BaseChannel):
                 resp = await self._http.get(media_ref, follow_redirects=True)
                 if resp.status_code >= 400:
                     logger.warning(
-                        "DingTalk media download failed status={} ref={}",
+                        "DingTalk media download failed status=%s ref=%s",
                         resp.status_code,
                         media_ref,
                     )
@@ -241,7 +241,7 @@ class DingTalkChannel(BaseChannel):
                 filename = self._guess_filename(media_ref, self._guess_upload_type(media_ref))
                 return resp.content, filename, content_type or None
             except Exception as e:
-                logger.error("DingTalk media download error ref={} err={}", media_ref, e)
+                logger.error("DingTalk media download error ref=%s err=%s", media_ref, e)
                 return None, None, None
 
         try:
@@ -251,13 +251,13 @@ class DingTalkChannel(BaseChannel):
             else:
                 local_path = Path(os.path.expanduser(media_ref))
             if not local_path.is_file():
-                logger.warning("DingTalk media file not found: {}", local_path)
+                logger.warning("DingTalk media file not found: %s", local_path)
                 return None, None, None
             data = await asyncio.to_thread(local_path.read_bytes)
             content_type = mimetypes.guess_type(local_path.name)[0]
             return data, local_path.name, content_type
         except Exception as e:
-            logger.error("DingTalk media read error ref={} err={}", media_ref, e)
+            logger.error("DingTalk media read error ref=%s err=%s", media_ref, e)
             return None, None, None
 
     async def _upload_media(
@@ -279,20 +279,20 @@ class DingTalkChannel(BaseChannel):
             text = resp.text
             result = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {}
             if resp.status_code >= 400:
-                logger.error("DingTalk media upload failed status={} type={} body={}", resp.status_code, media_type, text[:500])
+                logger.error("DingTalk media upload failed status=%s type=%s body=%s", resp.status_code, media_type, text[:500])
                 return None
             errcode = result.get("errcode", 0)
             if errcode != 0:
-                logger.error("DingTalk media upload api error type={} errcode={} body={}", media_type, errcode, text[:500])
+                logger.error("DingTalk media upload api error type=%s errcode=%s body=%s", media_type, errcode, text[:500])
                 return None
             sub = result.get("result") or {}
             media_id = result.get("media_id") or result.get("mediaId") or sub.get("media_id") or sub.get("mediaId")
             if not media_id:
-                logger.error("DingTalk media upload missing media_id body={}", text[:500])
+                logger.error("DingTalk media upload missing media_id body=%s", text[:500])
                 return None
             return str(media_id)
         except Exception as e:
-            logger.error("DingTalk media upload error type={} err={}", media_type, e)
+            logger.error("DingTalk media upload error type=%s err=%s", media_type, e)
             return None
 
     async def _send_batch_message(
@@ -319,7 +319,7 @@ class DingTalkChannel(BaseChannel):
             resp = await self._http.post(url, json=payload, headers=headers)
             body = resp.text
             if resp.status_code != 200:
-                logger.error("DingTalk send failed msgKey={} status={} body={}", msg_key, resp.status_code, body[:500])
+                logger.error("DingTalk send failed msgKey=%s status=%s body=%s", msg_key, resp.status_code, body[:500])
                 return False
             try:
                 result = resp.json()
@@ -327,12 +327,12 @@ class DingTalkChannel(BaseChannel):
                 result = {}
             errcode = result.get("errcode")
             if errcode not in (None, 0):
-                logger.error("DingTalk send api error msgKey={} errcode={} body={}", msg_key, errcode, body[:500])
+                logger.error("DingTalk send api error msgKey=%s errcode=%s body=%s", msg_key, errcode, body[:500])
                 return False
-            logger.debug("DingTalk message sent to {} with msgKey={}", chat_id, msg_key)
+            logger.debug("DingTalk message sent to %s with msgKey=%s", chat_id, msg_key)
             return True
         except Exception as e:
-            logger.error("Error sending DingTalk message msgKey={} err={}", msg_key, e)
+            logger.error("Error sending DingTalk message msgKey=%s err=%s", msg_key, e)
             return False
 
     async def _send_markdown_text(self, token: str, chat_id: str, content: str) -> bool:
@@ -358,11 +358,11 @@ class DingTalkChannel(BaseChannel):
             )
             if ok:
                 return True
-            logger.warning("DingTalk image url send failed, trying upload fallback: {}", media_ref)
+            logger.warning("DingTalk image url send failed, trying upload fallback: %s", media_ref)
 
         data, filename, content_type = await self._read_media_bytes(media_ref)
         if not data:
-            logger.error("DingTalk media read failed: {}", media_ref)
+            logger.error("DingTalk media read failed: %s", media_ref)
             return False
 
         filename = filename or self._guess_filename(media_ref, upload_type)
@@ -393,7 +393,7 @@ class DingTalkChannel(BaseChannel):
             )
             if ok:
                 return True
-            logger.warning("DingTalk image media_id send failed, falling back to file: {}", media_ref)
+            logger.warning("DingTalk image media_id send failed, falling back to file: %s", media_ref)
 
         return await self._send_batch_message(
             token,
@@ -415,7 +415,7 @@ class DingTalkChannel(BaseChannel):
             ok = await self._send_media_ref(token, msg.chat_id, media_ref)
             if ok:
                 continue
-            logger.error("DingTalk media send failed for {}", media_ref)
+            logger.error("DingTalk media send failed for %s", media_ref)
             # Send visible fallback so failures are observable by the user.
             filename = self._guess_filename(media_ref, self._guess_upload_type(media_ref))
             await self._send_markdown_text(
@@ -431,7 +431,7 @@ class DingTalkChannel(BaseChannel):
         permission checks before publishing to the bus.
         """
         try:
-            logger.info("DingTalk inbound: {} from {}", content, sender_name)
+            logger.info("DingTalk inbound: %s from %s", content, sender_name)
             await self._handle_message(
                 sender_id=sender_id,
                 chat_id=sender_id,  # For private chat, chat_id == sender_id
@@ -442,4 +442,4 @@ class DingTalkChannel(BaseChannel):
                 },
             )
         except Exception as e:
-            logger.error("Error publishing DingTalk message: {}", e)
+            logger.error("Error publishing DingTalk message: %s", e)

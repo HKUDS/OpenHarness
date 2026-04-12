@@ -2,7 +2,6 @@
 
 import asyncio
 import json
-from pathlib import Path
 from typing import Any
 
 import httpx
@@ -11,7 +10,7 @@ import logging
 
 from openharness.channels.bus.events import OutboundMessage
 from openharness.channels.bus.queue import MessageBus
-from openharness.channels.impl.base import BaseChannel
+from openharness.channels.impl.base import BaseChannel, resolve_channel_media_dir
 from openharness.config.schema import DiscordConfig
 from openharness.utils.helpers import split_message
 
@@ -55,7 +54,7 @@ class DiscordChannel(BaseChannel):
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.warning("Discord gateway error: {}", e)
+                logger.warning("Discord gateway error: %s", e)
                 if self._running:
                     logger.info("Reconnecting to Discord gateway in 5 seconds...")
                     await asyncio.sleep(5)
@@ -113,14 +112,14 @@ class DiscordChannel(BaseChannel):
                 if response.status_code == 429:
                     data = response.json()
                     retry_after = float(data.get("retry_after", 1.0))
-                    logger.warning("Discord rate limited, retrying in {}s", retry_after)
+                    logger.warning("Discord rate limited, retrying in %ss", retry_after)
                     await asyncio.sleep(retry_after)
                     continue
                 response.raise_for_status()
                 return True
             except Exception as e:
                 if attempt == 2:
-                    logger.error("Error sending Discord message: {}", e)
+                    logger.error("Error sending Discord message: %s", e)
                 else:
                     await asyncio.sleep(1)
         return False
@@ -134,7 +133,7 @@ class DiscordChannel(BaseChannel):
             try:
                 data = json.loads(raw)
             except json.JSONDecodeError:
-                logger.warning("Invalid JSON from Discord gateway: {}", raw[:100])
+                logger.warning("Invalid JSON from Discord gateway: %s", raw[:100])
                 continue
 
             op = data.get("op")
@@ -155,7 +154,7 @@ class DiscordChannel(BaseChannel):
                 # Capture bot user ID for mention detection
                 user_data = payload.get("user") or {}
                 self._bot_user_id = user_data.get("id")
-                logger.info("Discord bot connected as user {}", self._bot_user_id)
+                logger.info("Discord bot connected as user %s", self._bot_user_id)
             elif op == 0 and event_type == "MESSAGE_CREATE":
                 await self._handle_message_create(payload)
             elif op == 7:
@@ -197,7 +196,7 @@ class DiscordChannel(BaseChannel):
                 try:
                     await self._ws.send(json.dumps(payload))
                 except Exception as e:
-                    logger.warning("Discord heartbeat failed: {}", e)
+                    logger.warning("Discord heartbeat failed: %s", e)
                     break
                 await asyncio.sleep(interval_s)
 
@@ -227,7 +226,7 @@ class DiscordChannel(BaseChannel):
 
         content_parts = [content] if content else []
         media_paths: list[str] = []
-        media_dir = Path.home() / ".nanobot" / "media"
+        media_dir = resolve_channel_media_dir(self.name)
 
         for attachment in payload.get("attachments") or []:
             url = attachment.get("url")
@@ -239,7 +238,6 @@ class DiscordChannel(BaseChannel):
                 content_parts.append(f"[attachment: {filename} - too large]")
                 continue
             try:
-                media_dir.mkdir(parents=True, exist_ok=True)
                 file_path = media_dir / f"{attachment.get('id', 'file')}_{filename.replace('/', '_')}"
                 resp = await self._http.get(url)
                 resp.raise_for_status()
@@ -247,7 +245,7 @@ class DiscordChannel(BaseChannel):
                 media_paths.append(str(file_path))
                 content_parts.append(f"[attachment: {file_path}]")
             except Exception as e:
-                logger.warning("Failed to download Discord attachment: {}", e)
+                logger.warning("Failed to download Discord attachment: %s", e)
                 content_parts.append(f"[attachment: {filename} - download failed]")
 
         reply_to = (payload.get("referenced_message") or {}).get("id")
@@ -282,7 +280,7 @@ class DiscordChannel(BaseChannel):
                 # Also check content for mention format <@USER_ID>
                 if f"<@{self._bot_user_id}>" in content or f"<@!{self._bot_user_id}>" in content:
                     return True
-            logger.debug("Discord message in {} ignored (bot not mentioned)", payload.get("channel_id"))
+            logger.debug("Discord message in %s ignored (bot not mentioned)", payload.get("channel_id"))
             return False
 
         return True
@@ -300,7 +298,7 @@ class DiscordChannel(BaseChannel):
                 except asyncio.CancelledError:
                     return
                 except Exception as e:
-                    logger.debug("Discord typing indicator failed for {}: {}", channel_id, e)
+                    logger.debug("Discord typing indicator failed for %s: %s", channel_id, e)
                     return
                 await asyncio.sleep(8)
 

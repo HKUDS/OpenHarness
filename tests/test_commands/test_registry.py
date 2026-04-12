@@ -15,6 +15,7 @@ from openharness.engine.messages import ConversationMessage, TextBlock
 from openharness.engine.query_engine import QueryEngine
 from openharness.mcp.types import McpHttpServerConfig, McpStdioServerConfig
 from openharness.permissions import PermissionChecker
+from openharness.plugins.types import PluginCommandDefinition
 from openharness.state import AppState, AppStateStore
 from openharness.tasks import get_task_manager
 from openharness.tools import create_default_tool_registry
@@ -196,6 +197,27 @@ async def test_provider_command_switches_profile_and_requests_runtime_refresh(tm
     assert loaded.active_profile == "kimi-anthropic"
     assert loaded.base_url == "https://api.moonshot.cn/anthropic"
     assert loaded.model == "kimi-k2.5"
+
+
+@pytest.mark.asyncio
+async def test_plugin_command_registers_and_submits_prompt(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
+    registry = create_default_command_registry(
+        plugin_commands=[
+            PluginCommandDefinition(
+                name="fixture:ops:restart",
+                description="Restart services safely",
+                content="Base workflow\n\n$ARGUMENTS",
+                user_invocable=True,
+            )
+        ]
+    )
+    command, args = registry.lookup("/fixture:ops:restart api")
+    assert command is not None
+
+    result = await command.handler(args, _make_context(tmp_path))
+
+    assert result.submit_prompt == "Base workflow\n\napi"
 
 
 @pytest.mark.asyncio

@@ -70,7 +70,11 @@ def _format_environment_section(env: EnvironmentInfo) -> str:
         f"- Working directory: {env.cwd}",
         f"- Date: {env.date}",
         f"- Python: {env.python_version}",
+        f"- Python executable: {env.python_executable}",
     ]
+
+    if env.virtual_env:
+        lines.append(f"- Virtual environment: {env.virtual_env}")
 
     if env.is_git_repo:
         git_line = "- Git: yes"

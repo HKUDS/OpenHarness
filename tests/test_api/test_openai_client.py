@@ -11,10 +11,12 @@ from openharness.api.openai_client import (
     OpenAICompatibleClient,
     _convert_messages_to_openai,
     _convert_tools_to_openai,
+    _normalize_openai_base_url,
     _token_limit_param_for_model,
 )
 from openharness.engine.messages import (
     ConversationMessage,
+    ImageBlock,
     TextBlock,
     ToolResultBlock,
     ToolUseBlock,
@@ -80,6 +82,25 @@ class TestConvertMessagesToOpenai:
         result = _convert_messages_to_openai(messages, None)
         assert len(result) == 1
         assert result[0] == {"role": "user", "content": "hello"}
+
+    def test_user_multimodal_message(self):
+        messages = [
+            ConversationMessage(
+                role="user",
+                content=[
+                    TextBlock(text="Please describe this image."),
+                    ImageBlock(media_type="image/png", data="YWJj", source_path="/tmp/example.png"),
+                ],
+            )
+        ]
+        result = _convert_messages_to_openai(messages, None)
+        assert result[0]["role"] == "user"
+        assert isinstance(result[0]["content"], list)
+        assert result[0]["content"][0] == {"type": "text", "text": "Please describe this image."}
+        assert result[0]["content"][1] == {
+            "type": "image_url",
+            "image_url": {"url": "data:image/png;base64,YWJj"},
+        }
 
     def test_assistant_text_message(self):
         msg = ConversationMessage(
@@ -174,6 +195,17 @@ class TestConvertMessagesToOpenai:
         assert result[1]["tool_call_id"] == "c2"
 
 
+class TestNormalizeOpenAIBaseUrl:
+    def test_preserves_explicit_v1_path(self):
+        assert _normalize_openai_base_url("https://jarodfund.xyz/openai/v1") == "https://jarodfund.xyz/openai/v1"
+
+    def test_adds_default_v1_when_path_missing(self):
+        assert _normalize_openai_base_url("https://api.example.com") == "https://api.example.com/v1"
+
+    def test_strips_trailing_slash_without_dropping_path(self):
+        assert _normalize_openai_base_url("https://api.example.com/openai/v1/") == "https://api.example.com/openai/v1"
+
+
 class TestTokenLimitParams:
     def test_gpt5_uses_max_completion_tokens(self):
         assert _token_limit_param_for_model("gpt-5.4", 4096) == {"max_completion_tokens": 4096}
@@ -214,6 +246,33 @@ class _FakeChat:
 class _FakeOpenAIClient:
     def __init__(self) -> None:
         self.chat = _FakeChat()
+
+
+def test_openai_client_init_normalizes_base_url(monkeypatch):
+    captured: dict[str, object] = {}
+
+    class _StubAsyncOpenAI:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr("openharness.api.openai_client.AsyncOpenAI", _StubAsyncOpenAI)
+    OpenAICompatibleClient(api_key="test-key", base_url="https://jarodfund.xyz/openai/v1/")
+
+    assert captured["base_url"] == "https://jarodfund.xyz/openai/v1"
+
+
+def test_openai_client_init_passes_timeout(monkeypatch):
+    captured: dict[str, object] = {}
+
+    class _StubAsyncOpenAI:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr("openharness.api.openai_client.AsyncOpenAI", _StubAsyncOpenAI)
+    OpenAICompatibleClient(api_key="test-key", timeout=45.0)
+
+    assert captured["timeout"] == 45.0
+
 
 
 class TestStreamMessageTokenParams:

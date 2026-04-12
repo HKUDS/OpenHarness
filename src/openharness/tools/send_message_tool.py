@@ -42,14 +42,10 @@ class SendMessageTool(BaseTool):
     async def _send_swarm_message(self, agent_id: str, message: str) -> ToolResult:
         """Route a message to a swarm agent via the backend."""
         registry = get_backend_registry()
-        # Prefer in_process backend for mailbox-based delivery
-        try:
-            executor = registry.get_executor("in_process")
-        except KeyError:
-            try:
-                executor = registry.get_executor("subprocess")
-            except KeyError:
-                executor = registry.get_executor()
+        # Use subprocess backend to match AgentTool's spawn path.
+        # The SubprocessBackend tracks agent_id -> task_id mappings so
+        # send_message resolves correctly for any agent spawned by AgentTool.
+        executor = registry.get_executor("subprocess")
 
         teammate_msg = TeammateMessage(text=message, from_agent="coordinator")
         try:

@@ -13,7 +13,12 @@ from openharness.skills import load_skill_registry
 
 def _write_plugin(root: Path) -> None:
     plugin_dir = root / "example-plugin"
-    (plugin_dir / "skills").mkdir(parents=True)
+    deploy_dir = plugin_dir / "skills" / "deploy"
+    deploy_dir.mkdir(parents=True)
+    command_dir = plugin_dir / "commands" / "ops" / "restart"
+    command_dir.mkdir(parents=True)
+    agents_dir = plugin_dir / "agents" / "review"
+    agents_dir.mkdir(parents=True)
     (plugin_dir / "plugin.json").write_text(
         json.dumps(
             {
@@ -24,8 +29,22 @@ def _write_plugin(root: Path) -> None:
         ),
         encoding="utf-8",
     )
-    (plugin_dir / "skills" / "deploy.md").write_text(
+    (deploy_dir / "SKILL.md").write_text(
         "# Deploy\nDeploy with care\n",
+        encoding="utf-8",
+    )
+    (command_dir / "SKILL.md").write_text(
+        "---\n"
+        "description: Restart services safely\n"
+        "---\n\n"
+        "# Restart\n\nRun the restart workflow.\n",
+        encoding="utf-8",
+    )
+    (agents_dir / "reviewer.md").write_text(
+        "---\n"
+        "description: Review code changes\n"
+        "---\n\n"
+        "# Reviewer\n\nReview the proposed changes.\n",
         encoding="utf-8",
     )
     (plugin_dir / "hooks.json").write_text(
@@ -63,6 +82,8 @@ def test_load_plugins_from_project_dir(tmp_path: Path, monkeypatch):
     plugin = plugins[0]
     assert plugin.manifest.name == "example"
     assert plugin.skills[0].name == "Deploy"
+    assert {command.name for command in plugin.commands} == {"example:ops:restart"}
+    assert {agent.name for agent in plugin.agents} == {"example:review:reviewer"}
     assert "session_start" in plugin.hooks
     assert "demo" in plugin.mcp_servers
 

@@ -38,6 +38,7 @@ def test_load_claude_md_prompt(tmp_path: Path):
 
 def test_build_runtime_system_prompt_combines_sections(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("OPENHARNESS_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.delenv("CLAUDE_CODE_COORDINATOR_MODE", raising=False)
     repo = tmp_path / "repo"
     repo.mkdir()
     (repo / "CLAUDE.md").write_text("repo rules", encoding="utf-8")
@@ -67,3 +68,30 @@ def test_build_runtime_system_prompt_includes_project_context_and_fast_mode(tmp_
     assert "Need to fix flaky test" in prompt
     assert "Pull Request Comments" in prompt
     assert "Please simplify this branch" in prompt
+
+
+def test_build_runtime_system_prompt_uses_coordinator_prompt_when_enabled(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("OPENHARNESS_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("CLAUDE_CODE_COORDINATOR_MODE", "1")
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    prompt = build_runtime_system_prompt(Settings(), cwd=repo, latest_user_prompt="investigate")
+
+    assert "You are a **coordinator**." in prompt
+    assert "Coordinator User Context" not in prompt
+    assert "Workers spawned via the agent tool have access to these tools" not in prompt
+    assert "Environment" not in prompt
+
+
+def test_build_runtime_system_prompt_skips_coordinator_context_when_disabled(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("OPENHARNESS_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.delenv("CLAUDE_CODE_COORDINATOR_MODE", raising=False)
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    prompt = build_runtime_system_prompt(Settings(), cwd=repo, latest_user_prompt="investigate")
+
+    assert "Coordinator User Context" not in prompt
+    assert "You are a **coordinator**." not in prompt
+    assert "Environment" in prompt
