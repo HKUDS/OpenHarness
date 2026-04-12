@@ -122,6 +122,7 @@ class WebBackendHost:
         self.clients: set[str] = set()
         self.running = False
         self._permission_requests: dict[str, asyncio.Future[bool]] = {}
+        self._question_requests: dict[str, asyncio.Future[str]] = {}
         self._permission_lock = asyncio.Lock()
         self._sio: socketio.AsyncServer | None = None
         
@@ -182,6 +183,33 @@ class WebBackendHost:
                 return True
         return False
     
+    def handle_question_response(self, request_id: str, answer: str) -> bool:
+        """Handle question response from frontend."""
+        if request_id in self._question_requests:
+            future = self._question_requests[request_id]
+            if not future.done():
+                future.set_result(answer)
+                return True
+        return False
+    
+    async def ask_question(self, question: str) -> str:
+        """Ask the user a question via modal request to frontend."""
+        request_id = uuid4().hex
+        future: asyncio.Future[str] = asyncio.get_running_loop().create_future()
+        self._question_requests[request_id] = future
+        await self.broadcast({
+            'type': 'modal_request',
+            'modal': {
+                'kind': 'question',
+                'request_id': request_id,
+                'question': question,
+            }
+        })
+        try:
+            return await future
+        finally:
+            self._question_requests.pop(request_id, None)
+    
     async def handle_request(self, sio: socketio.AsyncServer, sid: str, payload: dict):
         """Handle incoming request from frontend."""
         if not self.runtime_bundle:
@@ -216,6 +244,16 @@ class WebBackendHost:
                 })
             return
         
+        # Handle question response
+        if request_type == 'question_response':
+            request_id = payload.get('request_id')
+            answer = payload.get('answer', '')
+            if request_id and self.handle_question_response(request_id, answer):
+                logger.info(f"Question response processed: {request_id} -> {answer[:50]}...")
+            else:
+                logger.warning(f"Question response not found or already resolved: {request_id}")
+            return
+        
         if request_type == 'set_model':
             # Handle model change request from frontend
             model = payload.get('model')
@@ -238,9 +276,13 @@ class WebBackendHost:
                     logger.info(f"Model changed to: {model}")
                 except Exception as e:
                     logger.exception("Error setting model")
+                    import traceback
                     await self.broadcast_with_sio(sio, {
                         'type': 'error',
-                        'message': f'Failed to set model: {str(e)}'
+                        'message': f'Failed to set model: {str(e)}',
+                        'error_type': type(e).__name__,
+                        'recoverable': True,
+                        'stack_trace': traceback.format_exc() if logger.isEnabledFor(logging.DEBUG) else None,
                     })
             return
         
@@ -290,9 +332,13 @@ class WebBackendHost:
                 logger.info(f"Config updated: {config}")
             except Exception as e:
                 logger.exception("Error updating config")
+                import traceback
                 await self.broadcast_with_sio(sio, {
                     'type': 'error',
-                    'message': f'Failed to update config: {str(e)}'
+                    'message': f'Failed to update config: {str(e)}',
+                    'error_type': type(e).__name__,
+                    'recoverable': True,
+                    'stack_trace': traceback.format_exc() if logger.isEnabledFor(logging.DEBUG) else None,
                 })
             return
         
@@ -348,11 +394,20 @@ class WebBackendHost:
                         }
                     })
                 elif isinstance(event, ErrorEvent):
-                    await self.broadcast_with_sio(sio, {
+                    # Enhanced error reporting with detailed information
+                    error_details = {
                         'type': 'error',
                         'message': event.message,
-                        'recoverable': event.recoverable
-                    })
+                        'recoverable': event.recoverable,
+                        'error_type': type(event).__name__,
+                        'timestamp': asyncio.get_event_loop().time(),
+                    }
+                    # Add stack trace if available (for debugging)
+                    if logger.isEnabledFor(logging.DEBUG):
+                        import traceback
+                        error_details['debug_info'] = traceback.format_stack()
+                    
+                    await self.broadcast_with_sio(sio, error_details)
                 elif isinstance(event, StatusEvent):
                     await self.broadcast_with_sio(sio, {
                         'type': 'status',
@@ -385,10 +440,24 @@ class WebBackendHost:
                     })
             except Exception as e:
                 logger.exception("Error handling line")
-                await self.broadcast_with_sio(sio, {
+                # Enhanced error reporting with detailed information
+                import traceback
+                error_details = {
                     'type': 'error',
-                    'message': str(e)
-                })
+                    'message': f'Error: {str(e)}',
+                    'error_type': type(e).__name__,
+                    'recoverable': True,
+                    'timestamp': asyncio.get_event_loop().time(),
+                }
+                # Include stack trace in debug mode
+                if logger.isEnabledFor(logging.DEBUG):
+                    error_details['stack_trace'] = traceback.format_exc()
+                    error_details['debug_info'] = {
+                        'exception_type': type(e).__name__,
+                        'exception_args': [str(arg) for arg in e.args],
+                    }
+                
+                await self.broadcast_with_sio(sio, error_details)
                 # Reset busy state on error
                 await self.broadcast_with_sio(sio, {
                     'type': 'line_complete'
@@ -405,9 +474,13 @@ class WebBackendHost:
                 logger.info("Conversation cleared for new chat")
             except Exception as e:
                 logger.exception("Error clearing conversation")
+                import traceback
                 await self.broadcast_with_sio(sio, {
                     'type': 'error',
-                    'message': f'Failed to clear conversation: {str(e)}'
+                    'message': f'Failed to clear conversation: {str(e)}',
+                    'error_type': type(e).__name__,
+                    'recoverable': True,
+                    'stack_trace': traceback.format_exc() if logger.isEnabledFor(logging.DEBUG) else None,
                 })
             return
         
@@ -1222,6 +1295,8 @@ def create_app(
                 enforce_max_turns=max_turns is not None if max_turns else False,
                 api_client=api_client,
                 permission_mode=permission_mode,
+                permission_prompt=backend_host.ask_permission,
+                ask_user_prompt=backend_host.ask_question,
             )
             await start_runtime(backend_host.runtime_bundle)
             logger.info("Runtime initialized successfully")
@@ -1311,11 +1386,21 @@ async def frontend_request(sid, data):
         await backend_host.handle_request(sio, sid, payload)
     except json.JSONDecodeError:
         logger.warning("Invalid JSON received")
-    except Exception as e:
-        logger.exception("Error processing request")
         await sio.emit('backend_event', PROTOCOL_PREFIX + json.dumps({
             'type': 'error',
-            'message': str(e)
+            'message': 'Invalid JSON received from frontend',
+            'error_type': 'JSONDecodeError',
+            'recoverable': True,
+        }), to=sid)
+    except Exception as e:
+        logger.exception("Error processing request")
+        import traceback
+        await sio.emit('backend_event', PROTOCOL_PREFIX + json.dumps({
+            'type': 'error',
+            'message': f'Request error: {str(e)}',
+            'error_type': type(e).__name__,
+            'recoverable': True,
+            'stack_trace': traceback.format_exc() if logger.isEnabledFor(logging.DEBUG) else None,
         }), to=sid)
 
 

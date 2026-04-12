@@ -16,9 +16,10 @@ const MODELS = [
   'gpt-3.5-turbo-0125'
 ];
 
-const PERMISSION_MODES: { value: 'default' | 'plan'; label: string; description: string }[] = [
+const PERMISSION_MODES: { value: 'default' | 'plan' | 'full_auto'; label: string; description: string }[] = [
   { value: 'default', label: 'Default (Auto-approve safe commands)', description: 'Automatically approve safe operations' },
-  { value: 'plan', label: 'Plan Mode (Review before execution)', description: 'Review all changes before applying' }
+  { value: 'plan', label: 'Plan Mode (Review before execution)', description: 'Review all changes before applying' },
+  { value: 'full_auto', label: 'Auto (Allow all tools)', description: 'Allow all tools automatically' }
 ];
 
 export function SettingsPage() {
@@ -157,7 +158,7 @@ export function SettingsPage() {
                         name="permissionMode"
                         value={mode.value}
                         checked={localSettings.permissionMode === mode.value}
-                        onChange={(e) => setLocalSettings({ ...localSettings, permissionMode: e.target.value as 'default' | 'plan' })}
+                        onChange={(e) => setLocalSettings({ ...localSettings, permissionMode: e.target.value as 'default' | 'plan' | 'full_auto' })}
                       />
                       <div className={styles.radioContent}>
                         <span className={styles.radioLabel}>{mode.label}</span>

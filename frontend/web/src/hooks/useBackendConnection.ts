@@ -186,14 +186,31 @@ export function useBackendConnection() {
 
         case 'error':
           const errorMsg = event.message || 'Unknown error';
-          setError(errorMsg);
-          // Also display error in chat for visibility
+          const errorType = event.error_type || 'Unknown';
+          const stackTrace = event.stack_trace || null;
+          const debugInfo = event.debug_info || null;
+          
+          // Build detailed error message
+          let detailedErrorMsg = `Error: ${errorMsg}`;
+          if (errorType !== 'Unknown') {
+            detailedErrorMsg += `\nType: ${errorType}`;
+          }
+          if (stackTrace) {
+            detailedErrorMsg += `\n\nStack Trace:\n${stackTrace}`;
+          }
+          if (debugInfo) {
+            detailedErrorMsg += `\n\nDebug Info: ${JSON.stringify(debugInfo, null, 2)}`;
+          }
+          
+          setError(detailedErrorMsg);
+          // Also display error in chat for visibility with full details
           const errorMessage: Message = {
             id: crypto.randomUUID(),
             role: 'system',
-            content: `Error: ${errorMsg}`,
+            content: detailedErrorMsg,
             timestamp: Date.now(),
             is_error: true,
+            tool_name: errorType,
           };
           addMessage(errorMessage);
           setBusy(false);
@@ -302,10 +319,29 @@ export function useBackendConnection() {
       setConnected(false);
     });
 
-    socket.on('connect_error', (err: Error) => {
-      setError(`Connection failed: ${err.message}`);
+    socket.on('connect_error', (err: Error & { message?: string; description?: string }) => {
+      // Build detailed connection error message
+      let detailedError = `Connection failed: ${err.message || 'Unknown error'}`;
+      if (err.description) {
+        detailedError += `\nDetails: ${err.description}`;
+      }
+      if (err.stack) {
+        detailedError += `\n\nStack: ${err.stack}`;
+      }
+      
+      setError(detailedError);
       setConnecting(false);
       setConnected(false);
+      
+      // Also show in chat for visibility
+      addMessage({
+        id: crypto.randomUUID(),
+        role: 'system',
+        content: detailedError,
+        timestamp: Date.now(),
+        is_error: true,
+        tool_name: 'ConnectionError',
+      });
     });
 
     socket.on('backend_event', handleBackendEvent);
@@ -388,11 +424,40 @@ export function useBackendConnection() {
                 uploaded_files: result.files,
               }));
             } else {
+              // Try to get error details from response
+              let errorText = `Upload failed with status ${response.status}`;
+              try {
+                const errorData = await response.json();
+                errorText = errorData.message || errorData.error || errorText;
+              } catch {
+                // Response is not JSON, use status text
+                errorText = response.statusText || errorText;
+              }
+              
+              console.error('File upload failed:', errorText);
+              setError(`File upload failed: ${errorText}`);
+              addMessage({
+                id: crypto.randomUUID(),
+                role: 'system',
+                content: `File upload error: ${errorText}`,
+                timestamp: Date.now(),
+                is_error: true,
+              });
+              
               // Fallback: send without files
               socket.emit('frontend_request', JSON.stringify({ type: 'submit_line', line: prompt }));
             }
           } catch (err) {
+            const errorMessage = err instanceof Error ? err.message : 'Unknown upload error';
             console.error('File upload failed:', err);
+            setError(`File upload failed: ${errorMessage}`);
+            addMessage({
+              id: crypto.randomUUID(),
+              role: 'system',
+              content: `File upload error: ${errorMessage}`,
+              timestamp: Date.now(),
+              is_error: true,
+            });
             // Fallback: send without files
             socket.emit('frontend_request', JSON.stringify({ type: 'submit_line', line: prompt }));
           }
@@ -421,6 +486,10 @@ export function useBackendConnection() {
 
   const sendPermissionResponse = useCallback((requestId: string, allowed: boolean) => {
     sendMessage({ type: 'permission_response', request_id: requestId, allowed });
+  }, [sendMessage]);
+
+  const sendQuestionResponse = useCallback((requestId: string, answer: string) => {
+    sendMessage({ type: 'question_response', request_id: requestId, answer });
   }, [sendMessage]);
 
   const sendConfig = useCallback((config: Record<string, unknown>) => {
@@ -566,6 +635,7 @@ export function useBackendConnection() {
     sendMessage,
     submitPrompt,
     sendPermissionResponse,
+    sendQuestionResponse,
     sendConfig,
     clearConversation,
     refreshSkills,

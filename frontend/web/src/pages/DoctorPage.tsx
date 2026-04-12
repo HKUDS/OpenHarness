@@ -94,9 +94,9 @@ function getHealthChecks(summary: DoctorSummary): HealthCheck[] {
     },
     {
       name: 'Permission Mode',
-      status: summary.permission_mode === 'auto' ? 'warning' : 'ok',
+      status: summary.permission_mode === 'full_auto' ? 'warning' : 'ok',
       message: summary.permission_mode,
-      details: summary.permission_mode === 'auto' 
+      details: summary.permission_mode === 'full_auto' 
         ? 'Auto mode - be careful with sensitive operations' 
         : 'Current permission mode',
       icon: <Shield size={18} />,

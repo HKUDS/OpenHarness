@@ -98,6 +98,12 @@ export interface BackendEvent {
   error?: string;
   // Config saved event
   settings?: Record<string, unknown>;
+  // Enhanced error details
+  error_type?: string;
+  recoverable?: boolean;
+  stack_trace?: string;
+  debug_info?: Record<string, unknown>;
+  timestamp?: number;
 }
 
 export interface TranscriptItem {

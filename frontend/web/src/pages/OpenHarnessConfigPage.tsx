@@ -111,7 +111,7 @@ export function OpenHarnessConfigPage() {
       workingDirectory: localConfig.config.workingDirectory,
       theme: localConfig.config.theme,
       maxTurns: localConfig.engine.maxTurns,
-      permissionMode: localConfig.permissions.mode === 'auto' ? 'default' : localConfig.permissions.mode
+      permissionMode: localConfig.permissions.mode === 'auto' ? 'full_auto' : localConfig.permissions.mode
     });
     // Sync permission mode to backend
     if (sendConfig) {

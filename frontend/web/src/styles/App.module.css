@@ -50,6 +50,52 @@
   line-height: 1.7;
 }
 
+.connectionError .errorDetails {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-size: 0.875rem;
+  background: rgba(255, 85, 85, 0.05);
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(255, 85, 85, 0.2);
+  max-width: 600px;
+  max-height: 300px;
+  overflow-y: auto;
+  text-align: left;
+}
+
+.connectionError .errorStack {
+  max-width: 600px;
+  width: 100%;
+  margin-top: var(--space-2);
+}
+
+.connectionError .errorStack summary {
+  cursor: pointer;
+  color: var(--text-tertiary);
+  font-size: 0.875rem;
+  padding: var(--space-2);
+  user-select: none;
+}
+
+.connectionError .errorStack summary:hover {
+  color: var(--text-secondary);
+}
+
+.connectionError .errorStack pre {
+  background: var(--bg-tertiary);
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  font-size: 0.75rem;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 400px;
+  overflow-y: auto;
+  border: 1px solid var(--border-subtle);
+}
+
 .reconnectButton {
   display: inline-flex;
   align-items: center;

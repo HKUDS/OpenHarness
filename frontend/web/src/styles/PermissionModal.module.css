@@ -246,3 +246,40 @@
     transform: rotate(360deg);
   }
 }
+/* Question modal styles */
+.questionBox {
+  padding: 16px;
+  background: var(--bg-tertiary, #16213e);
+  border-radius: 8px;
+  margin-bottom: 16px;
+}
+
+.question {
+  color: var(--text-primary, #ffffff);
+  font-size: 15px;
+  line-height: 1.6;
+  margin: 0;
+}
+
+.answerInput {
+  width: 100%;
+  padding: 12px;
+  background: var(--bg-tertiary, #16213e);
+  border: 1px solid var(--border-color, #2d3748);
+  border-radius: 8px;
+  color: var(--text-primary, #ffffff);
+  font-size: 14px;
+  font-family: inherit;
+  resize: vertical;
+  transition: border-color 0.2s ease;
+}
+
+.answerInput:focus {
+  outline: none;
+  border-color: var(--accent-color, #4a9eff);
+}
+
+.answerInput:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}

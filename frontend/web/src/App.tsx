@@ -58,7 +58,13 @@ export function App() {
             {!connected && !connecting && (
               <div className={styles.connectionError}>
                 <h2>Connection Lost</h2>
-                <p>{error || 'Unable to connect to OpenHarness backend'}</p>
+                <p className={styles.errorDetails}>{error || 'Unable to connect to OpenHarness backend'}</p>
+                {error && error.includes('Stack') && (
+                  <details className={styles.errorStack}>
+                    <summary>Show technical details</summary>
+                    <pre>{error}</pre>
+                  </details>
+                )}
                 <button onClick={() => connect()} className={styles.reconnectButton}>
                   Reconnect
                 </button>

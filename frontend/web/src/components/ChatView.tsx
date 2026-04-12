@@ -37,6 +37,7 @@ export function ChatView() {
   const [messagePositions, setMessagePositions] = useState<Map<string, number>>(new Map());
   const [pastedImages, setPastedImages] = useState<File[]>([]);
   const [pastedImagePreview, setPastedImagePreview] = useState<string[]>([]);
+  const [userHasManuallyScrolled, setUserHasManuallyScrolled] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContentRef = useRef<HTMLDivElement>(null);
   const timelineTrackRef = useRef<HTMLDivElement>(null);
@@ -46,14 +47,43 @@ export function ChatView() {
   const inputContainerRef = useRef<HTMLDivElement>(null);
   const resizeHandleRef = useRef<HTMLDivElement>(null);
   const messageRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const isJumpingRef = useRef(false);
+  const prevMessageCountRef = useRef(0);
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  const scrollToBottom = (instant = false) => {
+    const container = messagesContentRef.current;
+    const endElement = messagesEndRef.current;
+    if (!container || !endElement) return;
+    
+    // Use instant scroll to avoid animation conflicts
+    endElement.scrollIntoView({ behavior: instant ? 'auto' : 'smooth', block: 'end' });
   };
 
+  // Only auto-scroll to bottom when new messages are added AND user was already at bottom
   useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
+    const container = messagesContentRef.current;
+    if (!container) return;
+    
+    const newMessageCount = messages.length;
+    const hasNewMessages = newMessageCount > prevMessageCountRef.current;
+    prevMessageCountRef.current = newMessageCount;
+    
+    // Don't auto-scroll if user is actively jumping
+    if (isJumpingRef.current) return;
+    
+    // Use requestAnimationFrame to ensure DOM is fully updated
+    requestAnimationFrame(() => {
+      if (!container) return;
+      
+      // Check if user is near bottom (within 150px) after DOM update
+      const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 150;
+      
+      // Auto-scroll only if: new messages arrived AND (user is near bottom OR never manually scrolled)
+      if (hasNewMessages && (isNearBottom || !userHasManuallyScrolled)) {
+        scrollToBottom(true); // Use instant scroll for new messages
+      }
+    });
+  }, [messages, userHasManuallyScrolled]);
 
   // Calculate actual message positions for dynamic timeline
   const calculateMessagePositions = useCallback(() => {
@@ -106,9 +136,20 @@ export function ChatView() {
     const handleScroll = () => {
       // Recalculate positions on scroll to handle dynamic content
       calculateMessagePositions();
+      
+      // Track manual scrolling (but not during jump operations)
+      if (!isJumpingRef.current) {
+        setUserHasManuallyScrolled(true);
+        
+        // Reset manual scroll flag when user scrolls back to bottom
+        const isAtBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 50;
+        if (isAtBottom) {
+          setUserHasManuallyScrolled(false);
+        }
+      }
     };
     
-    container.addEventListener('scroll', handleScroll);
+    container.addEventListener('scroll', handleScroll, { passive: true });
     return () => container.removeEventListener('scroll', handleScroll);
   }, [calculateMessagePositions]);
 
@@ -160,6 +201,8 @@ export function ChatView() {
 
     const handleMessagesScroll = () => {
       if (isSyncingFromTimeline) return;
+      // Skip sync during jump operations to prevent interference
+      if (isJumpingRef.current) return;
       isSyncingFromMessages = true;
       
       const scrollTop = container.scrollTop;
@@ -186,6 +229,8 @@ export function ChatView() {
 
     const handleTimelineScroll = () => {
       if (isSyncingFromMessages) return;
+      // Skip sync during jump operations to prevent interference
+      if (isJumpingRef.current) return;
       isSyncingFromTimeline = true;
       
       const scrollTop = timelineTrack.scrollTop;
@@ -256,31 +301,112 @@ export function ChatView() {
       const elementOffset = messageElement.offsetTop - container.offsetTop;
       // Scroll to show the element centered in the viewport
       const scrollTarget = elementOffset - (container.clientHeight / 2) + (messageElement.offsetHeight / 2);
-      container.scrollTo({ top: scrollTarget, behavior: 'smooth' });
+      
+      // Set flag to prevent auto-scroll interference
+      isJumpingRef.current = true;
+      setUserHasManuallyScrolled(true);
+      
+      container.scrollTo({ top: scrollTarget, behavior: 'auto' });
+      
+      // Reset flag after scroll completes
+      setTimeout(() => {
+        isJumpingRef.current = false;
+      }, 100);
     }
   };
   
   // Quick navigation handlers
   const handleJumpToFirst = () => {
-    if (messages.length === 0 || !messagesContentRef.current) {
-      console.log('[ChatView] No messages to jump to');
+    if (messages.length === 0) {
+      console.warn('[ChatView] No messages to jump to');
       return;
     }
-    console.log('[ChatView] Jump to first');
-    // Simply scroll to the top of the messages container
-    messagesContentRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+    if (!messagesContentRef.current) {
+      console.error('[ChatView] Messages container ref is null');
+      return;
+    }
+    
+    console.log('[ChatView] Jump to first message');
+    const container = messagesContentRef.current;
+    
+    // Set flag to prevent auto-scroll interference
+    isJumpingRef.current = true;
+    setUserHasManuallyScrolled(true);
+    
+    // Use requestAnimationFrame to ensure DOM is ready for scrolling
+    requestAnimationFrame(() => {
+      try {
+        // Force a reflow to ensure scrollHeight is accurate
+        void container.offsetHeight;
+        
+        // Scroll to top instantly for reliable navigation
+        if (typeof container.scrollTo === 'function') {
+          container.scrollTo({ top: 0, behavior: 'auto' });
+        } else {
+          // Fallback for browsers that don't support scrollTo
+          container.scrollTop = 0;
+        }
+        
+        console.log('[ChatView] Successfully jumped to first message');
+        
+        // Reset flag after scroll completes
+        setTimeout(() => {
+          isJumpingRef.current = false;
+        }, 100);
+      } catch (err) {
+        console.error('[ChatView] Error jumping to first message:', err);
+        isJumpingRef.current = false;
+      }
+    });
   };
   
   const handleJumpToLast = () => {
-    if (messages.length === 0 || !messagesContentRef.current) {
-      console.log('[ChatView] No messages to jump to');
+    if (messages.length === 0) {
+      console.warn('[ChatView] No messages to jump to');
       return;
     }
-    console.log('[ChatView] Jump to last');
-    // Simply scroll to the bottom of the messages container
+    if (!messagesContentRef.current) {
+      console.error('[ChatView] Messages container ref is null');
+      return;
+    }
+    
+    console.log('[ChatView] Jump to last message');
     const container = messagesContentRef.current;
-    const scrollTarget = container.scrollHeight - container.clientHeight;
-    container.scrollTo({ top: scrollTarget, behavior: 'smooth' });
+    
+    // Set flag to prevent auto-scroll interference
+    isJumpingRef.current = true;
+    setUserHasManuallyScrolled(true);
+    
+    // Use requestAnimationFrame to ensure DOM is ready for scrolling
+    requestAnimationFrame(() => {
+      try {
+        // Force a reflow to ensure scrollHeight is accurate
+        void container.offsetHeight;
+        
+        // Calculate scroll target (bottom of container)
+        const scrollTarget = container.scrollHeight - container.clientHeight;
+        
+        console.log('[ChatView] Scroll target:', scrollTarget, 'Container height:', container.clientHeight, 'Scroll height:', container.scrollHeight);
+        
+        // Scroll to bottom instantly for reliable navigation
+        if (typeof container.scrollTo === 'function') {
+          container.scrollTo({ top: scrollTarget, behavior: 'auto' });
+        } else {
+          // Fallback for browsers that don't support scrollTo
+          container.scrollTop = scrollTarget;
+        }
+        
+        console.log('[ChatView] Successfully jumped to last message');
+        
+        // Reset flag after scroll completes
+        setTimeout(() => {
+          isJumpingRef.current = false;
+        }, 100);
+      } catch (err) {
+        console.error('[ChatView] Error jumping to last message:', err);
+        isJumpingRef.current = false;
+      }
+    });
   };
 
   // Generate timeline markers - show ALL messages for easy navigation
@@ -815,9 +941,14 @@ export function ChatView() {
                       )}
                     </div>
                     {message.is_error && (
-                      <div className={styles.error}>
+                      <div className={styles.error} role="alert">
                         <AlertCircle size={16} />
-                        <span>Error occurred</span>
+                        <div className={styles.errorContent}>
+                          <span className={styles.errorTitle}>Error occurred</span>
+                          {message.content && message.content !== 'Error occurred' && (
+                            <div className={styles.errorDetails}>{message.content}</div>
+                          )}
+                        </div>
                       </div>
                     )}
                   </div>

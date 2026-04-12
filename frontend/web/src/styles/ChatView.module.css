@@ -963,7 +963,7 @@
 
 .error {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: var(--space-2);
   margin-top: var(--space-3);
   padding: var(--space-2) var(--space-3);
@@ -972,6 +972,49 @@
   color: var(--error-500);
   font-size: 0.8125rem;
   border: 1px solid rgba(255, 85, 85, 0.2);
+}
+
+.errorContent {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  flex: 1;
+  min-width: 0;
+}
+
+.errorTitle {
+  font-weight: 600;
+  font-size: 0.8125rem;
+}
+
+.errorDetails {
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-size: 0.75rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: rgba(255, 85, 85, 0.05);
+  padding: var(--space-2);
+  border-radius: var(--radius-sm);
+  max-height: 200px;
+  overflow-y: auto;
+  line-height: 1.5;
+}
+
+.errorDetails::-webkit-scrollbar {
+  width: 6px;
+}
+
+.errorDetails::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.errorDetails::-webkit-scrollbar-thumb {
+  background: rgba(255, 85, 85, 0.3);
+  border-radius: 3px;
+}
+
+.errorDetails::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 85, 85, 0.5);
 }
 
 /* Thinking Indicator */
