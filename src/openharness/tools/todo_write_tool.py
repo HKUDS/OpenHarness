@@ -21,7 +21,7 @@ class TodoWriteTool(BaseTool):
     """Add or update an item in a TODO markdown file."""
 
     name = "todo_write"
-    description = "Add or update a TODO item in a markdown checklist file. If the item already exists as unchecked and checked=True, it will be marked done in-place rather than appended."
+    description = "Add a new TODO item or mark an existing one as done in a markdown checklist file."
     input_model = TodoWriteToolInput
 
     async def execute(self, arguments: TodoWriteToolInput, context: ToolExecutionContext) -> ToolResult:
