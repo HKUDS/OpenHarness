@@ -112,7 +112,7 @@ class WebSocketAgentHost:
 
         # 发送用户消息事件
         await self._send_to_websocket({
-            "type": "user_message",
+            "type": "transcript_item",
             "data": {
                 "role": "user",
                 "content": line
@@ -245,7 +245,7 @@ class WebSocketAgentHost:
         except Exception as e:
             log.error(f"Error sending to websocket: {e}")
 
-    async def process_user_message(self, content: str):
+    async def process_submit_line(self, content: str):
         """处理用户消息"""
         if self.request_queue:
             await self.request_queue.put({
@@ -300,9 +300,9 @@ async def websocket_connection_handler(websocket: WebSocket):
             msg_type = message.get("type", "unknown")
             log.debug(f"Message from {session_id}: {msg_type}")
 
-            if msg_type == "user_message":
+            if msg_type == "submit_line":
                 content = message.get("content", "")
-                await agent_host.process_user_message(content)
+                await agent_host.process_submit_line(content)
 
             elif msg_type == "permission_response":
                 request_id = message.get("request_id")

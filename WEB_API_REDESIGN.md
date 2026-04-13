@@ -290,7 +290,7 @@ src/openharness/ui/web/protocol/models.py    # 80 行
 ```typescript
 // 客户端 → 服务器
 interface WebSocketMessage {
-  type: 'user_message' | 'permission_response' | 'question_response' | 'ping'
+  type: 'submit_line' | 'permission_response' | 'question_response' | 'ping'
   content?: string
   request_id?: string
   allowed?: boolean
@@ -299,7 +299,7 @@ interface WebSocketMessage {
 
 // 服务器 → 客户端
 interface WebSocketEvent {
-  type: 'ready' | 'user_message' | 'assistant_delta' | 'assistant_complete' |
+  type: 'ready' | 'transcript_item' | 'assistant_delta' | 'assistant_complete' |
          'permission_request' | 'question_request' | 'tool_started' | 'tool_completed' |
          'system_message' | 'error' | 'pong'
   [key: string]: any

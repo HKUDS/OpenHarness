@@ -21,9 +21,9 @@ class WebSocketMessage(BaseModel):
 # 客户端 → 服务器消息
 # ============================================================================
 
-class UserMessage(WebSocketMessage):
-    """用户消息"""
-    type: Literal["user_message"] = "user_message"
+class SubmitLine(WebSocketMessage):
+    """确认用户消息响应"""
+    type: Literal["submit_line"] = "submit_line"
     content: str
 
 class PermissionResponse(WebSocketMessage):
@@ -46,6 +46,11 @@ class ReadyEvent(WebSocketMessage):
     """后端就绪事件"""
     type: Literal["ready"] = "ready"
     data: Dict[str, Any]
+
+class TranscriptItem(WebSocketMessage):
+    """确认用户消息响应"""
+    type: Literal["transcript_item"] = "transcript_item"
+    content: str
 
 class AssistantDeltaEvent(WebSocketMessage):
     """助手流式输出增量事件"""

@@ -26,7 +26,7 @@ async def test_agent_messaging():
 
             # 发送简单消息
             test_message = {
-                "type": "user_message",
+                "type": "transcript_item",
                 "content": "你好"
             }
             print(f"发送消息: {test_message['content']}")
@@ -44,7 +44,7 @@ async def test_agent_messaging():
 
                     print(f"收到消息类型: {msg_type}")
 
-                    if msg_type == "user_message":
+                    if msg_type == "transcript_item":
                         print(f"用户消息回显: {data.get('data', {}).get('content', '')}")
 
                     elif msg_type == "assistant_delta":

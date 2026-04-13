@@ -1,7 +1,9 @@
 # OpenHarness Web API 实施指南
 
 ## 🎯 已完成的架构
-
+启动后端
+cd /src/openharness/ui/web
+python start.py
 ### **目录结构**
 ```
 src/openharness/ui/web/
@@ -63,7 +65,7 @@ ws.onopen = () => {
   
   // 发送测试消息
   ws.send(JSON.stringify({
-    type: 'user_message',
+    type: 'submit_line',
     content: '你好，请介绍一下自己'
   }));
 };
@@ -145,7 +147,7 @@ const sendMessage = () => {
   if (!ws.value || !inputMessage.value) return
   
   ws.value.send(JSON.stringify({
-    type: 'user_message',
+    type: 'submit_line',
     content: inputMessage.value
   }))
   
@@ -238,7 +240,7 @@ sequenceDiagram
     Client->>WS: 连接请求
     WS->>Client: ready 事件
     
-    Client->>WS: user_message
+    Client->>WS: transcript_item
     WS->>Session: 处理用户消息
     Session->>Agent: 提交到 Agent Loop
     

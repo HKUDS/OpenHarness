@@ -27,34 +27,36 @@ export function useChatWebSocket() {
       chatStore.setConnectionStatus(true)
     })
 
-    // 用户消息回显
-    on('user_message', (data: any) => {
-      console.log('User message echoed:', data)
+    // 用户消息确认响应
+    on('transcript_item', (data: any) => {
+      console.log('后端->前端:', data)
     })
 
-    // AI 流式响应
+    // 流式响应
     on('assistant_delta', (data: any) => {
+    console.log('接收WebSocket消息,assistant_delta:' + JSON.stringify(data))
       if (!chatStore.isStreaming) {
         chatStore.startStreaming()
       }
       chatStore.appendToStream(data.text)
     })
 
-    // AI 响应完成
+    // 响应完成
     on('assistant_complete', (data: any) => {
-      console.log('AI complete:', data.message)
+      console.log('接收WebSocket消息,assistant_complete:' + JSON.stringify(data)) 
       chatStore.completeStream()
     })
 
     // 工具调用开始
-    on('tool_started', (data: any) => {
-      console.log('Tool started event received:', data)
+    on('tool_started', (data: any) => { 
+      console.log('接收WebSocket消息,tool_started:' + JSON.stringify(data)) 
       // 暂时不添加消息，等待完成后再添加
     })
 
     // 工具调用完成
     on('tool_completed', (data: any) => {
       console.log('Tool completed:', data.tool_name, data)
+      console.log('接收WebSocket消息,tool_completed:' + JSON.stringify(data)) 
       // 添加工具调用完成消息
       chatStore.addMessage({
         role: 'tool',
@@ -71,6 +73,7 @@ export function useChatWebSocket() {
     // 权限请求
     on('permission_request', (data: any) => {
       console.log('Permission request:', data.tool_name)
+      console.log('接收WebSocket消息,permission_request:' + JSON.stringify(data)) 
       handlePermissionRequest(data)
     })
 
@@ -94,7 +97,7 @@ export function useChatWebSocket() {
     const { showPermissionDialog } = await import('./usePermissionDialog')
     const confirmed = await showPermissionDialog(request_id, tool_name, tool_input)
 
-    // 发送响应
+    // 发送权限（弹窗确认结果）
     const { send } = useWebSocketService()
     send({
       type: 'permission_response',
@@ -138,7 +141,7 @@ export function useChatWebSocket() {
       // 发送到 WebSocket
       const { send } = useWebSocketService()
       send({
-        type: 'user_message',
+        type: 'submit_line',
         content: content
       })
 

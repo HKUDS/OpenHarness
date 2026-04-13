@@ -4,10 +4,11 @@ from openharness.ui.web.protocol.models import *
 
 __all__ = [
     "WebSocketMessage",
-    "UserMessage",
+    "SubmitLine",
     "PermissionResponse",
     "QuestionResponse",
     "ReadyEvent",
+    "TranscriptItem",
     "AssistantDeltaEvent",
     "AssistantCompleteEvent",
     "ToolStartedEvent",

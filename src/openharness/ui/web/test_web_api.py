@@ -96,7 +96,7 @@ async def test_websocket_connection():
 
             # 发送测试消息
             test_message = {
-                "type": "user_message",
+                "type": "submit_line",
                 "content": "你好，这是一个测试消息"
             }
             await ws.send(json.dumps(test_message))

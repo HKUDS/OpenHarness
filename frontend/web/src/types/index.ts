@@ -8,8 +8,8 @@ export interface WebSocketMessage {
   [key: string]: any
 }
 
-export interface UserMessage extends WebSocketMessage {
-  type: 'user_message'
+export interface SubmitLine extends WebSocketMessage {
+  type: 'submit_line'
   content: string
 }
 

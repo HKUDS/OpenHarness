@@ -207,7 +207,7 @@ const websocket = useWebSocket('ws://localhost:8000/ws')
 
 // 发送用户消息
 websocket.send({
-  type: 'user_message',
+  type: 'submit_line',
   content: '你好，请帮我分析代码'
 })
 

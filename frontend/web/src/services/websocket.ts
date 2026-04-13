@@ -130,7 +130,8 @@ export function useWebSocket() {
     return wsService.connect()
   }
 
-  const send = (message: any) => {
+  const send = (message: any) => { 
+    console.log('发送WebSocket消息:' + JSON.stringify(message))
     if (wsService) {
       wsService.send(message)
     }
