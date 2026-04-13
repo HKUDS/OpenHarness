@@ -325,6 +325,44 @@ oh provider add my-endpoint \
 
 For custom compatible endpoints, OpenHarness can bind credentials per profile instead of forcing every Anthropic-compatible or OpenAI-compatible backend to share the same API key.
 
+### Ollama (Local Models)
+
+Run local models through Ollama's OpenAI-compatible endpoint:
+
+```bash
+# Add an Ollama provider profile
+oh provider add ollama \
+  --label "Ollama" \
+  --provider Ollama \
+  --api-format openai \
+  --auth-source openai_api_key \
+  --model glm-4.7-flash:q8_0 \
+  --base-url http://localhost:11434/v1
+```
+```
+Saved provider profile: ollama
+```
+
+```bash
+# Activate and verify
+oh provider use ollama
+```
+```
+Activated provider profile: ollama
+```
+
+```bash
+oh provider list
+```
+```
+  claude-api: Anthropic-Compatible API [ready]
+  ...
+  moonshot: Moonshot (Kimi) [missing auth]
+    auth=moonshot_api_key model=kimi-k2.5 base_url=https://api.moonshot.cn/v1
+* ollama: Ollama [ready]
+    auth=openai_api_key model=glm-4.7-flash:q8_0 base_url=http://localhost:11434/v1
+```
+
 ### GitHub Copilot Format (`--api-format copilot`)
 
 Use your existing GitHub Copilot subscription as the LLM backend. Authentication uses GitHub's OAuth device flow — no API keys needed.

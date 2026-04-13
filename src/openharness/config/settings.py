@@ -740,21 +740,38 @@ class Settings(BaseModel):
 
 
 def _apply_env_overrides(settings: Settings) -> Settings:
-    """Apply supported environment variable overrides over loaded settings."""
-    updates: dict[str, Any] = {}
-    model = os.environ.get("ANTHROPIC_MODEL") or os.environ.get("OPENHARNESS_MODEL")
-    if model:
-        # Strip ANSI escape sequences that may be present if the environment
-        # variable was set with terminal formatting (e.g., bold text)
-        updates["model"] = strip_ansi_escape_sequences(model)
+    """Apply supported environment variable overrides over loaded settings.
 
-    base_url = (
-        os.environ.get("ANTHROPIC_BASE_URL")
-        or os.environ.get("OPENAI_BASE_URL")
-        or os.environ.get("OPENHARNESS_BASE_URL")
-    )
-    if base_url:
-        updates["base_url"] = base_url
+    Provider-scoped env vars (``ANTHROPIC_BASE_URL``, ``ANTHROPIC_MODEL``,
+    ``OPENAI_BASE_URL``) only apply when the active profile does *not*
+    explicitly configure the corresponding field.  ``OPENHARNESS_*`` env vars
+    always override (explicit user intent).
+    """
+    updates: dict[str, Any] = {}
+
+    # Resolve the active profile to check for explicit settings.
+    _, active_profile = settings.resolve_profile()
+    profile_has_base_url = active_profile.base_url is not None
+    profile_explicit_model = (active_profile.last_model or "").strip()
+    profile_has_explicit_model = bool(profile_explicit_model) and profile_explicit_model.lower() not in {"", "default"}
+
+    # --- model ---
+    openharness_model = os.environ.get("OPENHARNESS_MODEL")
+    if openharness_model:
+        updates["model"] = strip_ansi_escape_sequences(openharness_model)
+    elif not profile_has_explicit_model:
+        anthropic_model = os.environ.get("ANTHROPIC_MODEL")
+        if anthropic_model:
+            updates["model"] = strip_ansi_escape_sequences(anthropic_model)
+
+    # --- base_url ---
+    openharness_base = os.environ.get("OPENHARNESS_BASE_URL")
+    if openharness_base:
+        updates["base_url"] = openharness_base
+    elif not profile_has_base_url:
+        generic_base = os.environ.get("ANTHROPIC_BASE_URL") or os.environ.get("OPENAI_BASE_URL")
+        if generic_base:
+            updates["base_url"] = generic_base
 
     max_tokens = os.environ.get("OPENHARNESS_MAX_TOKENS")
     if max_tokens:
