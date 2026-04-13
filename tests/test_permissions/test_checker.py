@@ -21,6 +21,7 @@ def test_default_mode_requires_confirmation_for_mutation():
     decision = checker.evaluate("write_file", is_read_only=False)
     assert decision.allowed is False
     assert decision.requires_confirmation is True
+    assert "/permissions full_auto" in decision.reason
 
 
 def test_plan_mode_blocks_mutating_tools():

@@ -142,5 +142,9 @@ class PermissionChecker:
         return PermissionDecision(
             allowed=False,
             requires_confirmation=True,
-            reason="Mutating tools require user confirmation in default mode",
+            reason=(
+                "Mutating tools require user confirmation in default mode. "
+                "Approve the prompt when asked, or run /permissions full_auto "
+                "if you want to allow them for this session."
+            ),
         )

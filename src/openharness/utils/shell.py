@@ -17,6 +17,7 @@ def resolve_shell_command(
     command: str,
     *,
     platform_name: PlatformName | None = None,
+    prefer_pty: bool = False,
 ) -> list[str]:
     """Return argv for the best available shell on the current platform."""
     resolved_platform = platform_name or get_platform()
@@ -31,9 +32,19 @@ def resolve_shell_command(
 
     bash = shutil.which("bash")
     if bash:
-        return [bash, "-lc", command]
+        argv = [bash, "-lc", command]
+        if prefer_pty:
+            wrapped = _wrap_command_with_script(argv)
+            if wrapped is not None:
+                return wrapped
+        return argv
     shell = shutil.which("sh") or os.environ.get("SHELL") or "/bin/sh"
-    return [shell, "-lc", command]
+    argv = [shell, "-lc", command]
+    if prefer_pty:
+        wrapped = _wrap_command_with_script(argv)
+        if wrapped is not None:
+            return wrapped
+    return argv
 
 
 async def create_shell_subprocess(
@@ -41,6 +52,7 @@ async def create_shell_subprocess(
     *,
     cwd: str | Path,
     settings: Settings | None = None,
+    prefer_pty: bool = False,
     stdin: int | None = None,
     stdout: int | None = None,
     stderr: int | None = None,
@@ -48,7 +60,29 @@ async def create_shell_subprocess(
 ) -> asyncio.subprocess.Process:
     """Spawn a shell command with platform-aware shell selection and sandboxing."""
     resolved_settings = settings or load_settings()
-    argv = resolve_shell_command(command)
+
+    # Docker backend: route through docker exec
+    if resolved_settings.sandbox.enabled and resolved_settings.sandbox.backend == "docker":
+        from openharness.sandbox.session import get_docker_sandbox
+
+        session = get_docker_sandbox()
+        if session is not None and session.is_running:
+            argv = resolve_shell_command(command)
+            return await session.exec_command(
+                argv,
+                cwd=cwd,
+                stdin=stdin,
+                stdout=stdout,
+                stderr=stderr,
+                env=dict(env) if env is not None else None,
+            )
+        if resolved_settings.sandbox.fail_if_unavailable:
+            from openharness.sandbox import SandboxUnavailableError
+
+            raise SandboxUnavailableError("Docker sandbox session is not running")
+
+    # Existing srt path
+    argv = resolve_shell_command(command, prefer_pty=prefer_pty)
     argv, cleanup_path = wrap_command_for_sandbox(argv, settings=resolved_settings)
 
     try:
@@ -68,6 +102,15 @@ async def create_shell_subprocess(
     if cleanup_path is not None:
         asyncio.create_task(_cleanup_after_exit(process, cleanup_path))
     return process
+
+
+def _wrap_command_with_script(argv: list[str]) -> list[str] | None:
+    script = shutil.which("script")
+    if script is None:
+        return None
+    if len(argv) >= 3 and argv[1] == "-lc":
+        return [script, "-qefc", argv[2], "/dev/null"]
+    return None
 
 
 async def _cleanup_after_exit(process: asyncio.subprocess.Process, cleanup_path: Path) -> None:

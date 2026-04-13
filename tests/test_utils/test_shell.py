@@ -16,6 +16,21 @@ def test_resolve_shell_command_prefers_bash_on_linux(monkeypatch):
     assert command == ["/usr/bin/bash", "-lc", "echo hi"]
 
 
+def test_resolve_shell_command_wraps_with_script_when_pty_requested(monkeypatch):
+    def fake_which(name: str) -> str | None:
+        mapping = {
+            "bash": "/usr/bin/bash",
+            "script": "/usr/bin/script",
+        }
+        return mapping.get(name)
+
+    monkeypatch.setattr("openharness.utils.shell.shutil.which", fake_which)
+
+    command = resolve_shell_command("echo hi", platform_name="linux", prefer_pty=True)
+
+    assert command == ["/usr/bin/script", "-qefc", "echo hi", "/dev/null"]
+
+
 def test_resolve_shell_command_uses_powershell_on_windows(monkeypatch):
     def fake_which(name: str) -> str | None:
         mapping = {
