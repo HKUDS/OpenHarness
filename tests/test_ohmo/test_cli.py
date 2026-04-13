@@ -56,6 +56,7 @@ def test_ohmo_init_interactive_writes_gateway_config(tmp_path: Path, monkeypatch
             "n",  # feishu
             "y",  # send_progress
             "y",  # send_tool_hints
+            "n",  # allow_remote_admin_commands
         ]
     )
     result = runner.invoke(app, ["init", "--workspace", str(workspace)], input=user_input)
@@ -85,6 +86,7 @@ def test_ohmo_init_interactive_writes_feishu_gateway_config(tmp_path: Path, monk
             "OK",        # react_emoji
             "y",         # send_progress
             "n",         # send_tool_hints
+            "n",         # allow_remote_admin_commands
         ]
     )
     result = runner.invoke(app, ["init", "--workspace", str(workspace)], input=user_input)
@@ -122,6 +124,7 @@ def test_ohmo_config_interactive_can_restart_gateway(tmp_path: Path, monkeypatch
             "OK",         # react_emoji
             "y",          # send_progress
             "y",          # send_tool_hints
+            "n",          # allow_remote_admin_commands
             "y",          # restart gateway
         ]
     )
@@ -162,6 +165,7 @@ def test_ohmo_config_keeps_existing_channel_when_not_reconfigured(tmp_path: Path
             "n",  # reconfigure feishu? keep existing
             "y",  # send_progress
             "y",  # send_tool_hints
+            "n",  # allow_remote_admin_commands
         ]
     )
     result = runner.invoke(app, ["config", "--workspace", str(workspace)], input=user_input)
