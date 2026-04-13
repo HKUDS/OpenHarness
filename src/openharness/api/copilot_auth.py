@@ -26,6 +26,7 @@ from typing import Any
 import httpx
 
 from openharness.config.paths import get_config_dir
+from openharness.utils.fs import atomic_write_text
 
 log = logging.getLogger(__name__)
 
@@ -96,19 +97,14 @@ def _auth_file_path() -> Path:
 def save_copilot_auth(token: str, *, enterprise_url: str | None = None) -> None:
     """Persist the GitHub OAuth token (and optional enterprise URL) to disk."""
     path = _auth_file_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
     payload: dict[str, Any] = {"github_token": token}
     if enterprise_url:
         payload["enterprise_url"] = enterprise_url
-    path.write_text(
+    atomic_write_text(
+        path,
         json.dumps(payload, indent=2) + "\n",
-        encoding="utf-8",
+        mode=0o600,
     )
-    # Best-effort permission restriction (ignored on Windows).
-    try:
-        path.chmod(0o600)
-    except OSError:
-        pass
     log.info("Copilot auth saved to %s", path)
 
 

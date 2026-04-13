@@ -5,6 +5,8 @@ from __future__ import annotations
 import base64
 import json
 import os
+import platform
+import re
 import subprocess
 import time
 import urllib.error
@@ -15,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from openharness.auth.storage import ExternalAuthBinding
+from openharness.utils.fs import atomic_write_text
 
 CODEX_PROVIDER = "openai_codex"
 CLAUDE_PROVIDER = "anthropic_claude"
@@ -39,6 +42,8 @@ CLAUDE_OAUTH_ONLY_BETAS = (
     "claude-code-20250219",
     "oauth-2025-04-20",
 )
+CLAUDE_KEYCHAIN_SERVICE = "Claude Code-credentials"
+_KEYCHAIN_BINDING_PREFIX = "keychain:"
 
 _claude_code_version_cache: str | None = None
 _claude_code_session_id: str | None = None
@@ -80,6 +85,23 @@ def default_binding_for_provider(provider: str) -> ExternalAuthBinding:
             profile_label="Codex CLI",
         )
     if provider == CLAUDE_PROVIDER:
+        configured_dir = os.environ.get("CLAUDE_CONFIG_DIR", "").strip()
+        if configured_dir:
+            return ExternalAuthBinding(
+                provider=provider,
+                source_path=str(Path(configured_dir).expanduser() / ".credentials.json"),
+                source_kind="claude_credentials_json",
+                managed_by="claude-cli",
+                profile_label="Claude CLI",
+            )
+        if platform.system() == "Darwin":
+            return ExternalAuthBinding(
+                provider=provider,
+                source_path=f"{_KEYCHAIN_BINDING_PREFIX}{CLAUDE_KEYCHAIN_SERVICE}",
+                source_kind="claude_credentials_keychain",
+                managed_by="claude-cli",
+                profile_label="Claude CLI",
+            )
         claude_home = Path(os.environ.get("CLAUDE_HOME", "~/.claude")).expanduser()
         return ExternalAuthBinding(
             provider=provider,
@@ -97,23 +119,24 @@ def load_external_credential(
     refresh_if_needed: bool = False,
 ) -> ExternalAuthCredential:
     """Read a runtime credential from an external auth binding."""
-    source_path = Path(binding.source_path).expanduser()
-    if not source_path.exists():
-        raise ValueError(f"External auth source not found: {source_path}")
-
-    try:
-        payload = json.loads(source_path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"Invalid JSON in external auth source: {source_path}") from exc
-
     if binding.provider == CODEX_PROVIDER:
+        source_path = Path(binding.source_path).expanduser()
+        if not source_path.exists():
+            raise ValueError(f"External auth source not found: {source_path}")
+        try:
+            payload = json.loads(source_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"Invalid JSON in external auth source: {source_path}") from exc
         return _load_codex_credential(payload, source_path, binding)
     if binding.provider == CLAUDE_PROVIDER:
+        payload, source_path, keychain_service, keychain_account = _load_claude_payload(binding)
         return _load_claude_credential(
             payload,
             source_path,
             binding,
             refresh_if_needed=refresh_if_needed,
+            keychain_service=keychain_service,
+            keychain_account=keychain_account,
         )
     raise ValueError(f"Unsupported external auth provider: {binding.provider}")
 
@@ -154,6 +177,8 @@ def _load_claude_credential(
     binding: ExternalAuthBinding,
     *,
     refresh_if_needed: bool,
+    keychain_service: str | None = None,
+    keychain_account: str | None = None,
 ) -> ExternalAuthCredential:
     claude_oauth = payload.get("claudeAiOauth")
     if not isinstance(claude_oauth, dict):
@@ -172,7 +197,7 @@ def _load_claude_credential(
         auth_kind="auth_token",
         source_path=source_path,
         managed_by=binding.managed_by,
-        profile_label=binding.profile_label,
+        profile_label=keychain_account or binding.profile_label,
         refresh_token=refresh_token,
         expires_at_ms=expires_at_ms,
     )
@@ -182,29 +207,95 @@ def _load_claude_credential(
                 f"Claude credentials at {source_path} are expired and cannot be refreshed."
             )
         refreshed = refresh_claude_oauth_credential(refresh_token)
-        write_claude_credentials(
-            source_path,
-            access_token=refreshed["access_token"],
-            refresh_token=refreshed["refresh_token"],
-            expires_at_ms=refreshed["expires_at_ms"],
-        )
+        if binding.source_kind == "claude_credentials_keychain":
+            _write_claude_credentials_to_keychain(
+                service=keychain_service or CLAUDE_KEYCHAIN_SERVICE,
+                account=keychain_account or os.environ.get("USER", ""),
+                payload=payload,
+                access_token=str(refreshed["access_token"]),
+                refresh_token=str(refreshed["refresh_token"]),
+                expires_at_ms=int(refreshed["expires_at_ms"]),
+            )
+        else:
+            write_claude_credentials(
+                source_path,
+                access_token=str(refreshed["access_token"]),
+                refresh_token=str(refreshed["refresh_token"]),
+                expires_at_ms=int(refreshed["expires_at_ms"]),
+            )
         credential = ExternalAuthCredential(
             provider=CLAUDE_PROVIDER,
             value=str(refreshed["access_token"]),
             auth_kind="auth_token",
             source_path=source_path,
             managed_by=binding.managed_by,
-            profile_label=binding.profile_label,
+            profile_label=keychain_account or binding.profile_label,
             refresh_token=str(refreshed["refresh_token"]),
             expires_at_ms=int(refreshed["expires_at_ms"]),
         )
     return credential
 
 
+def _load_claude_payload(
+    binding: ExternalAuthBinding,
+) -> tuple[dict[str, Any], Path, str | None, str | None]:
+    if binding.source_kind == "claude_credentials_keychain":
+        return _read_claude_credentials_from_keychain(binding)
+
+    source_path = Path(binding.source_path).expanduser()
+    if not source_path.exists():
+        raise ValueError(f"External auth source not found: {source_path}")
+    try:
+        payload = json.loads(source_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Invalid JSON in external auth source: {source_path}") from exc
+    return payload, source_path, None, None
+
+
+def _read_claude_credentials_from_keychain(
+    binding: ExternalAuthBinding,
+) -> tuple[dict[str, Any], Path, str, str | None]:
+    service = binding.source_path.removeprefix(_KEYCHAIN_BINDING_PREFIX).strip() or CLAUDE_KEYCHAIN_SERVICE
+    try:
+        raw_payload = subprocess.check_output(
+            ["security", "find-generic-password", "-w", "-s", service],
+            text=True,
+        )
+        metadata = subprocess.check_output(
+            ["security", "find-generic-password", "-s", service],
+            text=True,
+        )
+    except subprocess.CalledProcessError as exc:
+        raise ValueError(f"Claude Keychain credential not found for service: {service}") from exc
+
+    try:
+        payload = json.loads(raw_payload)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Invalid JSON in Claude Keychain secret for service: {service}") from exc
+
+    keychain_path = _extract_keychain_path(metadata) or (Path.home() / "Library/Keychains/login.keychain-db")
+    account = _extract_keychain_attr(metadata, "acct")
+    return payload, keychain_path, service, account
+
+
+def _extract_keychain_path(metadata: str) -> Path | None:
+    match = re.search(r'^keychain:\s+"([^"]+)"$', metadata, re.MULTILINE)
+    if not match:
+        return None
+    return Path(match.group(1))
+
+
+def _extract_keychain_attr(metadata: str, attr_name: str) -> str | None:
+    match = re.search(rf'"{re.escape(attr_name)}"<blob>="([^"]*)"', metadata)
+    if not match:
+        return None
+    return match.group(1)
+
+
 def describe_external_binding(binding: ExternalAuthBinding) -> ExternalAuthState:
     """Return a human-readable state for an external auth binding."""
     source_path = Path(binding.source_path).expanduser()
-    if not source_path.exists():
+    if binding.source_kind != "claude_credentials_keychain" and not source_path.exists():
         return ExternalAuthState(
             configured=False,
             state="missing",
@@ -214,31 +305,40 @@ def describe_external_binding(binding: ExternalAuthBinding) -> ExternalAuthState
     try:
         credential = load_external_credential(binding, refresh_if_needed=False)
     except ValueError as exc:
+        detail = str(exc)
+        if "not found" in detail.lower():
+            return ExternalAuthState(
+                configured=False,
+                state="missing",
+                source="missing",
+                detail=detail,
+            )
         return ExternalAuthState(
             configured=False,
             state="invalid",
             source="external",
-            detail=str(exc),
+            detail=detail,
         )
+    resolved_source = credential.source_path
     if binding.provider == CLAUDE_PROVIDER and is_credential_expired(credential):
         if credential.refresh_token:
             return ExternalAuthState(
                 configured=True,
                 state="refreshable",
                 source="external",
-                detail=f"expired token can be refreshed from {source_path}",
+                detail=f"expired token can be refreshed from {resolved_source}",
             )
         return ExternalAuthState(
             configured=False,
             state="expired",
             source="external",
-            detail=f"expired token at {source_path}",
+            detail=f"expired token at {resolved_source}",
         )
     return ExternalAuthState(
         configured=True,
         state="configured",
         source="external",
-        detail=str(source_path),
+        detail=str(resolved_source),
     )
 
 
@@ -389,7 +489,60 @@ def write_claude_credentials(
             existing = json.loads(source_path.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
             existing = {}
-    previous = existing.get("claudeAiOauth")
+    existing["claudeAiOauth"] = _merge_claude_oauth_payload(
+        existing.get("claudeAiOauth"),
+        access_token=access_token,
+        refresh_token=refresh_token,
+        expires_at_ms=expires_at_ms,
+    )
+    atomic_write_text(
+        source_path,
+        json.dumps(existing, indent=2) + "\n",
+        mode=0o600,
+    )
+
+
+def _write_claude_credentials_to_keychain(
+    *,
+    service: str,
+    account: str,
+    payload: dict[str, Any],
+    access_token: str,
+    refresh_token: str,
+    expires_at_ms: int,
+) -> None:
+    next_payload = dict(payload)
+    next_payload["claudeAiOauth"] = _merge_claude_oauth_payload(
+        payload.get("claudeAiOauth"),
+        access_token=access_token,
+        refresh_token=refresh_token,
+        expires_at_ms=expires_at_ms,
+    )
+    subprocess.run(
+        [
+            "security",
+            "add-generic-password",
+            "-U",
+            "-s",
+            service,
+            "-a",
+            account,
+            "-w",
+            json.dumps(next_payload, separators=(",", ":")),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
+def _merge_claude_oauth_payload(
+    previous: Any,
+    *,
+    access_token: str,
+    refresh_token: str,
+    expires_at_ms: int,
+) -> dict[str, Any]:
     next_oauth: dict[str, Any] = {
         "accessToken": access_token,
         "refreshToken": refresh_token,
@@ -399,13 +552,7 @@ def write_claude_credentials(
         for key in ("scopes", "rateLimitTier", "subscriptionType"):
             if key in previous:
                 next_oauth[key] = previous[key]
-    existing["claudeAiOauth"] = next_oauth
-    source_path.parent.mkdir(parents=True, exist_ok=True)
-    source_path.write_text(json.dumps(existing, indent=2) + "\n", encoding="utf-8")
-    try:
-        source_path.chmod(0o600)
-    except OSError:
-        pass
+    return next_oauth
 
 
 def is_third_party_anthropic_endpoint(base_url: str | None) -> bool:

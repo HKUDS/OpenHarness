@@ -4,11 +4,19 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from croniter import croniter
 
 from openharness.config.paths import get_cron_registry_path
+from openharness.utils.file_lock import exclusive_file_lock
+from openharness.utils.fs import atomic_write_text
+
+
+def _cron_lock_path() -> Path:
+    path = get_cron_registry_path()
+    return path.with_suffix(path.suffix + ".lock")
 
 
 def load_cron_jobs() -> list[dict[str, Any]]:
@@ -25,9 +33,10 @@ def load_cron_jobs() -> list[dict[str, Any]]:
 
 def save_cron_jobs(jobs: list[dict[str, Any]]) -> None:
     """Persist cron jobs to disk."""
-    path = get_cron_registry_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(jobs, indent=2) + "\n", encoding="utf-8")
+    atomic_write_text(
+        get_cron_registry_path(),
+        json.dumps(jobs, indent=2) + "\n",
+    )
 
 
 def validate_cron_expression(expression: str) -> bool:
@@ -54,19 +63,21 @@ def upsert_cron_job(job: dict[str, Any]) -> None:
     if validate_cron_expression(schedule):
         job["next_run"] = next_run_time(schedule).isoformat()
 
-    jobs = [existing for existing in load_cron_jobs() if existing.get("name") != job.get("name")]
-    jobs.append(job)
-    jobs.sort(key=lambda item: str(item.get("name", "")))
-    save_cron_jobs(jobs)
+    with exclusive_file_lock(_cron_lock_path()):
+        jobs = [existing for existing in load_cron_jobs() if existing.get("name") != job.get("name")]
+        jobs.append(job)
+        jobs.sort(key=lambda item: str(item.get("name", "")))
+        save_cron_jobs(jobs)
 
 
 def delete_cron_job(name: str) -> bool:
     """Delete one cron job by name."""
-    jobs = load_cron_jobs()
-    filtered = [job for job in jobs if job.get("name") != name]
-    if len(filtered) == len(jobs):
-        return False
-    save_cron_jobs(filtered)
+    with exclusive_file_lock(_cron_lock_path()):
+        jobs = load_cron_jobs()
+        filtered = [job for job in jobs if job.get("name") != name]
+        if len(filtered) == len(jobs):
+            return False
+        save_cron_jobs(filtered)
     return True
 
 
@@ -80,25 +91,27 @@ def get_cron_job(name: str) -> dict[str, Any] | None:
 
 def set_job_enabled(name: str, enabled: bool) -> bool:
     """Enable or disable a cron job. Returns False if job not found."""
-    jobs = load_cron_jobs()
-    for job in jobs:
-        if job.get("name") == name:
-            job["enabled"] = enabled
-            save_cron_jobs(jobs)
-            return True
+    with exclusive_file_lock(_cron_lock_path()):
+        jobs = load_cron_jobs()
+        for job in jobs:
+            if job.get("name") == name:
+                job["enabled"] = enabled
+                save_cron_jobs(jobs)
+                return True
     return False
 
 
 def mark_job_run(name: str, *, success: bool) -> None:
     """Update last_run and recompute next_run after a job executes."""
-    jobs = load_cron_jobs()
-    now = datetime.now(timezone.utc)
-    for job in jobs:
-        if job.get("name") == name:
-            job["last_run"] = now.isoformat()
-            job["last_status"] = "success" if success else "failed"
-            schedule = job.get("schedule", "")
-            if validate_cron_expression(schedule):
-                job["next_run"] = next_run_time(schedule, now).isoformat()
-            save_cron_jobs(jobs)
-            return
+    with exclusive_file_lock(_cron_lock_path()):
+        jobs = load_cron_jobs()
+        now = datetime.now(timezone.utc)
+        for job in jobs:
+            if job.get("name") == name:
+                job["last_run"] = now.isoformat()
+                job["last_status"] = "success" if success else "failed"
+                schedule = job.get("schedule", "")
+                if validate_cron_expression(schedule):
+                    job["next_run"] = next_run_time(schedule, now).isoformat()
+                save_cron_jobs(jobs)
+                return
