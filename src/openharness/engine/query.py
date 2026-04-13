@@ -545,8 +545,28 @@ async def run_query(
             async def _run(tc):
                 return await _execute_tool_call(context, tc.name, tc.id, tc.input)
 
-            results = await asyncio.gather(*[_run(tc) for tc in tool_calls])
-            tool_results = list(results)
+            # Use return_exceptions=True so a single failing tool does not abandon
+            # its siblings as cancelled coroutines and leave the conversation with
+            # un-replied tool_use blocks (Anthropic's API rejects the next request
+            # on the session if any tool_use is missing a matching tool_result).
+            raw_results = await asyncio.gather(
+                *[_run(tc) for tc in tool_calls], return_exceptions=True
+            )
+            tool_results = []
+            for tc, result in zip(tool_calls, raw_results):
+                if isinstance(result, BaseException):
+                    log.exception(
+                        "tool execution raised: name=%s id=%s",
+                        tc.name,
+                        tc.id,
+                        exc_info=result,
+                    )
+                    result = ToolResultBlock(
+                        tool_use_id=tc.id,
+                        content=f"Tool {tc.name} failed: {type(result).__name__}: {result}",
+                        is_error=True,
+                    )
+                tool_results.append(result)
 
             for tc, result in zip(tool_calls, tool_results):
                 yield ToolExecutionCompleted(
