@@ -39,17 +39,19 @@ process.on('uncaughtException', (err: NodeJS.ErrnoException) => {
 
 const config = JSON.parse(process.env.OPENHARNESS_FRONTEND_CONFIG ?? '{}') as FrontendConfig;
 
-// Restore terminal cursor visibility on exit (Ink hides it by default)
-const restoreCursor = (): void => {
-	process.stdout.write('\x1B[?25h');
+// Restore terminal cursor visibility on exit (Ink hides it by default).
+// Also write a newline so the shell prompt starts on a fresh line and does
+// not run into the last line of the TUI output.
+const restoreTerminal = (): void => {
+	process.stdout.write('\x1B[?25h\n');
 };
-process.on('exit', restoreCursor);
+process.on('exit', restoreTerminal);
 process.on('SIGINT', () => {
-	restoreCursor();
+	restoreTerminal();
 	process.exit(130);
 });
 process.on('SIGTERM', () => {
-	restoreCursor();
+	restoreTerminal();
 	process.exit(143);
 });
 
