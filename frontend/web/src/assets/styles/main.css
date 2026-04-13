@@ -1,0 +1,185 @@
+/* Global Styles */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  line-height: 1.6;
+  /* 防止页面加载时闪烁，默认使用深色背景 */
+  background-color: #101014;
+  color: rgb(51, 54, 57);
+}
+
+#app {
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  position: fixed;
+  top: 0;
+  left: 0;
+  /* 防止主题切换时的闪烁 */
+  background-color: #101014;
+}
+
+/* 基于Naive UI的全局样式调整 */
+.n-config-provider {
+  width: 100vw;
+  height: 100vh;
+}
+
+/* 确保内容区域正确显示 */
+.app-main {
+  background: var(--n-color);
+}
+
+/* 响应式辅助类 */
+.container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 1rem;
+}
+
+.flex {
+  display: flex;
+}
+
+.flex-col {
+  flex-direction: column;
+}
+
+.items-center {
+  align-items: center;
+}
+
+.justify-between {
+  justify-content: space-between;
+}
+
+.justify-center {
+  justify-content: center;
+}
+
+.text-center {
+  text-align: center;
+}
+
+/* 滚动条美化 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--n-scrollbar-color);
+  border-radius: 4px;
+  transition: background 0.2s;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--n-scrollbar-color-hover);
+}
+
+/* 全局卡片美化 */
+.n-card {
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  transition: all 0.3s ease;
+}
+
+.n-card:hover {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+}
+
+/* 全局按钮增强 */
+.n-button {
+  border-radius: 8px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.n-button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+}
+
+.n-button:active {
+  transform: translateY(0);
+}
+
+/* 输入框美化 */
+.n-input {
+  border-radius: 10px;
+}
+
+.n-input__textarea {
+  border-radius: 10px;
+}
+
+/* 标签美化 */
+.n-tag {
+  border-radius: 6px;
+  font-weight: 500;
+}
+
+/* 模态框美化 */
+.n-modal {
+  border-radius: 12px;
+}
+
+/* 空间优化 */
+.n-space {
+  gap: 0.75rem !important;
+}
+
+/* 分割线美化 */
+.n-divider {
+  margin: 1rem 0;
+}
+
+/* 统计数字美化 */
+.n-statistic__label {
+  font-size: 0.875rem;
+  font-weight: 500;
+  opacity: 0.8;
+}
+
+.n-statistic__value {
+  font-weight: 600;
+}
+
+/* 文本美化 */
+.n-text {
+  line-height: 1.6;
+}
+
+/* 响应式断点 */
+@media (max-width: 768px) {
+  .header-content {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .header-right {
+    width: 100%;
+  }
+
+  .n-grid {
+    grid-template-columns: 1fr !important;
+  }
+}

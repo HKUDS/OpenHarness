@@ -25,6 +25,7 @@ htmlcov/
 
 # React TUI frontend
 frontend/terminal/node_modules/
+**/node_modules
 
 # User data (never commit API keys or session data)
 .openharness/
