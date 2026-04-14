@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import shutil
 from pathlib import Path
 
@@ -97,7 +98,10 @@ async def _glob(root: Path, pattern: str, *, limit: int) -> list[str]:
                     lines.append(line)
         finally:
             if len(lines) >= limit and process.returncode is None:
-                process.terminate()
+                # Race-safe terminate: the child can exit between the returncode
+                # check and terminate(), which raises ProcessLookupError.
+                with contextlib.suppress(ProcessLookupError):
+                    process.terminate()
             await process.wait()
 
         # Sorting keeps unit tests and user output deterministic for small results.

@@ -393,6 +393,9 @@ class Settings(BaseModel):
 
     # API configuration
     api_key: str = ""
+    # Internal: mark when api_key was provided via CLI override so it can take
+    # precedence over provider env vars in resolve_auth(). Never persisted.
+    api_key_from_cli: bool = Field(default=False, exclude=True)
     model: str = "claude-sonnet-4-6"
     max_tokens: int = 16384
     base_url: str | None = None
@@ -614,24 +617,59 @@ class Settings(BaseModel):
 
         storage_provider = credential_storage_provider_name(profile_name, profile)
 
+        explicit_key = "" if profile.credential_slot else self.api_key
+        if self.api_key_from_cli and explicit_key:
+            return ResolvedAuth(
+                provider=provider or storage_provider,
+                auth_kind="api_key",
+                value=explicit_key,
+                source="cli",
+                state="configured",
+            )
+
+        env_vars: list[str] = []
         env_var = {
             "anthropic_api_key": "ANTHROPIC_API_KEY",
             "openai_api_key": "OPENAI_API_KEY",
             "dashscope_api_key": "DASHSCOPE_API_KEY",
             "moonshot_api_key": "MOONSHOT_API_KEY",
         }.get(auth_source)
+
+        # For OpenAI-compatible profiles, prefer provider-specific env vars when
+        # the base_url/model hint at a concrete backend (DeepSeek, MiniMax, ...).
+        if auth_source == "openai_api_key":
+            try:
+                from openharness.api.registry import detect_provider_from_registry
+
+                spec = detect_provider_from_registry(
+                    model=self.model,
+                    api_key=explicit_key or None,
+                    base_url=self.base_url,
+                )
+            except Exception:
+                spec = None
+            if spec and spec.env_key:
+                env_vars.append(spec.env_key)
+
         if env_var:
-            env_value = os.environ.get(env_var, "")
+            env_vars.append(env_var)
+        env_vars.append("OPENHARNESS_API_KEY")
+
+        seen: set[str] = set()
+        for name in env_vars:
+            if not name or name in seen:
+                continue
+            seen.add(name)
+            env_value = os.environ.get(name, "")
             if env_value:
                 return ResolvedAuth(
                     provider=provider or storage_provider,
                     auth_kind="api_key",
                     value=env_value,
-                    source=f"env:{env_var}",
+                    source=f"env:{name}",
                     state="configured",
                 )
 
-        explicit_key = "" if profile.credential_slot else self.api_key
         if explicit_key:
             return ResolvedAuth(
                 provider=provider or storage_provider,
@@ -659,13 +697,40 @@ class Settings(BaseModel):
     def merge_cli_overrides(self, **overrides: Any) -> Settings:
         """Return a new Settings with CLI overrides applied (non-None values only)."""
         updates = {k: v for k, v in overrides.items() if v is not None}
+
+        # CLI uses `--permission-mode` but settings store it under
+        # `settings.permission.mode`. Apply it explicitly so:
+        # - `oh --permission-mode full_auto` works
+        # - the spawned React backend host doesn't crash on the flag
+        raw_permission_mode = updates.pop("permission_mode", None)
+
+        if "api_key" in updates:
+            updates["api_key_from_cli"] = True
+
         merged = self.model_copy(update=updates)
-        if not updates:
+
+        if raw_permission_mode is not None:
+            from openharness.permissions.modes import PermissionMode
+
+            try:
+                mode = PermissionMode(str(raw_permission_mode))
+            except ValueError as exc:
+                raise ValueError(
+                    f"Invalid permission mode: {raw_permission_mode!r}. "
+                    f"Expected one of: {', '.join(m.value for m in PermissionMode)}"
+                ) from exc
+            merged = merged.model_copy(update={"permission": merged.permission.model_copy(update={"mode": mode})})
+
+        if not updates and raw_permission_mode is None:
             return merged
+
         profile_keys = {"model", "base_url", "api_format", "provider", "api_key", "active_profile", "profiles"}
-        if profile_keys.isdisjoint(updates):
-            return merged
-        return merged.sync_active_profile_from_flat_fields().materialize_active_profile()
+        # Changing permission mode can alter resolved model selection (e.g. `opusplan`).
+        needs_materialize = raw_permission_mode is not None
+        if not profile_keys.isdisjoint(updates):
+            needs_materialize = True
+            merged = merged.sync_active_profile_from_flat_fields()
+        return merged.materialize_active_profile() if needs_materialize else merged
 
 
 def _apply_env_overrides(settings: Settings) -> Settings:

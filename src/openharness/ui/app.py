@@ -98,6 +98,7 @@ async def run_print_mode(
         system_prompt=system_prompt,
         api_key=api_key,
         api_format=api_format,
+        permission_mode=permission_mode,
         enforce_max_turns=True,
         api_client=api_client,
         permission_prompt=_noop_permission,

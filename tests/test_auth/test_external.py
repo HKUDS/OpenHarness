@@ -188,6 +188,9 @@ def test_cli_codex_login_binds_without_switching(monkeypatch, tmp_path: Path):
     )
     monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(config_dir))
     monkeypatch.setenv("CODEX_HOME", str(codex_home))
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("OPENHARNESS_API_KEY", raising=False)
 
     (config_dir / "settings.json").write_text(
         json.dumps(

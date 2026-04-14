@@ -77,6 +77,28 @@ class TestSettings:
         assert auth.value == "sk-openai-correct"
         assert "OPENAI" in auth.source
 
+    def test_resolve_auth_cli_api_key_overrides_env_for_openai(self, monkeypatch):
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-openai-env")
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        s = Settings(api_format="openai").sync_active_profile_from_flat_fields()
+        s = s.merge_cli_overrides(api_key="sk-cli-override")
+        auth = s.resolve_auth()
+        assert auth.value == "sk-cli-override"
+        assert auth.source == "cli"
+
+    def test_resolve_auth_prefers_provider_specific_env_key_when_available(self, monkeypatch):
+        monkeypatch.setenv("MINIMAX_API_KEY", "sk-minimax-correct")
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-openai-wrong-for-minimax")
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        s = Settings(
+            api_format="openai",
+            base_url="https://api.minimax.io/v1",
+            model="minimax-m1",
+        ).sync_active_profile_from_flat_fields()
+        auth = s.resolve_auth()
+        assert auth.value == "sk-minimax-correct"
+        assert "MINIMAX" in auth.source
+
     def test_resolve_auth_falls_back_to_flat_api_key(self, monkeypatch):
         """When no provider-specific env var is set, resolve_auth() should
         still fall back to the flat api_key field."""

@@ -51,6 +51,7 @@ class BackendHostConfig:
     active_profile: str | None = None
     api_client: SupportsStreamingMessages | None = None
     restore_messages: list[dict] | None = None
+    permission_mode: str | None = None
     enforce_max_turns: bool = True
     session_backend: SessionBackend | None = None
 
@@ -85,6 +86,7 @@ class ReactBackendHost:
             ask_user_prompt=self._ask_question,
             enforce_max_turns=self._config.enforce_max_turns,
             session_backend=self._config.session_backend,
+            permission_mode=self._config.permission_mode,
         )
         await start_runtime(self._bundle)
         await self._emit(
@@ -713,6 +715,7 @@ async def run_backend_host(
     cwd: str | None = None,
     api_client: SupportsStreamingMessages | None = None,
     restore_messages: list[dict] | None = None,
+    permission_mode: str | None = None,
     enforce_max_turns: bool = True,
     session_backend: SessionBackend | None = None,
 ) -> int:
@@ -730,6 +733,7 @@ async def run_backend_host(
             active_profile=active_profile,
             api_client=api_client,
             restore_messages=restore_messages,
+            permission_mode=permission_mode,
             enforce_max_turns=enforce_max_turns,
             session_backend=session_backend,
         )
