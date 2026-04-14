@@ -232,6 +232,14 @@ def default_provider_profiles() -> dict[str, ProviderProfile]:
             default_model="gemini-2.5-flash",
             base_url="https://generativelanguage.googleapis.com/v1beta/openai",
         ),
+        "minimax": ProviderProfile(
+            label="MiniMax",
+            provider="minimax",
+            api_format="openai",
+            auth_source="minimax_api_key",
+            default_model="MiniMax-M2.7",
+            base_url="https://api.minimax.io/v1",
+        ),
     }
 
 
@@ -319,6 +327,7 @@ def auth_source_provider_name(auth_source: str) -> str:
         "vertex_api_key": "vertex",
         "moonshot_api_key": "moonshot",
         "gemini_api_key": "gemini",
+        "minimax_api_key": "minimax",
     }
     return mapping.get(auth_source, auth_source)
 
@@ -358,6 +367,8 @@ def default_auth_source_for_provider(provider: str, api_format: str | None = Non
         return "moonshot_api_key"
     if provider == "gemini":
         return "gemini_api_key"
+    if provider == "minimax":
+        return "minimax_api_key"
     if provider == "openai" or api_format == "openai":
         return "openai_api_key"
     return "anthropic_api_key"
@@ -674,6 +685,7 @@ class Settings(BaseModel):
             "openai_api_key": "OPENAI_API_KEY",
             "dashscope_api_key": "DASHSCOPE_API_KEY",
             "moonshot_api_key": "MOONSHOT_API_KEY",
+            "minimax_api_key": "MINIMAX_API_KEY",
         }.get(auth_source)
         if env_var:
             env_value = os.environ.get(env_var, "")
