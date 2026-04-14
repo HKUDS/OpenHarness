@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from openharness.api.usage import UsageSnapshot
@@ -51,3 +52,38 @@ def test_ohmo_session_backend_loads_latest_for_session_key(tmp_path: Path):
     assert loaded["session_id"] == "abc123"
     assert loaded["session_key"] == "feishu:chat-1"
     assert loaded["tool_metadata"]["task_focus_state"]["goal"] == "Continue the same Feishu task"
+
+
+def test_ohmo_session_backend_sanitizes_legacy_empty_assistant_messages(tmp_path: Path):
+    workspace = tmp_path / ".ohmo-home"
+    initialize_workspace(workspace)
+    backend = OhmoSessionBackend(workspace)
+    session_dir = get_session_dir(workspace)
+    (session_dir / "latest.json").write_text(
+        json.dumps(
+            {
+                "app": "ohmo",
+                "session_id": "abc123",
+                "session_key": "feishu:chat-1",
+                "cwd": str(tmp_path),
+                "model": "gpt-5.4",
+                "system_prompt": "system",
+                "messages": [
+                    {"role": "user", "content": [{"type": "text", "text": "hello"}]},
+                    {"role": "assistant", "content": None},
+                    {"role": "assistant", "content": []},
+                ],
+                "usage": {"input_tokens": 0, "output_tokens": 0},
+                "tool_metadata": {},
+                "created_at": 1.0,
+                "summary": "hello",
+                "message_count": 3,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = backend.load_latest(tmp_path)
+    assert loaded is not None
+    assert loaded["message_count"] == 1
+    assert loaded["messages"][0]["role"] == "user"

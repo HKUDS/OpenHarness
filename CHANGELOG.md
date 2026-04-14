@@ -19,6 +19,7 @@ The format is based on Keep a Changelog, and this project currently tracks chang
 - `docs/SHOWCASE.md` with concrete OpenHarness usage patterns and demo commands.
 - GitHub issue templates and a pull request template.
 - React TUI assistant messages now render structured Markdown blocks, including headings, lists, code fences, blockquotes, links, and tables.
+- Built-in `codex` output style for compact, low-noise transcript rendering in React TUI.
 
 ### Fixed
 
@@ -37,6 +38,7 @@ The format is based on Keep a Changelog, and this project currently tracks chang
 - Fixed React TUI Markdown tables to size columns from rendered cell text so inline formatting like code spans and bold text no longer breaks alignment.
 - Fixed grep tool crashing with `ValueError` / `LimitOverrunError` when ripgrep outputs a line longer than 64 KB (e.g. minified assets or lock files). The asyncio subprocess stream limit is now 8 MB and oversized lines are skipped rather than terminating the session.
 - Fixed React TUI exit leaving the shell prompt concatenated with the last TUI line. The terminal cleanup handler now writes a trailing newline (`\n`) alongside the cursor-show escape sequence so the shell prompt always starts on a fresh line.
+- Reduced React TUI redraw pressure when `output_style=codex` by avoiding token-level assistant buffer flushes during streaming.
 
 ### Changed
 

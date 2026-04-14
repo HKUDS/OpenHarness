@@ -28,7 +28,7 @@ from openharness.bridge.types import WorkSecret
 from openharness.bridge.work_secret import build_sdk_url, decode_work_secret, encode_work_secret
 from openharness.api.provider import auth_status, detect_provider
 from openharness.config.settings import Settings, display_model_setting, load_settings, save_settings
-from openharness.engine.messages import ConversationMessage
+from openharness.engine.messages import ConversationMessage, sanitize_conversation_messages
 from openharness.engine.query_engine import QueryEngine
 from openharness.memory import (
     add_memory_entry,
@@ -410,10 +410,9 @@ def create_default_command_registry(
             snapshot = context.session_backend.load_by_id(context.cwd, sid)
             if snapshot is None:
                 return CommandResult(message=f"Session not found: {sid}")
-            messages = [
-                ConversationMessage.model_validate(item)
-                for item in snapshot.get("messages", [])
-            ]
+            messages = sanitize_conversation_messages(
+                [ConversationMessage.model_validate(item) for item in snapshot.get("messages", [])]
+            )
             context.engine.load_messages(messages)
             summary = snapshot.get("summary", "")[:60]
             return CommandResult(
@@ -429,10 +428,9 @@ def create_default_command_registry(
             snapshot = context.session_backend.load_latest(context.cwd)
             if snapshot is None:
                 return CommandResult(message="No saved sessions found for this project.")
-            messages = [
-                ConversationMessage.model_validate(item)
-                for item in snapshot.get("messages", [])
-            ]
+            messages = sanitize_conversation_messages(
+                [ConversationMessage.model_validate(item) for item in snapshot.get("messages", [])]
+            )
             context.engine.load_messages(messages)
             return CommandResult(
                 message=f"Restored {len(messages)} messages from the latest session.",

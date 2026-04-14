@@ -24,6 +24,18 @@ def test_default_mode_requires_confirmation_for_mutation():
     assert "/permissions full_auto" in decision.reason
 
 
+def test_default_mode_gives_package_install_hint_for_bash():
+    checker = PermissionChecker(PermissionSettings(mode=PermissionMode.DEFAULT))
+    decision = checker.evaluate(
+        "bash",
+        is_read_only=False,
+        command="npm init -y && npm install next react react-dom",
+    )
+    assert decision.allowed is False
+    assert decision.requires_confirmation is True
+    assert "Package installation and scaffolding commands change the workspace" in decision.reason
+
+
 def test_plan_mode_blocks_mutating_tools():
     checker = PermissionChecker(PermissionSettings(mode=PermissionMode.PLAN))
     decision = checker.evaluate("bash", is_read_only=False)

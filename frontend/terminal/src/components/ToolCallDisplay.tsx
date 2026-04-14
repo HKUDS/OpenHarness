@@ -4,29 +4,60 @@ import {Box, Text} from 'ink';
 import {useTheme} from '../theme/ThemeContext.js';
 import type {TranscriptItem} from '../types.js';
 
-export function ToolCallDisplay({item, resultItem}: {item: TranscriptItem; resultItem?: TranscriptItem}): React.JSX.Element {
+export function ToolCallDisplay({
+	item,
+	resultItem,
+	outputStyle,
+}: {
+	item: TranscriptItem;
+	resultItem?: TranscriptItem;
+	outputStyle?: string;
+}): React.JSX.Element {
 	const {theme} = useTheme();
+	const isCodexStyle = outputStyle === 'codex';
 
 	if (item.role === 'tool') {
 		const toolName = item.tool_name ?? 'tool';
-		const summary = summarizeInput(toolName, item.tool_input, item.text);
+		const summary = summarizeInput(toolName, item.tool_input, item.text).replace(/\s+/g, ' ').trim();
 
 		let statusNode: React.ReactNode = null;
 		let errorLines: string[] | null = null;
 
 		if (resultItem) {
 			if (resultItem.is_error) {
-				statusNode = <Text color={theme.colors.error}> {theme.icons.error.trim()}</Text>;
+				statusNode = isCodexStyle
+					? <Text color={theme.colors.error}> error</Text>
+					: <Text color={theme.colors.error}> {theme.icons.error.trim()}</Text>;
 				const lines = resultItem.text.split('\n').filter((l) => l.trim());
-				const maxErrLines = 5;
+				const maxErrLines = isCodexStyle ? 8 : 5;
 				errorLines = lines.length > maxErrLines
 					? [...lines.slice(0, maxErrLines), `... (${lines.length - maxErrLines} more lines)`]
 					: lines;
-			} else {
+			} else if (!isCodexStyle) {
 				const lineCount = resultItem.text.split('\n').filter((l) => l.trim()).length;
 				const resultLabel = lineCount > 0 ? `${lineCount}L` : theme.icons.success.trim();
 				statusNode = <Text dimColor> → {resultLabel}</Text>;
+			} else {
+				const lineCount = resultItem.text.split('\n').filter((l) => l.trim()).length;
+				statusNode = <Text dimColor>{lineCount > 0 ? ` ${lineCount}L` : ''}</Text>;
 			}
+		}
+
+		if (isCodexStyle) {
+			return (
+				<Box marginLeft={0} flexDirection="column">
+					<Text dimColor>{`• Ran ${toolName}${summary ? ` ${summary}` : ''}`}{statusNode}</Text>
+					{errorLines?.map((line, i) => {
+						const prefix = i === errorLines.length - 1 ? '└ ' : '│ ';
+						return (
+							<Text key={i} color={theme.colors.error}>
+								{prefix}
+								{line}
+							</Text>
+						);
+					})}
+				</Box>
+			);
 		}
 
 		return (
@@ -46,14 +77,30 @@ export function ToolCallDisplay({item, resultItem}: {item: TranscriptItem; resul
 		);
 	}
 
-	// Standalone tool_result (unpaired — should be rare). Hide successes; surface errors.
 	if (item.role === 'tool_result') {
 		if (!item.is_error) {
 			return <></>;
 		}
-		const lines = item.text.split('\n').filter((l) => l.trim());
-		const maxLines = 5;
+		const lines = item.text.length > 0
+			? item.text.split('\n').filter((l) => l.trim())
+			: [''];
+		const maxLines = isCodexStyle ? 8 : 5;
 		const display = lines.length > maxLines ? [...lines.slice(0, maxLines), `... (${lines.length - maxLines} more lines)`] : lines;
+		if (isCodexStyle) {
+			return (
+				<Box marginLeft={0} flexDirection="column">
+					{display.map((line, i) => {
+						const prefix = i === display.length - 1 ? '└ ' : '│ ';
+						return (
+							<Text key={i} color={theme.colors.error}>
+								{prefix}
+								{line}
+							</Text>
+						);
+					})}
+				</Box>
+			);
+		}
 		return (
 			<Box marginLeft={4} flexDirection="column">
 				{display.map((line, i) => (
@@ -92,7 +139,6 @@ function summarizeInput(toolName: string, toolInput?: Record<string, unknown>, f
 	if (lower === 'agent' && toolInput.description) {
 		return String(toolInput.description);
 	}
-	// Fallback: show first key=value
 	const entries = Object.entries(toolInput);
 	if (entries.length > 0) {
 		const [key, val] = entries[0];

@@ -259,22 +259,26 @@ if ($CurrentPath -like "*$VenvBinDir*") {
 Write-Step "Verifying installation"
 
 $OhPath = "$VenvBinDir\oh.exe"
+$OpenhPath = "$VenvBinDir\openh.exe"
 $OhmoPath = "$VenvBinDir\ohmo.exe"
 
-if ((Test-Path $OhPath) -and (Test-Path $OhmoPath)) {
-    $OhVersion = & $OhPath --version 2>&1
+if ((Test-Path $OpenhPath) -and (Test-Path $OhmoPath)) {
+    $OhVersion = & $OpenhPath --version 2>&1
     Write-Success "Installation successful!"
     Write-Host ""
-    Write-Host "  oh is ready: $OhVersion" -ForegroundColor Green
+    Write-Host "  openh is ready: $OhVersion" -ForegroundColor Green
+    if (Test-Path $OhPath) {
+        Write-Host "  oh is also installed, but PowerShell may resolve 'oh' to Out-Host first." -ForegroundColor Yellow
+    }
     Write-Host "  ohmo is ready" -ForegroundColor Green
 } else {
     # Try module execution
     $ModuleVersion = python -m openharness --version 2>&1
     if ($ModuleVersion) {
-        Write-Warn "'oh'/'ohmo' commands not yet available. Run via: python -m openharness"
+        Write-Warn "'openh'/'ohmo' commands not yet available. Run via: python -m openharness"
         Write-Host "  Version: $ModuleVersion"
     } else {
-        Write-Warn "Could not verify 'oh'/'ohmo' commands. The package may need a PATH update."
+        Write-Warn "Could not verify 'openh'/'ohmo' commands. The package may need a PATH update."
         Write-Host "  Try: python -m openharness --version"
     }
 }
@@ -289,7 +293,8 @@ Write-Host "  Next steps:"
 Write-Host "    1. Restart terminal, or run: refreshenv (if using Chocolatey)"
 Write-Host "       Or manually refresh: `$env:PATH = [System.Environment]::GetEnvironmentVariable('PATH','User')"
 Write-Host "    2. Set your API key:        `$env:ANTHROPIC_API_KEY = 'your_key'"
-Write-Host "    3. Launch:                  oh"
+Write-Host "    3. Launch (PowerShell):     openh"
 Write-Host "    4. Launch ohmo:             ohmo"
+Write-Host "       Note: 'oh' may collide with the built-in Out-Host alias in PowerShell."
 Write-Host "    5. Docs:                    https://github.com/HKUDS/OpenHarness"
 Write-Host ""

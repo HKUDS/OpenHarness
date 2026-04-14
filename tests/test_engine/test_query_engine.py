@@ -18,15 +18,18 @@ from openharness.engine.stream_events import (
     AssistantTextDelta,
     AssistantTurnComplete,
     CompactProgressEvent,
+    ErrorEvent,
     StatusEvent,
     ToolExecutionCompleted,
     ToolExecutionStarted,
 )
 from openharness.permissions import PermissionChecker, PermissionMode
 from openharness.tools import create_default_tool_registry
-from openharness.tools.base import ToolRegistry, ToolResult
+from openharness.tools.base import BaseTool, ToolExecutionContext, ToolRegistry, ToolResult
 from openharness.tools.glob_tool import GlobTool
 from openharness.tools.grep_tool import GrepTool
+from pydantic import BaseModel
+from openharness.engine.messages import ToolResultBlock
 from openharness.hooks import HookExecutionContext, HookExecutor, HookEvent
 from openharness.hooks.loader import HookRegistry
 from openharness.hooks.schemas import PromptHookDefinition
@@ -101,6 +104,16 @@ class PromptTooLongThenSuccessApiClient:
             return
         yield ApiMessageCompleteEvent(
             message=ConversationMessage(role="assistant", content=[TextBlock(text="after reactive compact")]),
+            usage=UsageSnapshot(input_tokens=1, output_tokens=1),
+            stop_reason=None,
+        )
+
+
+class EmptyAssistantApiClient:
+    async def stream_message(self, request):
+        del request
+        yield ApiMessageCompleteEvent(
+            message=ConversationMessage(role="assistant", content=[]),
             usage=UsageSnapshot(input_tokens=1, output_tokens=1),
             stop_reason=None,
         )
@@ -820,3 +833,118 @@ async def test_query_engine_applies_path_rules_to_write_file_targets_in_full_aut
     assert tool_results[0].is_error is True
     assert "matches deny rule" in tool_results[0].output
     assert target.exists() is False
+
+
+class _OkInput(BaseModel):
+    pass
+
+
+class _OkTool(BaseTool):
+    name = "ok_tool"
+    description = "Returns success."
+    input_model = _OkInput
+
+    def is_read_only(self, arguments: BaseModel) -> bool:
+        return True
+
+    async def execute(self, arguments: BaseModel, context: ToolExecutionContext) -> ToolResult:
+        del arguments, context
+        return ToolResult(output="ok")
+
+
+class _BoomTool(BaseTool):
+    name = "boom_tool"
+    description = "Always raises."
+    input_model = _OkInput
+
+    def is_read_only(self, arguments: BaseModel) -> bool:
+        return True
+
+    async def execute(self, arguments: BaseModel, context: ToolExecutionContext) -> ToolResult:
+        del arguments, context
+        raise RuntimeError("boom")
+
+
+@pytest.mark.asyncio
+async def test_query_engine_synthesizes_tool_result_when_parallel_tool_raises(tmp_path: Path):
+    """Parallel tool calls must each yield a tool_result even when one tool raises.
+
+    Regression for the case where ``asyncio.gather`` (without
+    ``return_exceptions=True``) propagated the first exception, abandoned the
+    sibling coroutines, and left the conversation with un-replied ``tool_use``
+    blocks — Anthropic's API then rejects the next request on the session.
+    """
+
+    registry = ToolRegistry()
+    registry.register(_OkTool())
+    registry.register(_BoomTool())
+
+    engine = QueryEngine(
+        api_client=FakeApiClient(
+            [
+                _FakeResponse(
+                    message=ConversationMessage(
+                        role="assistant",
+                        content=[
+                            TextBlock(text="Running two tools."),
+                            ToolUseBlock(id="toolu_ok", name="ok_tool", input={}),
+                            ToolUseBlock(id="toolu_boom", name="boom_tool", input={}),
+                        ],
+                    ),
+                    usage=UsageSnapshot(input_tokens=1, output_tokens=1),
+                ),
+                _FakeResponse(
+                    message=ConversationMessage(
+                        role="assistant",
+                        content=[TextBlock(text="Recovered from the failure.")],
+                    ),
+                    usage=UsageSnapshot(input_tokens=1, output_tokens=1),
+                ),
+            ]
+        ),
+        tool_registry=registry,
+        permission_checker=PermissionChecker(PermissionSettings(mode=PermissionMode.FULL_AUTO)),
+        cwd=tmp_path,
+        model="claude-test",
+        system_prompt="system",
+    )
+
+    events = [event async for event in engine.submit_message("run both tools")]
+
+    completed = [event for event in events if isinstance(event, ToolExecutionCompleted)]
+    completed_by_name = {event.tool_name: event for event in completed}
+    assert set(completed_by_name) == {"ok_tool", "boom_tool"}
+    assert completed_by_name["ok_tool"].is_error is False
+    assert completed_by_name["ok_tool"].output == "ok"
+    assert completed_by_name["boom_tool"].is_error is True
+    assert "RuntimeError" in completed_by_name["boom_tool"].output
+    assert "boom" in completed_by_name["boom_tool"].output
+
+    user_tool_messages = [
+        msg for msg in engine.messages if msg.role == "user" and any(isinstance(block, ToolResultBlock) for block in msg.content)
+    ]
+    assert len(user_tool_messages) == 1
+    result_blocks = [block for block in user_tool_messages[0].content if isinstance(block, ToolResultBlock)]
+    assert {block.tool_use_id for block in result_blocks} == {"toolu_ok", "toolu_boom"}
+
+    assert isinstance(events[-1], AssistantTurnComplete)
+    assert events[-1].message.text == "Recovered from the failure."
+
+
+@pytest.mark.asyncio
+async def test_query_engine_drops_empty_assistant_messages(tmp_path: Path):
+    engine = QueryEngine(
+        api_client=EmptyAssistantApiClient(),
+        tool_registry=ToolRegistry(),
+        permission_checker=PermissionChecker(PermissionSettings(mode=PermissionMode.FULL_AUTO)),
+        cwd=tmp_path,
+        model="claude-test",
+        system_prompt="system",
+    )
+
+    events = [event async for event in engine.submit_message("hello")]
+
+    assert any(isinstance(event, ErrorEvent) for event in events)
+    assert not any(isinstance(event, AssistantTurnComplete) for event in events)
+    assert len(engine.messages) == 1
+    assert engine.messages[0].role == "user"
