@@ -16,6 +16,7 @@ The format is based on Keep a Changelog, and this project currently tracks chang
 - `CONTRIBUTING.md` with local setup, validation commands, and PR expectations.
 - `docs/SHOWCASE.md` with concrete OpenHarness usage patterns and demo commands.
 - GitHub issue templates and a pull request template.
+- Built-in `codex` output style for compact, low-noise transcript rendering in React TUI.
 
 ### Fixed
 
@@ -27,6 +28,7 @@ The format is based on Keep a Changelog, and this project currently tracks chang
 - Memory search tokenizer handles Han characters for multilingual queries.
 - Fixed duplicate response in React TUI caused by double Enter key submission in the input handler.
 - Fixed concurrent permission modals overwriting each other in TUI default mode when the LLM returns multiple tool calls in one response; `_ask_permission` now serialises callers via an `asyncio.Lock` so each modal is shown and resolved before the next one is emitted.
+- Reduced React TUI redraw pressure when `output_style=codex` by avoiding token-level assistant buffer flushes during streaming.
 
 ### Changed
 

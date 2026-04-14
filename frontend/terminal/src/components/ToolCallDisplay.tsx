@@ -4,12 +4,20 @@ import {Box, Text} from 'ink';
 import {useTheme} from '../theme/ThemeContext.js';
 import type {TranscriptItem} from '../types.js';
 
-export function ToolCallDisplay({item}: {item: TranscriptItem}): React.JSX.Element {
+export function ToolCallDisplay({item, outputStyle}: {item: TranscriptItem; outputStyle?: string}): React.JSX.Element {
 	const {theme} = useTheme();
+	const isCodexStyle = outputStyle === 'codex';
 
 	if (item.role === 'tool') {
 		const toolName = item.tool_name ?? 'tool';
-		const summary = summarizeInput(toolName, item.tool_input, item.text);
+		const summary = summarizeInput(toolName, item.tool_input, item.text).replace(/\s+/g, ' ').trim();
+		if (isCodexStyle) {
+			return (
+				<Box marginLeft={0} flexDirection="column">
+					<Text dimColor>{`• Ran ${toolName}${summary ? ` ${summary}` : ''}`}</Text>
+				</Box>
+			);
+		}
 		return (
 			<Box marginLeft={2} flexDirection="column">
 				<Text>
@@ -22,10 +30,25 @@ export function ToolCallDisplay({item}: {item: TranscriptItem}): React.JSX.Eleme
 	}
 
 	if (item.role === 'tool_result') {
-		const lines = item.text.split('\n');
-		const maxLines = 12;
+		const lines = item.text.length > 0 ? item.text.split('\n') : [''];
+		const maxLines = isCodexStyle ? 8 : 12;
 		const display = lines.length > maxLines ? [...lines.slice(0, maxLines), `... (${lines.length - maxLines} more lines)`] : lines;
 		const color = item.is_error ? theme.colors.error : undefined;
+		if (isCodexStyle) {
+			return (
+				<Box marginLeft={0} flexDirection="column">
+					{display.map((line, i) => {
+						const prefix = i === display.length - 1 ? '└ ' : '│ ';
+						return (
+							<Text key={i} color={color} dimColor={!item.is_error}>
+								{prefix}
+								{line}
+							</Text>
+						);
+					})}
+				</Box>
+			);
+		}
 		return (
 			<Box marginLeft={4} flexDirection="column">
 				{display.map((line, i) => (

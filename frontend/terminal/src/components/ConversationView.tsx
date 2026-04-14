@@ -10,12 +10,15 @@ export function ConversationView({
 	items,
 	assistantBuffer,
 	showWelcome,
+	outputStyle,
 }: {
 	items: TranscriptItem[];
 	assistantBuffer: string;
 	showWelcome: boolean;
+	outputStyle: string;
 }): React.JSX.Element {
 	const {theme} = useTheme();
+	const isCodexStyle = outputStyle === 'codex';
 	// Show the most recent items that fit the viewport
 	const visible = items.slice(-40);
 
@@ -24,22 +27,47 @@ export function ConversationView({
 			{showWelcome && items.length === 0 ? <WelcomeBanner /> : null}
 
 			{visible.map((item, index) => (
-				<MessageRow key={index} item={item} theme={theme} />
+				<MessageRow key={index} item={item} theme={theme} outputStyle={outputStyle} />
 			))}
 
 			{assistantBuffer ? (
-				<Box flexDirection="row" marginTop={0}>
-					<Text color={theme.colors.success} bold>{theme.icons.assistant}</Text>
-					<Text>{assistantBuffer}</Text>
+				<Box flexDirection="row" marginTop={isCodexStyle ? 0 : 1}>
+					{isCodexStyle ? (
+						<Text>{assistantBuffer}</Text>
+					) : (
+						<>
+							<Text color={theme.colors.success} bold>{theme.icons.assistant}</Text>
+							<Text>{assistantBuffer}</Text>
+						</>
+					)}
 				</Box>
 			) : null}
 		</Box>
 	);
 }
 
-function MessageRow({item, theme}: {item: TranscriptItem; theme: ReturnType<typeof useTheme>['theme']}): React.JSX.Element {
+function MessageRow({
+	item,
+	theme,
+	outputStyle,
+}: {
+	item: TranscriptItem;
+	theme: ReturnType<typeof useTheme>['theme'];
+	outputStyle: string;
+}): React.JSX.Element {
+	const isCodexStyle = outputStyle === 'codex';
 	switch (item.role) {
 		case 'user':
+			if (isCodexStyle) {
+				return (
+					<Box marginTop={0}>
+						<Text>
+							<Text dimColor>{'> '}</Text>
+							<Text>{item.text}</Text>
+						</Text>
+					</Box>
+				);
+			}
 			return (
 				<Box marginTop={1} marginBottom={0}>
 					<Text>
@@ -50,6 +78,13 @@ function MessageRow({item, theme}: {item: TranscriptItem; theme: ReturnType<type
 			);
 
 		case 'assistant':
+			if (isCodexStyle) {
+				return (
+					<Box marginTop={0} marginBottom={0}>
+						<Text>{item.text}</Text>
+					</Box>
+				);
+			}
 			return (
 				<Box marginTop={1} marginBottom={0} flexDirection="column">
 					<Text>
@@ -61,9 +96,19 @@ function MessageRow({item, theme}: {item: TranscriptItem; theme: ReturnType<type
 
 		case 'tool':
 		case 'tool_result':
-			return <ToolCallDisplay item={item} />;
+			return <ToolCallDisplay item={item} outputStyle={outputStyle} />;
 
 		case 'system':
+			if (isCodexStyle) {
+				return (
+					<Box marginTop={0}>
+						<Text>
+							<Text color={theme.colors.warning}>[system]</Text>
+							<Text> {item.text}</Text>
+						</Text>
+					</Box>
+				);
+			}
 			return (
 				<Box marginTop={0}>
 					<Text>

@@ -29,6 +29,7 @@ def load_output_styles() -> list[OutputStyle]:
     styles = [
         OutputStyle(name="default", content="Standard rich console output.", source="builtin"),
         OutputStyle(name="minimal", content="Very terse plain-text output.", source="builtin"),
+        OutputStyle(name="codex", content="Codex-like compact transcript and tool output.", source="builtin"),
     ]
     for path in sorted(get_output_styles_dir().glob("*.md")):
         styles.append(
