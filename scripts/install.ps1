@@ -260,25 +260,46 @@ Write-Step "Verifying installation"
 
 $OhPath = "$VenvBinDir\oh.exe"
 $OpenhPath = "$VenvBinDir\openh.exe"
+$OpenharnessPath = "$VenvBinDir\openharness.exe"
 $OhmoPath = "$VenvBinDir\ohmo.exe"
 
-if ((Test-Path $OpenhPath) -and (Test-Path $OhmoPath)) {
-    $OhVersion = & $OpenhPath --version 2>&1
+# Pick the best available launcher. The 'openh' alias was added after v0.1.6,
+# so PyPI installs of older releases won't have openh.exe. Prefer it when
+# present, otherwise fall back to 'openharness', then 'oh' (which collides
+# with PowerShell's Out-Host alias unless invoked as oh.exe).
+$Launcher = $null
+$LauncherExe = $null
+if (Test-Path $OpenhPath) {
+    $Launcher = "openh"
+    $LauncherExe = $OpenhPath
+} elseif (Test-Path $OpenharnessPath) {
+    $Launcher = "openharness"
+    $LauncherExe = $OpenharnessPath
+} elseif (Test-Path $OhPath) {
+    $Launcher = "oh"
+    $LauncherExe = $OhPath
+}
+
+if ($LauncherExe -and (Test-Path $OhmoPath)) {
+    $OhVersion = & $LauncherExe --version 2>&1
     Write-Success "Installation successful!"
     Write-Host ""
-    Write-Host "  openh is ready: $OhVersion" -ForegroundColor Green
-    if (Test-Path $OhPath) {
-        Write-Host "  oh is also installed, but PowerShell may resolve 'oh' to Out-Host first." -ForegroundColor Yellow
+    Write-Host "  $Launcher is ready: $OhVersion" -ForegroundColor Green
+    if ($Launcher -eq "oh") {
+        Write-Host "  Note: 'oh' collides with PowerShell's built-in Out-Host alias." -ForegroundColor Yellow
+        Write-Host "        Invoke it as 'oh.exe', or use 'openharness' instead." -ForegroundColor Yellow
+    } elseif (Test-Path $OhPath) {
+        Write-Host "  'oh' is also installed, but PowerShell may resolve it to Out-Host first." -ForegroundColor Yellow
     }
     Write-Host "  ohmo is ready" -ForegroundColor Green
 } else {
     # Try module execution
     $ModuleVersion = python -m openharness --version 2>&1
     if ($ModuleVersion) {
-        Write-Warn "'openh'/'ohmo' commands not yet available. Run via: python -m openharness"
+        Write-Warn "Launcher commands not yet available on PATH. Run via: python -m openharness"
         Write-Host "  Version: $ModuleVersion"
     } else {
-        Write-Warn "Could not verify 'openh'/'ohmo' commands. The package may need a PATH update."
+        Write-Warn "Could not verify launcher commands. The package may need a PATH update."
         Write-Host "  Try: python -m openharness --version"
     }
 }
@@ -293,8 +314,16 @@ Write-Host "  Next steps:"
 Write-Host "    1. Restart terminal, or run: refreshenv (if using Chocolatey)"
 Write-Host "       Or manually refresh: `$env:PATH = [System.Environment]::GetEnvironmentVariable('PATH','User')"
 Write-Host "    2. Set your API key:        `$env:ANTHROPIC_API_KEY = 'your_key'"
-Write-Host "    3. Launch (PowerShell):     openh"
+if ($Launcher -eq "openharness") {
+    Write-Host "    3. Launch (PowerShell):     openharness"
+    Write-Host "       ('openh' is not available on this release; 'oh' collides with PowerShell's Out-Host alias.)"
+} elseif ($Launcher -eq "oh") {
+    Write-Host "    3. Launch (PowerShell):     oh.exe"
+    Write-Host "       ('oh' alone collides with PowerShell's Out-Host alias — use 'oh.exe' or 'openharness'.)"
+} else {
+    Write-Host "    3. Launch (PowerShell):     openh"
+    Write-Host "       Note: 'oh' may collide with the built-in Out-Host alias in PowerShell."
+}
 Write-Host "    4. Launch ohmo:             ohmo"
-Write-Host "       Note: 'oh' may collide with the built-in Out-Host alias in PowerShell."
 Write-Host "    5. Docs:                    https://github.com/HKUDS/OpenHarness"
 Write-Host ""
