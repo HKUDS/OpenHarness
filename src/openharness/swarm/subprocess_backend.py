@@ -58,15 +58,21 @@ class SubprocessBackend:
         )
         extra_env = build_inherited_env_vars()
 
-        # Build environment export prefix for shell invocation
-        env_prefix = " ".join(f"{k}={v!r}" for k, v in extra_env.items())
+        command = config.command
+        if command is None:
+            # Build environment export prefix for shell invocation
+            env_prefix = " ".join(f"{k}={v!r}" for k, v in extra_env.items())
 
-        teammate_cmd = get_teammate_command()
-        if teammate_cmd.endswith("python") or teammate_cmd.endswith("python3") or "/python" in teammate_cmd:
-            cmd_parts = [teammate_cmd, "-m", "openharness", "--task-worker"] + flags
-        else:
-            cmd_parts = [teammate_cmd, "--task-worker"] + flags
-        command = f"{env_prefix} {' '.join(cmd_parts)}" if env_prefix else " ".join(cmd_parts)
+            teammate_cmd = get_teammate_command()
+            if (
+                teammate_cmd.endswith("python")
+                or teammate_cmd.endswith("python3")
+                or "/python" in teammate_cmd
+            ):
+                cmd_parts = [teammate_cmd, "-m", "openharness", "--task-worker"] + flags
+            else:
+                cmd_parts = [teammate_cmd, "--task-worker"] + flags
+            command = f"{env_prefix} {' '.join(cmd_parts)}" if env_prefix else " ".join(cmd_parts)
 
         manager = get_task_manager()
         try:
@@ -74,7 +80,7 @@ class SubprocessBackend:
                 prompt=config.prompt,
                 description=f"Teammate: {agent_id}",
                 cwd=config.cwd,
-                task_type="in_process_teammate",
+                task_type=config.task_type,
                 model=config.model,
                 command=command,
             )

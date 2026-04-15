@@ -139,6 +139,7 @@ class BackgroundTaskManager:
         except asyncio.TimeoutError:
             process.kill()
             await process.wait()
+        await _close_process_stdin(process)
 
         task.status = "killed"
         task.ended_at = time.time()
@@ -176,6 +177,7 @@ class BackgroundTaskManager:
         reader = asyncio.create_task(self._copy_output(task_id, process))
         return_code = await process.wait()
         await reader
+        await _close_process_stdin(process)
 
         current_generation = self._generations.get(task_id)
         if current_generation != generation:
@@ -253,6 +255,52 @@ class BackgroundTaskManager:
         task.return_code = None
         return await self._start_process(task.id)
 
+    def close(self) -> None:
+        """Best-effort cleanup for any tracked subprocesses and watcher tasks."""
+        for waiter in list(self._waiters.values()):
+            waiter.cancel()
+        self._waiters.clear()
+
+        for process in list(self._processes.values()):
+            stdin = process.stdin
+            if stdin is not None and not stdin.is_closing():
+                try:
+                    stdin.close()
+                except RuntimeError:
+                    pass
+            if process.returncode is None:
+                try:
+                    process.kill()
+                except (ProcessLookupError, RuntimeError):
+                    pass
+        self._processes.clear()
+
+    async def aclose(self) -> None:
+        """Asynchronously shut down tracked subprocesses and waiters."""
+        processes = list(self._processes.values())
+        waiters = list(self._waiters.values())
+
+        for process in processes:
+            if process.returncode is None:
+                try:
+                    process.kill()
+                except ProcessLookupError:
+                    pass
+            await _close_process_stdin(process)
+
+        for process in processes:
+            if process.returncode is None:
+                try:
+                    await process.wait()
+                except ProcessLookupError:
+                    pass
+
+        if waiters:
+            await asyncio.gather(*waiters, return_exceptions=True)
+
+        self._processes.clear()
+        self._waiters.clear()
+
 
 _DEFAULT_MANAGER: BackgroundTaskManager | None = None
 _DEFAULT_MANAGER_KEY: str | None = None
@@ -263,9 +311,29 @@ def get_task_manager() -> BackgroundTaskManager:
     global _DEFAULT_MANAGER, _DEFAULT_MANAGER_KEY
     current_key = str(get_tasks_dir().resolve())
     if _DEFAULT_MANAGER is None or _DEFAULT_MANAGER_KEY != current_key:
+        if _DEFAULT_MANAGER is not None:
+            _DEFAULT_MANAGER.close()
         _DEFAULT_MANAGER = BackgroundTaskManager()
         _DEFAULT_MANAGER_KEY = current_key
     return _DEFAULT_MANAGER
+
+
+def reset_task_manager() -> None:
+    """Reset the singleton task manager, closing tracked subprocesses first."""
+    global _DEFAULT_MANAGER, _DEFAULT_MANAGER_KEY
+    if _DEFAULT_MANAGER is not None:
+        _DEFAULT_MANAGER.close()
+    _DEFAULT_MANAGER = None
+    _DEFAULT_MANAGER_KEY = None
+
+
+async def shutdown_task_manager() -> None:
+    """Async reset that fully reaps tracked subprocesses before clearing state."""
+    global _DEFAULT_MANAGER, _DEFAULT_MANAGER_KEY
+    if _DEFAULT_MANAGER is not None:
+        await _DEFAULT_MANAGER.aclose()
+    _DEFAULT_MANAGER = None
+    _DEFAULT_MANAGER_KEY = None
 
 
 def _task_id(task_type: TaskType) -> str:
@@ -276,3 +344,14 @@ def _task_id(task_type: TaskType) -> str:
         "in_process_teammate": "t",
     }
     return f"{prefixes[task_type]}{uuid4().hex[:8]}"
+
+
+async def _close_process_stdin(process: asyncio.subprocess.Process) -> None:
+    stdin = process.stdin
+    if stdin is None or stdin.is_closing():
+        return
+    stdin.close()
+    try:
+        await stdin.wait_closed()
+    except (BrokenPipeError, ConnectionResetError):
+        pass

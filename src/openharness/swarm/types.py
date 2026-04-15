@@ -276,6 +276,9 @@ class TeammateSpawnConfig:
     model: str | None = None
     """Model override for this teammate."""
 
+    command: str | None = None
+    """Optional explicit command override for subprocess-backed teammates."""
+
     system_prompt: str | None = None
     """System prompt resolved from workflow config."""
 
@@ -305,6 +308,9 @@ class TeammateSpawnConfig:
 
     subscriptions: list[str] = field(default_factory=list)
     """Event topics this teammate subscribes to."""
+
+    task_type: Literal["local_agent", "remote_agent", "in_process_teammate"] = "local_agent"
+    """Background task type recorded for subprocess-backed teammates."""
 
 
 # ---------------------------------------------------------------------------

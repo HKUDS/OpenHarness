@@ -3,12 +3,25 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from pathlib import Path
 
 import pytest
 
+from openharness.tasks.manager import get_task_manager
 from openharness.tools import create_default_tool_registry
 from openharness.tools.base import ToolExecutionContext
+
+
+async def _wait_for_terminal_task(task_id: str, *, timeout_seconds: float = 2.0) -> None:
+    deadline = asyncio.get_running_loop().time() + timeout_seconds
+    manager = get_task_manager()
+    while asyncio.get_running_loop().time() < deadline:
+        task = manager.get_task(task_id)
+        if task is not None and task.status in {"completed", "failed", "killed"}:
+            return
+        await asyncio.sleep(0.05)
+    raise AssertionError(f"Task {task_id} did not reach a terminal status in time")
 
 
 @pytest.mark.asyncio
@@ -129,7 +142,6 @@ async def test_skill_and_config_flow_across_registry(tmp_path: Path, monkeypatch
 
 
 @pytest.mark.asyncio
-@pytest.mark.xfail(reason="Flaky timing-dependent test", strict=False)
 async def test_agent_send_message_flow_restarts_completed_agent(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("OPENHARNESS_DATA_DIR", str(tmp_path / "data"))
     registry = create_default_tool_registry()
@@ -147,7 +159,9 @@ async def test_agent_send_message_flow_restarts_completed_agent(tmp_path: Path, 
         ),
         context,
     )
-    task_id = create_result.output.split()[-1]
+    match = re.search(r"task_id=(\S+?)[,)]", create_result.output)
+    assert match, create_result.output
+    task_id = match.group(1)
 
     for _ in range(80):
         output = await task_output.execute(task_output.input_model(task_id=task_id), context)
@@ -174,6 +188,7 @@ async def test_agent_send_message_flow_restarts_completed_agent(tmp_path: Path, 
 
     assert "AGENT_ECHO:ready" in output.output
     assert "AGENT_ECHO:agent ping" in output.output
+    await _wait_for_terminal_task(task_id)
 
 
 @pytest.mark.asyncio
