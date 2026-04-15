@@ -23,6 +23,8 @@
     "@vue/tsconfig": "^0.9.1",
     "typescript": "^6.0.2",
     "vite": "^8.0.8",
+    "vite-plugin-html": "^3.2.2",
+    "vite-plugin-vue-devtools": "^8.1.1",
     "vue-tsc": "^3.2.6"
   }
 }

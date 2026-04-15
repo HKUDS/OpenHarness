@@ -26,15 +26,24 @@ export function useChatWebSocket() {
       isConnecting.value = false
       chatStore.setConnectionStatus(true)
     })
+    // 状态快照
+    on('state_snapshot', (data: any) => {
+      console.log('接收WebSocket消息,state_snapshot:' + JSON.stringify(data))
+    })
+      //任务快照
+    on('tasks_snapshot', (data: any) => {
+      console.log('接收WebSocket消息,tasks_snapshot:' + JSON.stringify(data))
+    })
 
     // 用户消息确认响应
     on('transcript_item', (data: any) => {
-      console.log('后端->前端:', data)
+      console.log('接收WebSocket消息,transcript_item:' + JSON.stringify(data))
     })
+
 
     // 流式响应
     on('assistant_delta', (data: any) => {
-    console.log('接收WebSocket消息,assistant_delta:' + JSON.stringify(data))
+      console.log('接收WebSocket消息,assistant_delta:' + JSON.stringify(data))
       if (!chatStore.isStreaming) {
         chatStore.startStreaming()
       }
