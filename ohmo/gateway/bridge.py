@@ -64,8 +64,6 @@ class OhmoGatewayBridge:
         self._runtime_pool = runtime_pool
         self._restart_gateway = restart_gateway
         self._running = False
-        self._session_tasks: dict[str, asyncio.Task[None]] = {}
-        self._session_cancel_reasons: dict[str, str] = {}
 
     async def run(self) -> None:
         self._running = True
@@ -86,6 +84,33 @@ class OhmoGatewayBridge:
                 session_key,
                 _content_snippet(message.content),
             )
+            try:
+                reply = ""
+                async for update in self._runtime_pool.stream_message(message, session_key):
+                    if update.kind == "final":
+                        reply = update.text
+                        continue
+                    if not update.text:
+                        continue
+                    logger.info(
+                        "ohmo outbound update channel=%s chat_id=%s session_key=%s kind=%s content=%r",
+                        message.channel,
+                        message.chat_id,
+                        session_key,
+                        update.kind,
+                        _content_snippet(update.text),
+                    )
+                    await self._bus.publish_outbound(
+                        OutboundMessage(
+                            channel=message.channel,
+                            chat_id=message.chat_id,
+                            content=update.text,
+                            metadata=update.metadata,
+                        )
+                    )
+            except Exception as exc:  # pragma: no cover - gateway failure path
+                logger.exception(
+                    "ohmo gateway failed to process inbound message channel=%s chat_id=%s sender_id=%s session_key=%s content=%r",
             if message.content.strip() == "/stop":
                 await self._handle_stop(message, session_key)
                 continue
@@ -185,10 +210,17 @@ class OhmoGatewayBridge:
                     "ohmo outbound update channel=%s chat_id=%s session_key=%s kind=%s content=%r",
                     message.channel,
                     message.chat_id,
+                    message.sender_id,
                     session_key,
-                    update.kind,
-                    _content_snippet(update.text),
+                    _content_snippet(message.content),
                 )
+                reply = _format_gateway_error(exc)
+            if not reply:
+                logger.info(
+                    "ohmo inbound finished without final reply channel=%s chat_id=%s session_key=%s",
+                    message.channel,
+                    message.chat_id,
+                    session_key,
                 await self._bus.publish_outbound(
                     OutboundMessage(
                         channel=message.channel,
@@ -197,32 +229,21 @@ class OhmoGatewayBridge:
                         metadata={**inbound_meta, **(update.metadata or {})},
                     )
                 )
-        except asyncio.CancelledError:
+                continue
             logger.info(
-                "ohmo session interrupted channel=%s chat_id=%s session_key=%s reason=%s",
+                "ohmo outbound final channel=%s chat_id=%s session_key=%s content=%r",
                 message.channel,
                 message.chat_id,
                 session_key,
-                self._session_cancel_reasons.get(session_key, "cancelled"),
+                _content_snippet(reply),
             )
-            raise
-        except Exception as exc:  # pragma: no cover - gateway failure path
-            logger.exception(
-                "ohmo gateway failed to process inbound message channel=%s chat_id=%s sender_id=%s session_key=%s content=%r",
-                message.channel,
-                message.chat_id,
-                message.sender_id,
-                session_key,
-                _content_snippet(message.content),
-            )
-            reply = _format_gateway_error(exc)
-        if not reply:
-            logger.info(
-                "ohmo inbound finished without final reply channel=%s chat_id=%s session_key=%s",
-                message.channel,
-                message.chat_id,
-                session_key,
-            )
+            await self._bus.publish_outbound(
+                OutboundMessage(
+                    channel=message.channel,
+                    chat_id=message.chat_id,
+                    content=reply,
+                    metadata={"_session_key": session_key},
+                )
             return
         logger.info(
             "ohmo outbound final channel=%s chat_id=%s session_key=%s content=%r",
@@ -238,10 +259,6 @@ class OhmoGatewayBridge:
                 content=reply,
                 metadata={**inbound_meta, "_session_key": session_key},
             )
-        )
 
-    def _cleanup_task(self, session_key: str, task: asyncio.Task[None]) -> None:
-        current = self._session_tasks.get(session_key)
-        if current is task:
-            self._session_tasks.pop(session_key, None)
-        self._session_cancel_reasons.pop(session_key, None)
+    def stop(self) -> None:
+        self._running = False

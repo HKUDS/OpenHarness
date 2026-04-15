@@ -14,7 +14,6 @@ import string
 from openharness.channels.bus.events import InboundMessage
 from openharness.commands import CommandContext, CommandResult
 from openharness.engine.messages import ConversationMessage, ImageBlock, TextBlock
-from openharness.engine.query import MaxTurnsExceeded
 from openharness.engine.stream_events import (
     AssistantTextDelta,
     AssistantTurnComplete,
@@ -25,7 +24,7 @@ from openharness.engine.stream_events import (
     ToolExecutionStarted,
 )
 from openharness.prompts import build_runtime_system_prompt
-from openharness.ui.runtime import RuntimeBundle, _last_user_text, build_runtime, close_runtime, start_runtime
+from openharness.ui.runtime import RuntimeBundle, build_runtime, start_runtime
 
 from ohmo.gateway.config import load_gateway_config
 from ohmo.prompts import build_ohmo_system_prompt
@@ -318,6 +317,81 @@ class OhmoSessionRuntimePool:
             ),
             metadata={"_progress": True, "_session_key": session_key},
         )
+        async for event in bundle.engine.submit_message(user_message):
+            if isinstance(event, AssistantTextDelta):
+                reply_parts.append(event.text)
+                continue
+            if isinstance(event, StatusEvent):
+                logger.info(
+                    "ohmo runtime status session_key=%s session_id=%s message=%r",
+                    session_key,
+                    bundle.session_id,
+                    _content_snippet(event.message),
+                )
+                yield GatewayStreamUpdate(
+                    kind="progress",
+                    text=_format_channel_progress(
+                        channel=message.channel,
+                        kind="status",
+                        text=event.message,
+                        session_key=session_key,
+                        content=user_prompt,
+                    ),
+                    metadata={"_progress": True, "_session_key": session_key},
+                )
+                continue
+            if isinstance(event, ToolExecutionStarted):
+                summary = _summarize_tool_input(event.tool_name, event.tool_input)
+                logger.info(
+                    "ohmo runtime tool start session_key=%s session_id=%s tool=%s summary=%r",
+                    session_key,
+                    bundle.session_id,
+                    event.tool_name,
+                    summary,
+                )
+                hint = f"Using {event.tool_name}"
+                if summary:
+                    hint = f"{hint}: {summary}"
+                yield GatewayStreamUpdate(
+                    kind="tool_hint",
+                    text=_format_channel_progress(
+                        channel=message.channel,
+                        kind="tool_hint",
+                        text=hint,
+                        session_key=session_key,
+                        content=user_prompt,
+                    ),
+                    metadata={
+                        "_progress": True,
+                        "_tool_hint": True,
+                        "_session_key": session_key,
+                    },
+                )
+                continue
+            if isinstance(event, ToolExecutionCompleted):
+                logger.info(
+                    "ohmo runtime tool complete session_key=%s session_id=%s tool=%s",
+                    session_key,
+                    bundle.session_id,
+                    event.tool_name,
+                )
+                continue
+            if isinstance(event, ErrorEvent):
+                logger.error(
+                    "ohmo runtime error session_key=%s session_id=%s message=%r",
+                    session_key,
+                    bundle.session_id,
+                    _content_snippet(event.message),
+                )
+                yield GatewayStreamUpdate(
+                    kind="error",
+                    text=event.message,
+                    metadata={"_session_key": session_key},
+                )
+                return
+            if isinstance(event, AssistantTurnComplete) and not reply_parts:
+                reply_parts.append(event.message.text.strip())
+        reply = "".join(reply_parts).strip()
         try:
             async for event in bundle.engine.submit_message(user_message):
                 async for update in self._convert_stream_event(
@@ -475,11 +549,24 @@ class OhmoSessionRuntimePool:
             tool_metadata=tool_metadata,
         )
         logger.info(
-            "ohmo runtime saved snapshot session_key=%s session_id=%s message_count=%s",
+            "ohmo runtime saved snapshot session_key=%s session_id=%s message_count=%s reply_chars=%s",
             session_key,
             bundle.session_id,
             len(bundle.engine.messages),
+            len(reply),
         )
+        if reply:
+            logger.info(
+                "ohmo runtime processing complete session_key=%s session_id=%s reply=%r",
+                session_key,
+                bundle.session_id,
+                _content_snippet(reply),
+            )
+            yield GatewayStreamUpdate(
+                kind="final",
+                text=reply,
+                metadata={"_session_key": session_key},
+            )
 
     async def _refresh_bundle(
         self,

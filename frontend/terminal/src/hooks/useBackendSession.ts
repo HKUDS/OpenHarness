@@ -14,12 +14,25 @@ import type {
 	TranscriptItem,
 } from '../types.js';
 
+// Deterministic JSON stringify with sorted keys for stable snapshots
+function stableStringify(value: unknown): string {
+	if (value === null || value === undefined) {
+		return JSON.stringify(value);
+	}
+	if (typeof value !== 'object') {
+		return JSON.stringify(value);
+	}
+	if (Array.isArray(value)) {
+		return '[' + value.map(stableStringify).join(',') + ']';
+	}
+	const keys = Object.keys(value as Record<string, unknown>).sort();
+	return '{' + keys.map((k) => JSON.stringify(k) + ':' + stableStringify((value as Record<string, unknown>)[k])).join(',') + '}';
+}
+
 const PROTOCOL_PREFIX = 'OHJSON:';
 const ASSISTANT_DELTA_FLUSH_MS = 50;
 const ASSISTANT_DELTA_FLUSH_CHARS = 384;
 const TRANSCRIPT_EVENT_FLUSH_MS = 50;
-
-const stableStringify = (value: unknown): string => JSON.stringify(value);
 
 export function useBackendSession(config: FrontendConfig, onExit: (code?: number | null) => void) {
 	const [transcript, setTranscript] = useState<TranscriptItem[]>([]);
@@ -40,10 +53,10 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 	const statusRef = useRef<Record<string, unknown>>({});
 	const childRef = useRef<ChildProcessWithoutNullStreams | null>(null);
 	const sentInitialPrompt = useRef(false);
-	const lastStatusSnapshotRef = useRef('');
-	const lastTasksSnapshotRef = useRef('');
-	const lastMcpSnapshotRef = useRef('');
-	const lastBridgeSnapshotRef = useRef('');
+	const lastStatusSnapshotRef = useRef<string>('');
+	const lastTasksSnapshotRef = useRef<string>('');
+	const lastMcpSnapshotRef = useRef<string>('');
+	const lastBridgeSnapshotRef = useRef<string>('');
 
 	// Streaming deltas can arrive one token at a time; updating Ink state for each
 	// delta causes heavy re-rendering/flicker. Buffer and flush at ~30fps.
@@ -179,6 +192,11 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 	const handleEvent = (event: BackendEvent): void => {
 		if (event.type === 'ready') {
 			setReady(true);
+			setStatus(event.state ?? {});
+			setTasks(event.tasks ?? []);
+			setCommands(event.commands ?? []);
+			setMcpServers(event.mcp_servers ?? []);
+			setBridgeSessions(event.bridge_sessions ?? []);
 			const statusSnapshot = stableStringify(event.state ?? {});
 			lastStatusSnapshotRef.current = statusSnapshot;
 			const nextStatus = event.state ?? {};
@@ -210,6 +228,13 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 			return;
 		}
 		if (event.type === 'state_snapshot') {
+			setStatus(event.state ?? {});
+			setMcpServers(event.mcp_servers ?? []);
+			setBridgeSessions(event.bridge_sessions ?? []);
+			return;
+		}
+		if (event.type === 'tasks_snapshot') {
+			setTasks(event.tasks ?? []);
 			const statusSnapshot = stableStringify(event.state ?? {});
 			if (statusSnapshot !== lastStatusSnapshotRef.current) {
 				lastStatusSnapshotRef.current = statusSnapshot;

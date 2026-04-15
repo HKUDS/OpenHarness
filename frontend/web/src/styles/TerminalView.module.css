@@ -1,0 +1,126 @@
+.terminalView {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: linear-gradient(180deg, #0f0f0f 0%, #1a1a1a 100%);
+}
+
+.terminalHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.875rem 1.25rem;
+  background: rgba(20, 20, 20, 0.85);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(20px);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+}
+
+.terminalTitle {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.9rem;
+  color: #e0e0e0;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.terminalTitle::before {
+  content: '❯';
+  color: #50fa7b;
+  font-size: 1rem;
+}
+
+.terminalControls {
+  display: flex;
+  gap: 0.625rem;
+}
+
+.controlDot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.2);
+  transition: all 0.2s;
+  cursor: pointer;
+  position: relative;
+}
+
+.controlDot::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.3);
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.controlDot:hover::after {
+  opacity: 1;
+}
+
+.controlDot:hover {
+  transform: scale(1.1);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.controlDot:nth-child(1) {
+  background: linear-gradient(135deg, #ff5f56 0%, #ff6e67 100%);
+  box-shadow: 0 2px 8px rgba(255, 95, 86, 0.3);
+}
+
+.controlDot:nth-child(2) {
+  background: linear-gradient(135deg, #ffbd2e 0%, #f4f99d 100%);
+  box-shadow: 0 2px 8px rgba(255, 189, 46, 0.3);
+}
+
+.controlDot:nth-child(3) {
+  background: linear-gradient(135deg, #27c93f 0%, #5af78e 100%);
+  box-shadow: 0 2px 8px rgba(39, 201, 63, 0.3);
+}
+
+.terminalContainer {
+  flex: 1;
+  overflow: hidden;
+  padding: 1.25rem;
+}
+
+.terminalContainer :global(.xterm) {
+  height: 100%;
+  padding: 0.5rem;
+}
+
+.terminalContainer :global(.xterm-viewport) {
+  overflow-y: auto;
+  border-radius: 8px;
+}
+
+.terminalContainer :global(.xterm-screen) {
+  padding: 0.5rem;
+}
+
+/* Custom scrollbar for xterm */
+.terminalContainer :global(.xterm-viewport::-webkit-scrollbar) {
+  width: 8px;
+}
+
+.terminalContainer :global(.xterm-viewport::-webkit-scrollbar-track) {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 4px;
+}
+
+.terminalContainer :global(.xterm-viewport::-webkit-scrollbar-thumb) {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+}
+
+.terminalContainer :global(.xterm-viewport::-webkit-scrollbar-thumb:hover) {
+  background: rgba(255, 255, 255, 0.3);
+}

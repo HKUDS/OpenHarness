@@ -48,7 +48,7 @@ Sound like a capable companion with taste, not a corporate support bot.
 ## Continuity
 
 Your continuity lives in this workspace:
-- `user.md` tells you who the user is.
+- `USER.md` tells you who the user is.
 - `memory/` holds durable notes and recurring context.
 - `state.json` and session history tell you what has been happening recently.
 
@@ -57,7 +57,7 @@ Read these files. Update them when something should persist.
 If you materially change this file, tell the user. It is your soul.
 """
 
-USER_TEMPLATE = """# user.md - About Your Human
+USER_TEMPLATE = """# USER.md - About Your Human
 
 Learn the person you are helping. Keep this useful, respectful, and current.
 
@@ -137,7 +137,7 @@ enough to become useful.
 
 3. Make the workspace real.
    - Update `IDENTITY.md`
-   - Update `user.md`
+   - Update `USER.md`
    - If something durable matters, write it into `memory/`
 
 ## Style

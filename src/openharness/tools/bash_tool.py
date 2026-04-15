@@ -18,7 +18,7 @@ class BashToolInput(BaseModel):
 
     command: str = Field(description="Shell command to execute")
     cwd: str | None = Field(default=None, description="Working directory override")
-    timeout_seconds: int = Field(default=600, ge=1, le=600)
+    timeout_seconds: int = Field(default=120, ge=1, le=600)
 
 
 class BashTool(BaseTool):
@@ -48,14 +48,12 @@ class BashTool(BaseTool):
             )
         except SandboxUnavailableError as exc:
             return ToolResult(output=str(exc), is_error=True)
-        except asyncio.CancelledError:
-            if process is not None:
-                await _terminate_process(process, force=False)
-            raise
 
         try:
             await asyncio.wait_for(process.wait(), timeout=arguments.timeout_seconds)
         except asyncio.TimeoutError:
+            process.kill()
+            await process.wait()
             output_buffer = await _drain_available_output(process.stdout)
             await _terminate_process(process, force=True)
             output_buffer.extend(await _read_remaining_output(process))
@@ -68,9 +66,6 @@ class BashTool(BaseTool):
                 is_error=True,
                 metadata={"returncode": process.returncode, "timed_out": True},
             )
-        except asyncio.CancelledError:
-            await _terminate_process(process, force=False)
-            raise
 
         output_buffer = await _read_remaining_output(process)
         text = _format_output(output_buffer)

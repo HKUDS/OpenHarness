@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import sys
@@ -1087,6 +1088,94 @@ def provider_remove(
         print(f"Error: {exc}", file=sys.stderr)
         raise typer.Exit(1)
     print(f"Removed provider profile: {name}", flush=True)
+
+# ---------------------------------------------------------------------------
+# Web frontend command
+# ---------------------------------------------------------------------------
+
+@app.command("web")
+def web(
+    host: str = typer.Option(
+        "0.0.0.0",
+        "--host",
+        help="Host to bind the web server to",
+    ),
+    port: int = typer.Option(
+        8080,
+        "--port",
+        "-p",
+        help="Port to run the web server on",
+    ),
+    serve_frontend: bool = typer.Option(
+        True,
+        "--serve-frontend/--no-serve-frontend",
+        help="Serve the web frontend static files",
+    ),
+    # --- Session ---
+    cwd: str | None = typer.Option(
+        None,
+        "--cwd",
+        help="Working directory for the session",
+    ),
+    # --- Model & Effort ---
+    model: str | None = typer.Option(
+        None,
+        "--model",
+        "-m",
+        help="Model alias or full model ID",
+    ),
+    max_turns: int | None = typer.Option(
+        None,
+        "--max-turns",
+        help="Maximum number of agentic turns",
+    ),
+    # --- API ---
+    base_url: str | None = typer.Option(
+        None,
+        "--base-url",
+        help="Base URL for API",
+    ),
+    system_prompt: str | None = typer.Option(
+        None,
+        "--system-prompt",
+        help="System prompt override",
+    ),
+    api_key: str | None = typer.Option(
+        None,
+        "--api-key",
+        help="API key (overrides stored credentials)",
+    ),
+    api_format: str | None = typer.Option(
+        None,
+        "--api-format",
+        help="API format (anthropic, openai, etc.)",
+    ),
+    # --- Permissions ---
+    permission_mode: str | None = typer.Option(
+        None,
+        "--permission-mode",
+        help="Permission mode: default, plan, or full_auto",
+    ),
+) -> None:
+    """Launch the web-based frontend for OpenHarness."""
+    from openharness.web_server import run_web_server
+    
+    asyncio.run(
+        run_web_server(
+            host=host,
+            port=port,
+            cwd=cwd,
+            model=model,
+            max_turns=max_turns,
+            base_url=base_url,
+            system_prompt=system_prompt,
+            api_key=api_key,
+            api_format=api_format,
+            permission_mode=permission_mode,
+            serve_frontend=serve_frontend,
+        )
+    )
+
 
 # ---------------------------------------------------------------------------
 # Main command
