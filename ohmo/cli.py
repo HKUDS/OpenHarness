@@ -208,10 +208,10 @@ def _prompt_channels(existing: GatewayConfig) -> tuple[list[str], dict[str, dict
         else:
             enabled.append(channel)
         allow_from_raw = _text_prompt(
-            f"{channel} allow_from (comma separated, '*' for everyone)",
-            default=",".join(prior.get("allow_from", ["*"])) or "*",
+            f"{channel} allow_from (comma separated user/chat IDs; leave blank to deny all; '*' for everyone)",
+            default=",".join(prior.get("allow_from", [])),
         )
-        allow_from = [item.strip() for item in allow_from_raw.split(",") if item.strip()] or ["*"]
+        allow_from = [item.strip() for item in allow_from_raw.split(",") if item.strip()]
         config: dict[str, object] = {"allow_from": allow_from}
         if channel == "telegram":
             config["token"] = _text_prompt(
@@ -344,6 +344,15 @@ def _print_gateway_config_summary(config: GatewayConfig) -> None:
             + ", ".join(config.enabled_channels)
             + f" | provider_profile={config.provider_profile}"
         )
+        deny_all_channels = [
+            name for name in config.enabled_channels
+            if not list(config.channel_configs.get(name, {}).get("allow_from", []))
+        ]
+        if deny_all_channels:
+            print(
+                "Remote access denied until allow_from is configured for: "
+                + ", ".join(deny_all_channels)
+            )
     else:
         print(f"Configured provider_profile={config.provider_profile}; no channels enabled yet.")
     if config.allow_remote_admin_commands and config.allowed_remote_admin_commands:
