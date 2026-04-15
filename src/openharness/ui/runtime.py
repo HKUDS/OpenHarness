@@ -116,6 +116,8 @@ class RuntimeBundle:
 
 def _resolve_api_client_from_settings(settings) -> SupportsStreamingMessages:
     """Build the appropriate API client for the resolved settings."""
+    # Ensure profile fields (base_url, model, api_format) are projected to settings
+    settings = settings.materialize_active_profile()
 
     def _safe_resolve_auth():
         try:
@@ -151,7 +153,7 @@ def _resolve_api_client_from_settings(settings) -> SupportsStreamingMessages:
             claude_oauth=True,
             auth_token_resolver=lambda: settings.resolve_auth().value,
         )
-    if settings.api_format == "openai":
+    if settings.api_format in ("openai", "openai_compat"):
         auth = _safe_resolve_auth()
         return OpenAICompatibleClient(
             api_key=auth.value,
