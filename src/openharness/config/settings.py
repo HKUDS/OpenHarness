@@ -725,11 +725,15 @@ class Settings(BaseModel):
             return merged
 
         profile_keys = {"model", "base_url", "api_format", "provider", "api_key", "active_profile", "profiles"}
+        profile_updates = profile_keys.intersection(updates)
         # Changing permission mode can alter resolved model selection (e.g. `opusplan`).
         needs_materialize = raw_permission_mode is not None
-        if not profile_keys.isdisjoint(updates):
+
+        if profile_updates:
             needs_materialize = True
-            merged = merged.sync_active_profile_from_flat_fields()
+            if not profile_updates.issubset({"active_profile"}):
+                merged = merged.sync_active_profile_from_flat_fields()
+
         return merged.materialize_active_profile() if needs_materialize else merged
 
 

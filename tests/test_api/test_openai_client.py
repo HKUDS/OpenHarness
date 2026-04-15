@@ -15,6 +15,7 @@ from openharness.api.openai_client import (
 )
 from openharness.engine.messages import (
     ConversationMessage,
+    ImageBlock,
     TextBlock,
     ToolResultBlock,
     ToolUseBlock,
@@ -80,6 +81,25 @@ class TestConvertMessagesToOpenai:
         result = _convert_messages_to_openai(messages, None)
         assert len(result) == 1
         assert result[0] == {"role": "user", "content": "hello"}
+
+    def test_user_multimodal_message(self):
+        messages = [
+            ConversationMessage(
+                role="user",
+                content=[
+                    TextBlock(text="Please describe this image."),
+                    ImageBlock(media_type="image/png", data="YWJj", source_path="/tmp/example.png"),
+                ],
+            )
+        ]
+        result = _convert_messages_to_openai(messages, None)
+        assert result[0]["role"] == "user"
+        assert isinstance(result[0]["content"], list)
+        assert result[0]["content"][0] == {"type": "text", "text": "Please describe this image."}
+        assert result[0]["content"][1] == {
+            "type": "image_url",
+            "image_url": {"url": "data:image/png;base64,YWJj"},
+        }
 
     def test_assistant_text_message(self):
         msg = ConversationMessage(

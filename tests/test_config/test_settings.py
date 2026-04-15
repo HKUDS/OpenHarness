@@ -220,6 +220,44 @@ class TestLoadSaveSettings:
         assert materialized.api_format == "openai"
         assert materialized.model == "gpt-5"
 
+    def test_merge_cli_active_profile_does_not_inherit_flat_provider_fields(self):
+        settings = Settings(
+            active_profile="moonshot",
+            provider="moonshot",
+            api_format="openai",
+            base_url="https://api.moonshot.cn/v1",
+            model="kimi-k2.5",
+            profiles={
+                "moonshot": ProviderProfile(
+                    label="Moonshot",
+                    provider="moonshot",
+                    api_format="openai",
+                    auth_source="moonshot_api_key",
+                    default_model="kimi-k2.5",
+                    last_model="kimi-k2.5",
+                    base_url="https://api.moonshot.cn/v1",
+                ),
+                "codex": ProviderProfile(
+                    label="Codex Subscription",
+                    provider="openai_codex",
+                    api_format="openai",
+                    auth_source="codex_subscription",
+                    default_model="gpt-5.4",
+                    last_model="gpt-5.4",
+                ),
+            },
+        )
+
+        updated = settings.merge_cli_overrides(active_profile="codex")
+        profile_name, profile = updated.resolve_profile()
+
+        assert profile_name == "codex"
+        assert updated.provider == "openai_codex"
+        assert updated.base_url is None
+        assert updated.model == "gpt-5.4"
+        assert profile.provider == "openai_codex"
+        assert profile.auth_source == "codex_subscription"
+
     def test_claude_profile_materializes_alias_to_concrete_model(self):
         settings = Settings(
             active_profile="claude-subscription",

@@ -2,15 +2,20 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 from contextlib import AsyncExitStack
 from typing import Any
 
+import httpx
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
+from mcp.client.streamable_http import streamable_http_client
 from mcp.types import CallToolResult, ReadResourceResult
 
 from openharness.mcp.types import (
     McpConnectionStatus,
+    McpHttpServerConfig,
     McpResourceInfo,
     McpStdioServerConfig,
     McpToolInfo,
@@ -38,10 +43,12 @@ class McpClientManager:
         self._stacks: dict[str, AsyncExitStack] = {}
 
     async def connect_all(self) -> None:
-        """Connect all configured stdio MCP servers."""
+        """Connect all configured MCP servers supported by the current build."""
         for name, config in self._server_configs.items():
             if isinstance(config, McpStdioServerConfig):
                 await self._connect_stdio(name, config)
+            elif isinstance(config, McpHttpServerConfig):
+                await self._connect_http(name, config)
             else:
                 self._statuses[name] = McpConnectionStatus(
                     name=name,
@@ -71,7 +78,8 @@ class McpClientManager:
     async def close(self) -> None:
         """Close all active MCP sessions."""
         for stack in list(self._stacks.values()):
-            await stack.aclose()
+            with contextlib.suppress(RuntimeError, asyncio.CancelledError):
+                await stack.aclose()
         self._stacks.clear()
         self._sessions.clear()
 
@@ -157,37 +165,13 @@ class McpClientManager:
                     )
                 )
             )
-            session = await stack.enter_async_context(ClientSession(read_stream, write_stream))
-            await session.initialize()
-            tool_result = await session.list_tools()
-            resource_result = await session.list_resources()
-            tools = [
-                McpToolInfo(
-                    server_name=name,
-                    name=tool.name,
-                    description=tool.description or "",
-                    input_schema=dict(tool.inputSchema or {"type": "object", "properties": {}}),
-                )
-                for tool in tool_result.tools
-            ]
-            resources = [
-                McpResourceInfo(
-                    server_name=name,
-                    name=resource.name or str(resource.uri),
-                    uri=str(resource.uri),
-                    description=resource.description or "",
-                )
-                for resource in resource_result.resources
-            ]
-            self._sessions[name] = session
-            self._stacks[name] = stack
-            self._statuses[name] = McpConnectionStatus(
+            await self._register_connected_session(
                 name=name,
-                state="connected",
-                transport=config.type,
+                config=config,
+                stack=stack,
+                read_stream=read_stream,
+                write_stream=write_stream,
                 auth_configured=bool(config.env),
-                tools=tools,
-                resources=resources,
             )
         except Exception as exc:
             await stack.aclose()
@@ -198,3 +182,78 @@ class McpClientManager:
                 auth_configured=bool(config.env),
                 detail=str(exc),
             )
+
+    async def _connect_http(self, name: str, config: McpHttpServerConfig) -> None:
+        stack = AsyncExitStack()
+        try:
+            http_client = await stack.enter_async_context(
+                httpx.AsyncClient(headers=config.headers or None)
+            )
+            read_stream, write_stream, _get_session_id = await stack.enter_async_context(
+                streamable_http_client(config.url, http_client=http_client)
+            )
+            await self._register_connected_session(
+                name=name,
+                config=config,
+                stack=stack,
+                read_stream=read_stream,
+                write_stream=write_stream,
+                auth_configured=bool(config.headers),
+            )
+        except Exception as exc:
+            await stack.aclose()
+            self._statuses[name] = McpConnectionStatus(
+                name=name,
+                state="failed",
+                transport=config.type,
+                auth_configured=bool(config.headers),
+                detail=str(exc),
+            )
+
+    async def _register_connected_session(
+        self,
+        *,
+        name: str,
+        config: object,
+        stack: AsyncExitStack,
+        read_stream: Any,
+        write_stream: Any,
+        auth_configured: bool,
+    ) -> None:
+        session = await stack.enter_async_context(ClientSession(read_stream, write_stream))
+        await session.initialize()
+        tool_result = await session.list_tools()
+        resource_result = None
+        try:
+            resource_result = await session.list_resources()
+        except Exception as exc:
+            if "Method not found" not in str(exc):
+                raise
+        tools = [
+            McpToolInfo(
+                server_name=name,
+                name=tool.name,
+                description=tool.description or "",
+                input_schema=dict(tool.inputSchema or {"type": "object", "properties": {}}),
+            )
+            for tool in tool_result.tools
+        ]
+        resources = [
+            McpResourceInfo(
+                server_name=name,
+                name=resource.name or str(resource.uri),
+                uri=str(resource.uri),
+                description=resource.description or "",
+            )
+            for resource in (resource_result.resources if resource_result is not None else [])
+        ]
+        self._sessions[name] = session
+        self._stacks[name] = stack
+        self._statuses[name] = McpConnectionStatus(
+            name=name,
+            state="connected",
+            transport=getattr(config, "type", "unknown"),
+            auth_configured=auth_configured,
+            tools=tools,
+            resources=resources,
+        )

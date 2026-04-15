@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "openharness-ai"
-version = "0.1.2"
+version = "0.1.5"
 description = "Open-source Python port of Claude Code - an AI-powered CLI coding assistant"
 readme = "README.md"
 license = "MIT"

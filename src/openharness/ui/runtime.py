@@ -6,7 +6,7 @@ import json
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Awaitable, Callable
+from typing import Any, Awaitable, Callable, Iterable
 
 from openharness.api.client import AnthropicApiClient, SupportsStreamingMessages
 from openharness.api.codex_client import CodexApiClient
@@ -57,6 +57,8 @@ class RuntimeBundle:
     session_id: str = ""
     settings_overrides: dict[str, Any] = field(default_factory=dict)
     session_backend: SessionBackend = DEFAULT_SESSION_BACKEND
+    extra_skill_dirs: tuple[str, ...] = ()
+    extra_plugin_roots: tuple[str, ...] = ()
 
     def current_settings(self):
         """Return the effective settings for this session.
@@ -71,7 +73,11 @@ class RuntimeBundle:
 
     def current_plugins(self):
         """Return currently visible plugins for the working tree."""
-        return load_plugins(self.current_settings(), self.cwd)
+        return load_plugins(
+            self.current_settings(),
+            self.cwd,
+            extra_roots=self.extra_plugin_roots,
+        )
 
     def hook_summary(self) -> str:
         """Return the current hook summary."""
@@ -157,6 +163,7 @@ def _resolve_api_client_from_settings(settings) -> SupportsStreamingMessages:
 async def build_runtime(
     *,
     prompt: str | None = None,
+    cwd: str | None = None,
     model: str | None = None,
     max_turns: int | None = None,
     base_url: str | None = None,
@@ -171,6 +178,8 @@ async def build_runtime(
     enforce_max_turns: bool = True,
     session_backend: SessionBackend | None = None,
     permission_mode: str | None = None,
+    extra_skill_dirs: Iterable[str | Path] | None = None,
+    extra_plugin_roots: Iterable[str | Path] | None = None,
 ) -> RuntimeBundle:
     """Build the shared runtime for an OpenHarness session."""
     settings_overrides: dict[str, Any] = {
@@ -184,8 +193,10 @@ async def build_runtime(
         "permission_mode": permission_mode,
     }
     settings = load_settings().merge_cli_overrides(**settings_overrides)
-    cwd = str(Path.cwd())
-    plugins = load_plugins(settings, cwd)
+    cwd = str(Path(cwd).expanduser().resolve()) if cwd else str(Path.cwd())
+    normalized_skill_dirs = tuple(str(Path(path).expanduser().resolve()) for path in (extra_skill_dirs or ()))
+    normalized_plugin_roots = tuple(str(Path(path).expanduser().resolve()) for path in (extra_plugin_roots or ()))
+    plugins = load_plugins(settings, cwd, extra_roots=normalized_plugin_roots)
     if api_client:
         resolved_api_client = api_client
     else:
@@ -229,19 +240,31 @@ async def build_runtime(
         ),
     )
     engine_max_turns = settings.max_turns if (enforce_max_turns or max_turns is not None) else None
+    system_prompt_text = build_runtime_system_prompt(
+        settings,
+        cwd=cwd,
+        latest_user_prompt=prompt,
+        extra_skill_dirs=normalized_skill_dirs,
+        extra_plugin_roots=normalized_plugin_roots,
+    )
     engine = QueryEngine(
         api_client=resolved_api_client,
         tool_registry=tool_registry,
         permission_checker=PermissionChecker(settings.permission),
         cwd=cwd,
         model=settings.model,
-        system_prompt=build_runtime_system_prompt(settings, cwd=cwd, latest_user_prompt=prompt),
+        system_prompt=system_prompt_text,
         max_tokens=settings.max_tokens,
         max_turns=engine_max_turns,
         permission_prompt=permission_prompt,
         ask_user_prompt=ask_user_prompt,
         hook_executor=hook_executor,
-        tool_metadata={"mcp_manager": mcp_manager, "bridge_manager": bridge_manager},
+        tool_metadata={
+            "mcp_manager": mcp_manager,
+            "bridge_manager": bridge_manager,
+            "extra_skill_dirs": normalized_skill_dirs,
+            "extra_plugin_roots": normalized_plugin_roots,
+        },
     )
     # Restore messages from a saved session if provided
     if restore_messages:
@@ -260,12 +283,21 @@ async def build_runtime(
         app_state=app_state,
         hook_executor=hook_executor,
         engine=engine,
-        commands=create_default_command_registry(),
+        commands=create_default_command_registry(
+            plugin_commands=[
+                command
+                for plugin in plugins
+                if plugin.enabled
+                for command in plugin.commands
+            ]
+        ),
         external_api_client=api_client is not None,
         enforce_max_turns=enforce_max_turns or max_turns is not None,
         session_id=uuid4().hex[:12],
         settings_overrides=settings_overrides,
         session_backend=session_backend or DEFAULT_SESSION_BACKEND,
+        extra_skill_dirs=normalized_skill_dirs,
+        extra_plugin_roots=normalized_plugin_roots,
     )
 
 
@@ -421,11 +453,47 @@ async def handle_line(
                 tool_registry=bundle.tool_registry,
                 app_state=bundle.app_state,
                 session_backend=bundle.session_backend,
+                session_id=bundle.session_id,
+                extra_skill_dirs=bundle.extra_skill_dirs,
+                extra_plugin_roots=bundle.extra_plugin_roots,
             ),
         )
         if result.refresh_runtime:
             refresh_runtime_client(bundle)
         await _render_command_result(result, print_system, clear_output, render_event)
+        if result.submit_prompt is not None:
+            original_model = bundle.engine.model
+            if result.submit_model:
+                bundle.engine.set_model(result.submit_model)
+            settings = bundle.current_settings()
+            submit_prompt = result.submit_prompt
+            system_prompt = build_runtime_system_prompt(
+                settings,
+                cwd=bundle.cwd,
+                latest_user_prompt=submit_prompt,
+                extra_skill_dirs=bundle.extra_skill_dirs,
+                extra_plugin_roots=bundle.extra_plugin_roots,
+            )
+            bundle.engine.set_system_prompt(system_prompt)
+            try:
+                async for event in bundle.engine.submit_message(submit_prompt):
+                    await render_event(event)
+            except MaxTurnsExceeded as exc:
+                await print_system(f"Stopped after {exc.max_turns} turns (max_turns).")
+                pending = _format_pending_tool_results(bundle.engine.messages)
+                if pending:
+                    await print_system(pending)
+            finally:
+                if result.submit_model:
+                    bundle.engine.set_model(original_model)
+            bundle.session_backend.save_snapshot(
+                cwd=bundle.cwd,
+                model=bundle.engine.model,
+                system_prompt=system_prompt,
+                messages=bundle.engine.messages,
+                usage=bundle.engine.total_usage,
+                session_id=bundle.session_id,
+            )
         if result.continue_pending:
             settings = bundle.current_settings()
             if bundle.enforce_max_turns:
@@ -434,6 +502,8 @@ async def handle_line(
                 settings,
                 cwd=bundle.cwd,
                 latest_user_prompt=_last_user_text(bundle.engine.messages),
+                extra_skill_dirs=bundle.extra_skill_dirs,
+                extra_plugin_roots=bundle.extra_plugin_roots,
             )
             bundle.engine.set_system_prompt(system_prompt)
             turns = result.continue_turns if result.continue_turns is not None else bundle.engine.max_turns
@@ -459,7 +529,13 @@ async def handle_line(
     settings = bundle.current_settings()
     if bundle.enforce_max_turns:
         bundle.engine.set_max_turns(settings.max_turns)
-    system_prompt = build_runtime_system_prompt(settings, cwd=bundle.cwd, latest_user_prompt=line)
+    system_prompt = build_runtime_system_prompt(
+        settings,
+        cwd=bundle.cwd,
+        latest_user_prompt=line,
+        extra_skill_dirs=bundle.extra_skill_dirs,
+        extra_plugin_roots=bundle.extra_plugin_roots,
+    )
     bundle.engine.set_system_prompt(system_prompt)
     try:
         async for event in bundle.engine.submit_message(line):

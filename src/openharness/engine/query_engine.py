@@ -108,9 +108,14 @@ class QueryEngine:
             return bool(msg.tool_uses)
         return False
 
-    async def submit_message(self, prompt: str) -> AsyncIterator[StreamEvent]:
+    async def submit_message(self, prompt: str | ConversationMessage) -> AsyncIterator[StreamEvent]:
         """Append a user message and execute the query loop."""
-        self._messages.append(ConversationMessage.from_user_text(prompt))
+        user_message = (
+            prompt
+            if isinstance(prompt, ConversationMessage)
+            else ConversationMessage.from_user_text(prompt)
+        )
+        self._messages.append(user_message)
         context = QueryContext(
             api_client=self._api_client,
             tool_registry=self._tool_registry,

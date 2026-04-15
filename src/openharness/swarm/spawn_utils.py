@@ -128,7 +128,7 @@ def build_inherited_cli_flags(
     Returns:
         List of CLI flag strings ready to be passed to :mod:`subprocess`.
     """
-    flags: list[str] = ["--headless"]
+    flags: list[str] = []
 
     # --- Permission mode ---------------------------------------------------
     # Plan mode takes precedence over bypass permissions for safety.

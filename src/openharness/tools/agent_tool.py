@@ -56,15 +56,12 @@ class AgentTool(BaseTool):
         team = arguments.team or "default"
         agent_name = arguments.subagent_type or "agent"
 
-        # Prefer in_process backend, fall back to subprocess
+        # Use subprocess backend so spawned agents are registered in
+        # BackgroundTaskManager and are pollable by the task tools.
+        # in_process tasks return asyncio-internal IDs that task tools
+        # cannot query, and subprocess is always available on all platforms.
         registry = get_backend_registry()
-        try:
-            executor = registry.get_executor("in_process")
-        except KeyError:
-            try:
-                executor = registry.get_executor("subprocess")
-            except KeyError:
-                executor = registry.get_executor()
+        executor = registry.get_executor("subprocess")
 
         config = TeammateSpawnConfig(
             name=agent_name,

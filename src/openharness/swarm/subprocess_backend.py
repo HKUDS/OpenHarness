@@ -62,7 +62,10 @@ class SubprocessBackend:
         env_prefix = " ".join(f"{k}={v!r}" for k, v in extra_env.items())
 
         teammate_cmd = get_teammate_command()
-        cmd_parts = [teammate_cmd, "-m", "openharness"] + flags
+        if teammate_cmd.endswith("python") or teammate_cmd.endswith("python3") or "/python" in teammate_cmd:
+            cmd_parts = [teammate_cmd, "-m", "openharness"] + flags
+        else:
+            cmd_parts = [teammate_cmd] + flags
         command = f"{env_prefix} {' '.join(cmd_parts)}" if env_prefix else " ".join(cmd_parts)
 
         manager = get_task_manager()

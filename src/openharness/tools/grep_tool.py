@@ -20,6 +20,7 @@ class GrepToolInput(BaseModel):
     file_glob: str = Field(default="**/*")
     case_sensitive: bool = Field(default=True)
     limit: int = Field(default=200, ge=1, le=2000)
+    timeout_seconds: int = Field(default=20, ge=1, le=120)
 
 
 class GrepTool(BaseTool):
@@ -43,9 +44,10 @@ class GrepTool(BaseTool):
                 case_sensitive=arguments.case_sensitive,
                 limit=arguments.limit,
                 display_base=display_base,
+                timeout_seconds=arguments.timeout_seconds,
             )
             if matches is not None:
-                return ToolResult(output="\n".join(matches) if matches else "(no matches)")
+                return _format_rg_result(matches, arguments.timeout_seconds)
 
             return ToolResult(
                 output=_python_grep_files(
@@ -64,9 +66,10 @@ class GrepTool(BaseTool):
             file_glob=arguments.file_glob,
             case_sensitive=arguments.case_sensitive,
             limit=arguments.limit,
+            timeout_seconds=arguments.timeout_seconds,
         )
         if matches is not None:
-            return ToolResult(output="\n".join(matches) if matches else "(no matches)")
+            return _format_rg_result(matches, arguments.timeout_seconds)
 
         # Python fallback (kept for portability).
         return ToolResult(
@@ -131,6 +134,19 @@ def _resolve_path(base: Path, candidate: str | None) -> Path:
     return path.resolve()
 
 
+def _format_rg_result(matches: list[str], timeout_seconds: int) -> ToolResult:
+    timed_out = bool(matches and matches[-1] == _timeout_marker(timeout_seconds))
+    rendered = matches[:-1] if timed_out else matches
+    output = "\n".join(rendered) if rendered else "(no matches)"
+    if timed_out:
+        output = (
+            f"{output}\n\n[grep timed out after {timeout_seconds} seconds]"
+            if output != "(no matches)"
+            else f"[grep timed out after {timeout_seconds} seconds]"
+        )
+    return ToolResult(output=output, is_error=timed_out)
+
+
 async def _rg_grep(
     *,
     root: Path,
@@ -138,6 +154,7 @@ async def _rg_grep(
     file_glob: str,
     case_sensitive: bool,
     limit: int,
+    timeout_seconds: int,
 ) -> list[str] | None:
     """Return matches using ripgrep, or None if ripgrep is unavailable."""
     rg = shutil.which("rg")
@@ -170,22 +187,25 @@ async def _rg_grep(
 
     matches: list[str] = []
     try:
-        assert process.stdout is not None
-        while len(matches) < limit:
-            raw = await process.stdout.readline()
-            if not raw:
-                break
-            line = raw.decode("utf-8", errors="replace").rstrip("\n")
-            if line:
-                matches.append(line)
+        await asyncio.wait_for(
+            _collect_rg_matches(process, matches, limit=limit),
+            timeout=timeout_seconds,
+        )
+    except asyncio.TimeoutError:
+        matches.append(_timeout_marker(timeout_seconds))
+        await _terminate_process(process)
+    except asyncio.CancelledError:
+        await _terminate_process(process)
+        raise
     finally:
         if len(matches) >= limit and process.returncode is None:
-            process.terminate()
-        await process.wait()
+            await _terminate_process(process)
+        elif process.returncode is None:
+            await process.wait()
 
     # rg exits 0 when matches are found, 1 when none are found.
     # Any other return code indicates an error; fall back to Python.
-    if process.returncode in {0, 1}:
+    if process.returncode in {0, 1, -15, -9}:
         return matches
     return None
 
@@ -197,6 +217,7 @@ async def _rg_grep_file(
     case_sensitive: bool,
     limit: int,
     display_base: Path,
+    timeout_seconds: int,
 ) -> list[str] | None:
     rg = shutil.which("rg")
     if not rg:
@@ -222,22 +243,81 @@ async def _rg_grep_file(
 
     matches: list[str] = []
     try:
-        assert process.stdout is not None
-        while len(matches) < limit:
-            raw = await process.stdout.readline()
-            if not raw:
-                break
-            line = raw.decode("utf-8", errors="replace").rstrip("\n")
-            if not line:
-                continue
-            matches.append(f"{_format_path(path, display_base)}:{line}")
+        await asyncio.wait_for(
+            _collect_rg_file_matches(
+                process,
+                matches,
+                limit=limit,
+                path=path,
+                display_base=display_base,
+            ),
+            timeout=timeout_seconds,
+        )
+    except asyncio.TimeoutError:
+        matches.append(_timeout_marker(timeout_seconds))
+        await _terminate_process(process)
+    except asyncio.CancelledError:
+        await _terminate_process(process)
+        raise
     finally:
         if len(matches) >= limit and process.returncode is None:
-            process.terminate()
-        await process.wait()
+            await _terminate_process(process)
+        elif process.returncode is None:
+            await process.wait()
 
-    if process.returncode in {0, 1}:
+    if process.returncode in {0, 1, -15, -9}:
         return matches
+    return None
+
+
+def _timeout_marker(timeout_seconds: int) -> str:
+    return f"__OPENHARNESS_GREP_TIMEOUT__:{timeout_seconds}"
+
+
+async def _collect_rg_matches(
+    process: asyncio.subprocess.Process,
+    matches: list[str],
+    *,
+    limit: int,
+) -> None:
+    assert process.stdout is not None
+    while len(matches) < limit:
+        raw = await process.stdout.readline()
+        if not raw:
+            break
+        line = raw.decode("utf-8", errors="replace").rstrip("\n")
+        if line:
+            matches.append(line)
+
+
+async def _collect_rg_file_matches(
+    process: asyncio.subprocess.Process,
+    matches: list[str],
+    *,
+    limit: int,
+    path: Path,
+    display_base: Path,
+) -> None:
+    assert process.stdout is not None
+    while len(matches) < limit:
+        raw = await process.stdout.readline()
+        if not raw:
+            break
+        line = raw.decode("utf-8", errors="replace").rstrip("\n")
+        if not line:
+            continue
+        matches.append(f"{_format_path(path, display_base)}:{line}")
+
+
+async def _terminate_process(process: asyncio.subprocess.Process) -> None:
+    if process.returncode is not None:
+        return
+    process.terminate()
+    try:
+        await asyncio.wait_for(process.wait(), timeout=2.0)
+    except asyncio.TimeoutError:
+        process.kill()
+        await process.wait()
     return None
 
 

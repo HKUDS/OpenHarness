@@ -380,9 +380,8 @@ class TelegramChannel(BaseChannel):
                 ext = self._get_extension(media_type, getattr(media_file, 'mime_type', None))
 
                 # Save to workspace/media/
-                from pathlib import Path
-                media_dir = Path.home() / ".nanobot" / "media"
-                media_dir.mkdir(parents=True, exist_ok=True)
+                from openharness.channels.impl.base import resolve_channel_media_dir
+                media_dir = resolve_channel_media_dir(self.name)
 
                 file_path = media_dir / f"{media_file.file_id[:16]}{ext}"
                 await file.download_to_drive(str(file_path))

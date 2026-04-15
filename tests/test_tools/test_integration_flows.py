@@ -102,7 +102,9 @@ async def test_skill_and_config_flow_across_registry(tmp_path: Path, monkeypatch
     monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
     skills_dir = tmp_path / "config" / "skills"
     skills_dir.mkdir(parents=True)
-    (skills_dir / "pytest.md").write_text(
+    pytest_dir = skills_dir / "pytest"
+    pytest_dir.mkdir()
+    (pytest_dir / "SKILL.md").write_text(
         "# Pytest\nPytest fixtures help reuse setup.\n",
         encoding="utf-8",
     )

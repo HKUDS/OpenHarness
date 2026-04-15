@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Iterable
 
 from openharness.config.paths import get_project_issue_file, get_project_pr_comments_file
 from openharness.config.settings import Settings
@@ -13,9 +14,20 @@ from openharness.prompts.system_prompt import build_system_prompt
 from openharness.skills.loader import load_skill_registry
 
 
-def _build_skills_section(cwd: str | Path) -> str | None:
+def _build_skills_section(
+    cwd: str | Path,
+    *,
+    extra_skill_dirs: Iterable[str | Path] | None = None,
+    extra_plugin_roots: Iterable[str | Path] | None = None,
+    settings: Settings | None = None,
+) -> str | None:
     """Build a system prompt section listing available skills."""
-    registry = load_skill_registry(cwd)
+    registry = load_skill_registry(
+        cwd,
+        extra_skill_dirs=extra_skill_dirs,
+        extra_plugin_roots=extra_plugin_roots,
+        settings=settings,
+    )
     skills = registry.list_skills()
     if not skills:
         return None
@@ -37,6 +49,8 @@ def build_runtime_system_prompt(
     *,
     cwd: str | Path,
     latest_user_prompt: str | None = None,
+    extra_skill_dirs: Iterable[str | Path] | None = None,
+    extra_plugin_roots: Iterable[str | Path] | None = None,
 ) -> str:
     """Build the runtime system prompt with project instructions and memory."""
     sections = [build_system_prompt(custom_prompt=settings.system_prompt, cwd=str(cwd))]
@@ -53,7 +67,12 @@ def build_runtime_system_prompt(
         "Adjust depth and iteration count to match these settings while still completing the task."
     )
 
-    skills_section = _build_skills_section(cwd)
+    skills_section = _build_skills_section(
+        cwd,
+        extra_skill_dirs=extra_skill_dirs,
+        extra_plugin_roots=extra_plugin_roots,
+        settings=settings,
+    )
     if skills_section:
         sections.append(skills_section)
 

@@ -17,7 +17,7 @@ class BashToolInput(BaseModel):
 
     command: str = Field(description="Shell command to execute")
     cwd: str | None = Field(default=None, description="Working directory override")
-    timeout_seconds: int = Field(default=120, ge=1, le=600)
+    timeout_seconds: int = Field(default=600, ge=1, le=600)
 
 
 class BashTool(BaseTool):
@@ -29,6 +29,7 @@ class BashTool(BaseTool):
 
     async def execute(self, arguments: BashToolInput, context: ToolExecutionContext) -> ToolResult:
         cwd = Path(arguments.cwd).expanduser() if arguments.cwd else context.cwd
+        process: asyncio.subprocess.Process | None = None
         try:
             process = await create_shell_subprocess(
                 arguments.command,
@@ -38,6 +39,10 @@ class BashTool(BaseTool):
             )
         except SandboxUnavailableError as exc:
             return ToolResult(output=str(exc), is_error=True)
+        except asyncio.CancelledError:
+            if process is not None:
+                await _terminate_process(process, force=False)
+            raise
 
         try:
             stdout, stderr = await asyncio.wait_for(
@@ -45,12 +50,14 @@ class BashTool(BaseTool):
                 timeout=arguments.timeout_seconds,
             )
         except asyncio.TimeoutError:
-            process.kill()
-            await process.wait()
+            await _terminate_process(process, force=True)
             return ToolResult(
                 output=f"Command timed out after {arguments.timeout_seconds} seconds",
                 is_error=True,
             )
+        except asyncio.CancelledError:
+            await _terminate_process(process, force=False)
+            raise
 
         parts = []
         if stdout:
@@ -70,3 +77,18 @@ class BashTool(BaseTool):
             is_error=process.returncode != 0,
             metadata={"returncode": process.returncode},
         )
+
+
+async def _terminate_process(process: asyncio.subprocess.Process, *, force: bool) -> None:
+    if process.returncode is not None:
+        return
+    if force:
+        process.kill()
+        await process.wait()
+        return
+    process.terminate()
+    try:
+        await asyncio.wait_for(process.wait(), timeout=2.0)
+    except asyncio.TimeoutError:
+        process.kill()
+        await process.wait()

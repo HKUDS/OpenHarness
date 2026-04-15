@@ -16,7 +16,12 @@ from openharness.ui.react_launcher import _resolve_npm, _resolve_tsx, get_fronte
 
 from ohmo.prompts import build_ohmo_system_prompt
 from ohmo.session_storage import OhmoSessionBackend
-from ohmo.workspace import initialize_workspace
+from ohmo.workspace import get_plugins_dir, get_skills_dir, initialize_workspace
+
+
+def _ohmo_extra_roots(workspace: str | Path | None) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    root = initialize_workspace(workspace)
+    return ((str(get_skills_dir(root)),), (str(get_plugins_dir(root)),))
 
 
 async def run_ohmo_backend(
@@ -33,17 +38,20 @@ async def run_ohmo_backend(
     """Run the shared React backend host with ohmo workspace semantics."""
     del backend_only
     cwd_path = str(Path(cwd or Path.cwd()).resolve())
-    initialize_workspace(workspace)
+    workspace_root = initialize_workspace(workspace)
+    extra_skill_dirs, extra_plugin_roots = _ohmo_extra_roots(workspace_root)
     return await run_backend_host(
         cwd=cwd_path,
         model=model,
         max_turns=max_turns,
-        system_prompt=build_ohmo_system_prompt(cwd_path, workspace=workspace),
+        system_prompt=build_ohmo_system_prompt(cwd_path, workspace=workspace_root),
         active_profile=provider_profile,
         api_client=api_client,
         restore_messages=restore_messages,
         enforce_max_turns=max_turns is not None,
-        session_backend=OhmoSessionBackend(workspace),
+        session_backend=OhmoSessionBackend(workspace_root),
+        extra_skill_dirs=extra_skill_dirs,
+        extra_plugin_roots=extra_plugin_roots,
     )
 
 
@@ -97,13 +105,13 @@ async def launch_ohmo_react_tui(
             raise RuntimeError("Failed to install React terminal frontend dependencies")
 
     cwd_path = str(Path(cwd or Path.cwd()).resolve())
-    initialize_workspace(workspace)
+    workspace_root = initialize_workspace(workspace)
     env = os.environ.copy()
     env["OPENHARNESS_FRONTEND_CONFIG"] = json.dumps(
         {
             "backend_command": build_ohmo_backend_command(
                 cwd=cwd_path,
-                workspace=workspace,
+                workspace=workspace_root,
                 model=model,
                 max_turns=max_turns,
                 provider_profile=provider_profile,
@@ -136,17 +144,20 @@ async def run_ohmo_print_mode(
 ) -> int:
     """Run a single ohmo prompt and print the assistant output."""
     cwd_path = str(Path(cwd or Path.cwd()).resolve())
-    initialize_workspace(workspace)
+    workspace_root = initialize_workspace(workspace)
+    extra_skill_dirs, extra_plugin_roots = _ohmo_extra_roots(workspace_root)
     previous_cwd = Path.cwd()
     os.chdir(cwd_path)
     try:
         bundle = await build_runtime(
             model=model,
             max_turns=max_turns,
-            system_prompt=build_ohmo_system_prompt(cwd_path, workspace=workspace),
+            system_prompt=build_ohmo_system_prompt(cwd_path, workspace=workspace_root),
             active_profile=provider_profile,
-            session_backend=OhmoSessionBackend(workspace),
+            session_backend=OhmoSessionBackend(workspace_root),
             enforce_max_turns=max_turns is not None,
+            extra_skill_dirs=extra_skill_dirs,
+            extra_plugin_roots=extra_plugin_roots,
         )
         await start_runtime(bundle)
 

@@ -18,7 +18,7 @@ from openharness.api.client import (
 )
 from openharness.api.errors import AuthenticationFailure, OpenHarnessApiError, RateLimitFailure, RequestFailure
 from openharness.api.usage import UsageSnapshot
-from openharness.engine.messages import ConversationMessage, TextBlock, ToolResultBlock, ToolUseBlock
+from openharness.engine.messages import ConversationMessage, ImageBlock, TextBlock, ToolResultBlock, ToolUseBlock
 
 DEFAULT_CODEX_BASE_URL = "https://chatgpt.com/backend-api"
 JWT_CLAIM_PATH = "https://api.openai.com/auth"
@@ -78,12 +78,17 @@ def _convert_messages_to_codex(messages: list[ConversationMessage]) -> list[dict
     result: list[dict[str, Any]] = []
     for msg in messages:
         if msg.role == "user":
-            text = "".join(block.text for block in msg.content if isinstance(block, TextBlock))
-            if text.strip():
-                result.append({
-                    "role": "user",
-                    "content": [{"type": "input_text", "text": text}],
-                })
+            user_content: list[dict[str, Any]] = []
+            for block in msg.content:
+                if isinstance(block, TextBlock) and block.text.strip():
+                    user_content.append({"type": "input_text", "text": block.text})
+                elif isinstance(block, ImageBlock):
+                    user_content.append({
+                        "type": "input_image",
+                        "image_url": f"data:{block.media_type};base64,{block.data}",
+                    })
+            if user_content:
+                result.append({"role": "user", "content": user_content})
             for block in msg.content:
                 if isinstance(block, ToolResultBlock):
                     result.append({
@@ -165,6 +170,31 @@ def _format_error_message(status_code: int, payload: str) -> str:
     if text:
         return text
     return f"Codex request failed with status {status_code}"
+
+
+def _format_codex_stream_error(event: dict[str, Any], *, fallback: str) -> str:
+    error = event.get("error")
+    payload = error if isinstance(error, dict) else event
+    message = payload.get("message") if isinstance(payload, dict) else None
+    code = payload.get("code") if isinstance(payload, dict) else None
+    request_id = (
+        (payload.get("request_id") if isinstance(payload, dict) else None)
+        or event.get("request_id")
+    )
+
+    parts: list[str] = []
+    if isinstance(message, str) and message.strip():
+        parts.append(message.strip())
+    elif isinstance(code, str) and code.strip():
+        parts.append(code.strip())
+    else:
+        parts.append(fallback)
+
+    if isinstance(code, str) and code.strip():
+        parts.append(f"(code={code.strip()})")
+    if isinstance(request_id, str) and request_id.strip():
+        parts.append(f"[request_id={request_id.strip()}]")
+    return " ".join(parts)
 
 
 def _translate_status_error(status_code: int, message: str) -> OpenHarnessApiError:
@@ -282,14 +312,17 @@ class CodexApiClient:
                     elif event_type == "response.failed":
                         response_payload = event.get("response")
                         if isinstance(response_payload, dict):
-                            error = response_payload.get("error")
-                            if isinstance(error, dict):
-                                message = str(error.get("message") or error.get("code") or "Codex response failed")
-                                raise RequestFailure(message)
+                            raise RequestFailure(
+                                _format_codex_stream_error(
+                                    response_payload,
+                                    fallback="Codex response failed",
+                                )
+                            )
                         raise RequestFailure("Codex response failed")
                     elif event_type == "error":
-                        message = str(event.get("message") or event.get("code") or "Codex error")
-                        raise RequestFailure(message)
+                        raise RequestFailure(
+                            _format_codex_stream_error(event, fallback="Codex error")
+                        )
 
         if current_text_parts and not any(isinstance(block, TextBlock) for block in content):
             content.insert(0, TextBlock(text="".join(current_text_parts)))

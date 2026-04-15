@@ -2,7 +2,6 @@
 
 import asyncio
 import json
-from pathlib import Path
 from typing import Any
 
 import httpx
@@ -11,7 +10,7 @@ import logging
 
 from openharness.channels.bus.events import OutboundMessage
 from openharness.channels.bus.queue import MessageBus
-from openharness.channels.impl.base import BaseChannel
+from openharness.channels.impl.base import BaseChannel, resolve_channel_media_dir
 from openharness.config.schema import DiscordConfig
 from openharness.utils.helpers import split_message
 
@@ -227,7 +226,7 @@ class DiscordChannel(BaseChannel):
 
         content_parts = [content] if content else []
         media_paths: list[str] = []
-        media_dir = Path.home() / ".nanobot" / "media"
+        media_dir = resolve_channel_media_dir(self.name)
 
         for attachment in payload.get("attachments") or []:
             url = attachment.get("url")
@@ -239,7 +238,6 @@ class DiscordChannel(BaseChannel):
                 content_parts.append(f"[attachment: {filename} - too large]")
                 continue
             try:
-                media_dir.mkdir(parents=True, exist_ok=True)
                 file_path = media_dir / f"{attachment.get('id', 'file')}_{filename.replace('/', '_')}"
                 resp = await self._http.get(url)
                 resp.raise_for_status()

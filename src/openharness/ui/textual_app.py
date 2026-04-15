@@ -241,6 +241,7 @@ class OpenHarnessTerminalApp(App[None]):
     async def on_mount(self) -> None:
         self._bundle = await build_runtime(
             prompt=self._config.prompt,
+            cwd=str(self.app.cwd) if getattr(self.app, 'cwd', None) else None,
             model=self._config.model,
             base_url=self._config.base_url,
             system_prompt=self._config.system_prompt,

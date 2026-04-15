@@ -18,6 +18,8 @@ const PROTOCOL_PREFIX = 'OHJSON:';
 const ASSISTANT_DELTA_FLUSH_MS = 33;
 const ASSISTANT_DELTA_FLUSH_CHARS = 256;
 
+const stableStringify = (value: unknown): string => JSON.stringify(value);
+
 export function useBackendSession(config: FrontendConfig, onExit: (code?: number | null) => void) {
 	const [transcript, setTranscript] = useState<TranscriptItem[]>([]);
 	const [assistantBuffer, setAssistantBuffer] = useState('');
@@ -35,6 +37,10 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 	const [swarmNotifications, setSwarmNotifications] = useState<SwarmNotificationSnapshot[]>([]);
 	const childRef = useRef<ChildProcessWithoutNullStreams | null>(null);
 	const sentInitialPrompt = useRef(false);
+	const lastStatusSnapshotRef = useRef('');
+	const lastTasksSnapshotRef = useRef('');
+	const lastMcpSnapshotRef = useRef('');
+	const lastBridgeSnapshotRef = useRef('');
 
 	// Streaming deltas can arrive one token at a time; updating Ink state for each
 	// delta causes heavy re-rendering/flicker. Buffer and flush at ~30fps.
@@ -135,10 +141,18 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 	const handleEvent = (event: BackendEvent): void => {
 		if (event.type === 'ready') {
 			setReady(true);
+			const statusSnapshot = stableStringify(event.state ?? {});
+			lastStatusSnapshotRef.current = statusSnapshot;
 			setStatus(event.state ?? {});
+			const tasksSnapshot = stableStringify(event.tasks ?? []);
+			lastTasksSnapshotRef.current = tasksSnapshot;
 			setTasks(event.tasks ?? []);
 			setCommands(event.commands ?? []);
+			const mcpSnapshot = stableStringify(event.mcp_servers ?? []);
+			lastMcpSnapshotRef.current = mcpSnapshot;
 			setMcpServers(event.mcp_servers ?? []);
+			const bridgeSnapshot = stableStringify(event.bridge_sessions ?? []);
+			lastBridgeSnapshotRef.current = bridgeSnapshot;
 			setBridgeSessions(event.bridge_sessions ?? []);
 			if (config.initial_prompt && !sentInitialPrompt.current) {
 				sentInitialPrompt.current = true;
@@ -148,13 +162,29 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 			return;
 		}
 		if (event.type === 'state_snapshot') {
-			setStatus(event.state ?? {});
-			setMcpServers(event.mcp_servers ?? []);
-			setBridgeSessions(event.bridge_sessions ?? []);
+			const statusSnapshot = stableStringify(event.state ?? {});
+			if (statusSnapshot !== lastStatusSnapshotRef.current) {
+				lastStatusSnapshotRef.current = statusSnapshot;
+				setStatus(event.state ?? {});
+			}
+			const mcpSnapshot = stableStringify(event.mcp_servers ?? []);
+			if (mcpSnapshot !== lastMcpSnapshotRef.current) {
+				lastMcpSnapshotRef.current = mcpSnapshot;
+				setMcpServers(event.mcp_servers ?? []);
+			}
+			const bridgeSnapshot = stableStringify(event.bridge_sessions ?? []);
+			if (bridgeSnapshot !== lastBridgeSnapshotRef.current) {
+				lastBridgeSnapshotRef.current = bridgeSnapshot;
+				setBridgeSessions(event.bridge_sessions ?? []);
+			}
 			return;
 		}
 		if (event.type === 'tasks_snapshot') {
-			setTasks(event.tasks ?? []);
+			const tasksSnapshot = stableStringify(event.tasks ?? []);
+			if (tasksSnapshot !== lastTasksSnapshotRef.current) {
+				lastTasksSnapshotRef.current = tasksSnapshot;
+				setTasks(event.tasks ?? []);
+			}
 			return;
 		}
 		if (event.type === 'transcript_item' && event.item) {

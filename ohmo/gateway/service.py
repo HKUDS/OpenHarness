@@ -31,7 +31,8 @@ class OhmoGatewayService:
         self._cwd = str(Path(cwd or Path.cwd()).resolve())
         self._workspace = workspace
         os.chdir(self._cwd)
-        initialize_workspace(self._workspace)
+        root = initialize_workspace(self._workspace)
+        os.environ["OHMO_WORKSPACE"] = str(root)
         self._config = load_gateway_config(self._workspace)
         self._bus = MessageBus()
         self._runtime_pool = OhmoSessionRuntimePool(

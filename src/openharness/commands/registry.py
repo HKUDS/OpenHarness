@@ -9,7 +9,7 @@ import subprocess
 from datetime import datetime, timezone
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Awaitable, Callable, Literal, get_args
+from typing import TYPE_CHECKING, Awaitable, Callable, Literal, get_args, Iterable
 
 import pyperclip
 
@@ -45,6 +45,7 @@ from openharness.services import compact_messages, estimate_conversation_tokens,
 from openharness.services.session_backend import DEFAULT_SESSION_BACKEND, SessionBackend
 from openharness.skills import load_skill_registry
 from openharness.tasks import get_task_manager
+from openharness.plugins.types import PluginCommandDefinition
 
 if TYPE_CHECKING:
     from openharness.state import AppStateStore
@@ -62,6 +63,8 @@ class CommandResult:
     continue_pending: bool = False
     continue_turns: int | None = None
     refresh_runtime: bool = False
+    submit_prompt: str | None = None
+    submit_model: str | None = None
 
 
 @dataclass
@@ -76,6 +79,9 @@ class CommandContext:
     tool_registry: ToolRegistry | None = None
     app_state: AppStateStore | None = None
     session_backend: SessionBackend = DEFAULT_SESSION_BACKEND
+    session_id: str | None = None
+    extra_skill_dirs: Iterable[str | Path] | None = None
+    extra_plugin_roots: Iterable[str | Path] | None = None
 
 
 CommandHandler = Callable[[str, CommandContext], Awaitable[CommandResult]]
@@ -198,7 +204,22 @@ def _coerce_setting_value(settings: Settings, key: str, raw: str):
     return raw
 
 
-def create_default_command_registry() -> CommandRegistry:
+def _render_plugin_command_prompt(command: PluginCommandDefinition, args: str, session_id: str | None = None) -> str:
+    prompt = command.content
+    raw_args = args.strip()
+    if command.is_skill and command.base_dir:
+        prompt = f"Base directory for this skill: {command.base_dir}\n\n{prompt}"
+    prompt = prompt.replace("${ARGUMENTS}", raw_args).replace("$ARGUMENTS", raw_args)
+    if session_id:
+        prompt = prompt.replace("${CLAUDE_SESSION_ID}", session_id)
+    if raw_args and "${ARGUMENTS}" not in command.content and "$ARGUMENTS" not in command.content:
+        prompt = f"{prompt}\n\nArguments: {raw_args}"
+    return prompt
+
+
+def create_default_command_registry(
+    plugin_commands: Iterable[PluginCommandDefinition] | None = None,
+) -> CommandRegistry:
     """Create the built-in command registry."""
     registry = CommandRegistry()
 
@@ -233,7 +254,7 @@ def create_default_command_registry() -> CommandRegistry:
         try:
             version = importlib.metadata.version("openharness")
         except importlib.metadata.PackageNotFoundError:
-            version = "0.1.2"
+            version = "0.1.5"
         return CommandResult(message=f"OpenHarness {version}")
 
     async def _context_handler(_: str, context: CommandContext) -> CommandResult:
@@ -643,7 +664,7 @@ def create_default_command_registry() -> CommandRegistry:
 
     async def _reload_plugins_handler(_: str, context: CommandContext) -> CommandResult:
         settings = load_settings()
-        plugins = load_plugins(settings, context.cwd)
+        plugins = load_plugins(settings, context.cwd, extra_roots=context.extra_plugin_roots)
         if not plugins:
             return CommandResult(message="No plugins discovered.")
         lines = ["Reloaded plugins:"]
@@ -653,7 +674,11 @@ def create_default_command_registry() -> CommandRegistry:
         return CommandResult(message="\n".join(lines))
 
     async def _skills_handler(args: str, context: CommandContext) -> CommandResult:
-        skill_registry = load_skill_registry(context.cwd)
+        skill_registry = load_skill_registry(
+            context.cwd,
+            extra_skill_dirs=context.extra_skill_dirs,
+            extra_plugin_roots=context.extra_plugin_roots,
+        )
         if args:
             skill = skill_registry.get(args)
             if skill is None:
@@ -976,7 +1001,7 @@ def create_default_command_registry() -> CommandRegistry:
             if uninstall_plugin(tokens[1]):
                 return CommandResult(message=f"Uninstalled plugin '{tokens[1]}'")
             return CommandResult(message=f"Plugin '{tokens[1]}' not found")
-        plugins = load_plugins(settings, context.cwd)
+        plugins = load_plugins(settings, context.cwd, extra_roots=context.extra_plugin_roots)
         if plugins:
             return CommandResult(message=context.plugin_summary)
         return CommandResult(message="Usage: /plugin [list|enable NAME|disable NAME|install PATH|uninstall NAME]")
@@ -1361,7 +1386,7 @@ def create_default_command_registry() -> CommandRegistry:
         try:
             version = importlib.metadata.version("openharness")
         except importlib.metadata.PackageNotFoundError:
-            version = "0.1.2"
+            version = "0.1.5"
         return CommandResult(
             message=(
                 f"Current version: {version}\n"
@@ -1529,4 +1554,34 @@ def create_default_command_registry() -> CommandRegistry:
     registry.register(SlashCommand("upgrade", "Show upgrade instructions", _upgrade_handler))
     registry.register(SlashCommand("agents", "List or inspect agent and teammate tasks", _agents_handler))
     registry.register(SlashCommand("tasks", "Manage background tasks", _tasks_handler))
+
+    for plugin_command in plugin_commands or ():
+        if not plugin_command.user_invocable:
+            continue
+
+        async def _plugin_command_handler(
+            args: str,
+            context: CommandContext,
+            *,
+            command: PluginCommandDefinition = plugin_command,
+        ) -> CommandResult:
+            prompt = _render_plugin_command_prompt(
+                command,
+                args,
+                getattr(context, "session_id", None),
+            )
+            if command.disable_model_invocation:
+                return CommandResult(message=prompt)
+            return CommandResult(
+                submit_prompt=prompt,
+                submit_model=command.model,
+            )
+
+        registry.register(
+            SlashCommand(
+                plugin_command.name,
+                plugin_command.description,
+                _plugin_command_handler,
+            )
+        )
     return registry

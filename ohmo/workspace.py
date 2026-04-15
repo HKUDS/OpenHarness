@@ -6,7 +6,6 @@ import json
 import os
 from pathlib import Path
 
-
 WORKSPACE_DIRNAME = ".ohmo"
 
 SOUL_TEMPLATE = """# SOUL.md - Who You Are
@@ -49,7 +48,7 @@ Sound like a capable companion with taste, not a corporate support bot.
 ## Continuity
 
 Your continuity lives in this workspace:
-- `USER.md` tells you who the user is.
+- `user.md` tells you who the user is.
 - `memory/` holds durable notes and recurring context.
 - `state.json` and session history tell you what has been happening recently.
 
@@ -58,7 +57,7 @@ Read these files. Update them when something should persist.
 If you materially change this file, tell the user. It is your soul.
 """
 
-USER_TEMPLATE = """# USER.md - About Your Human
+USER_TEMPLATE = """# user.md - About Your Human
 
 Learn the person you are helping. Keep this useful, respectful, and current.
 
@@ -138,7 +137,7 @@ enough to become useful.
 
 3. Make the workspace real.
    - Update `IDENTITY.md`
-   - Update `USER.md`
+   - Update `user.md`
    - If something durable matters, write it into `memory/`
 
 ## Style
@@ -196,6 +195,14 @@ def get_memory_dir(workspace: str | Path | None = None) -> Path:
     return get_workspace_root(workspace) / "memory"
 
 
+def get_skills_dir(workspace: str | Path | None = None) -> Path:
+    return get_workspace_root(workspace) / "skills"
+
+
+def get_plugins_dir(workspace: str | Path | None = None) -> Path:
+    return get_workspace_root(workspace) / "plugins"
+
+
 def get_memory_index_path(workspace: str | Path | None = None) -> Path:
     return get_memory_dir(workspace) / "MEMORY.md"
 
@@ -225,6 +232,8 @@ def ensure_workspace(workspace: str | Path | None = None) -> Path:
     root = get_workspace_root(workspace)
     root.mkdir(parents=True, exist_ok=True)
     get_memory_dir(root).mkdir(parents=True, exist_ok=True)
+    get_skills_dir(root).mkdir(parents=True, exist_ok=True)
+    get_plugins_dir(root).mkdir(parents=True, exist_ok=True)
     get_sessions_dir(root).mkdir(parents=True, exist_ok=True)
     get_logs_dir(root).mkdir(parents=True, exist_ok=True)
     get_attachments_dir(root).mkdir(parents=True, exist_ok=True)
@@ -290,6 +299,8 @@ def workspace_health(workspace: str | Path | None = None) -> dict[str, bool]:
         "user": get_user_path(root).exists(),
         "identity": get_identity_path(root).exists(),
         "memory_dir": get_memory_dir(root).exists(),
+        "skills_dir": get_skills_dir(root).exists(),
+        "plugins_dir": get_plugins_dir(root).exists(),
         "memory_index": get_memory_index_path(root).exists(),
         "sessions_dir": get_sessions_dir(root).exists(),
         "gateway_config": get_gateway_config_path(root).exists(),

@@ -57,12 +57,13 @@ def _build_context(tmp_path: Path) -> CommandContext:
 
 def _write_fixture_plugin(root: Path) -> Path:
     plugin_dir = root / "fixture-plugin"
-    (plugin_dir / "skills").mkdir(parents=True)
+    fixture_skill_dir = plugin_dir / "skills" / "fixture"
+    fixture_skill_dir.mkdir(parents=True)
     (plugin_dir / "plugin.json").write_text(
         json.dumps({"name": "fixture-plugin", "version": "1.0.0", "description": "Fixture plugin"}),
         encoding="utf-8",
     )
-    (plugin_dir / "skills" / "fixture.md").write_text(
+    (fixture_skill_dir / "SKILL.md").write_text(
         "# FixtureSkill\nFixture command plugin content.\n",
         encoding="utf-8",
     )

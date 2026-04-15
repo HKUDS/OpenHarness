@@ -6,13 +6,13 @@ import os
 import re
 import threading
 from collections import OrderedDict
-from pathlib import Path
 from typing import Any
 
 
 from openharness.channels.bus.events import OutboundMessage
 from openharness.channels.bus.queue import MessageBus
 from openharness.channels.impl.base import BaseChannel
+from openharness.channels.impl.base import resolve_channel_media_dir
 from openharness.config.schema import FeishuConfig
 
 import importlib.util
@@ -717,8 +717,7 @@ class FeishuChannel(BaseChannel):
             (file_path, content_text) - file_path is None if download failed
         """
         loop = asyncio.get_running_loop()
-        media_dir = Path.home() / ".nanobot" / "media"
-        media_dir.mkdir(parents=True, exist_ok=True)
+        media_dir = resolve_channel_media_dir(self.name)
 
         data, filename = None, None
 

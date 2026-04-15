@@ -92,6 +92,7 @@ async def run_print_mode(
 
     bundle = await build_runtime(
         prompt=prompt,
+        cwd=cwd,
         model=model,
         max_turns=max_turns,
         base_url=base_url,

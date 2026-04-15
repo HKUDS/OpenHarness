@@ -246,13 +246,17 @@ async def test_skills_load():
 
     with tempfile.TemporaryDirectory() as tmpdir:
         # Create skill files
-        (Path(tmpdir) / "commit.md").write_text("""---
+        commit_dir = Path(tmpdir) / "commit"
+        commit_dir.mkdir()
+        (commit_dir / "SKILL.md").write_text("""---
 name: commit
 description: Create a git commit with a good message
 ---
 Read the git diff, then create a commit with a descriptive message.
 """)
-        (Path(tmpdir) / "review-pr.md").write_text("""---
+        review_dir = Path(tmpdir) / "review-pr"
+        review_dir.mkdir()
+        (review_dir / "SKILL.md").write_text("""---
 name: review-pr
 description: Review a pull request for issues
 ---
@@ -311,7 +315,9 @@ async def test_plugins_load():
         # skills
         skills_dir = plugin_dir / "skills"
         skills_dir.mkdir()
-        (skills_dir / "deploy.md").write_text("""---
+        deploy_dir = skills_dir / "deploy"
+        deploy_dir.mkdir()
+        (deploy_dir / "SKILL.md").write_text("""---
 name: deploy
 description: Deploy the application
 ---
