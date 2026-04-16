@@ -48,6 +48,10 @@ export function useBackendConnection() {
   const setCurrentModel = useAppStore((s) => s.setCurrentModel);
   const updateSettings = useAppStore((s) => s.updateSettings);
   const setActiveModal = useAppStore((s) => s.setActiveModal);
+  const setCronJobs = useAppStore((s) => s.setCronJobs);
+  const setCreateCronJobCallback = useAppStore((s) => s.setCreateCronJobCallback);
+  const setDeleteCronJobCallback = useAppStore((s) => s.setDeleteCronJobCallback);
+  const setToggleCronJobCallback = useAppStore((s) => s.setToggleCronJobCallback);
   
   const connected = useAppStore((s) => s.connected);
   const connecting = useAppStore((s) => s.connecting);
@@ -97,6 +101,11 @@ export function useBackendConnection() {
           if (event.mcp_servers) setMcpServers(event.mcp_servers);
           if (event.bridge_sessions) setBridgeSessions(event.bridge_sessions);
           if (event.tasks) setTasks(event.tasks);
+          if (event.cron_jobs) setCronJobs(event.cron_jobs);
+          break;
+
+        case 'cron_snapshot':
+          if (event.cron_jobs) setCronJobs(event.cron_jobs);
           break;
 
         case 'transcript_item':
@@ -189,14 +198,30 @@ export function useBackendConnection() {
 
         case 'error':
           const errorMsg = event.message || 'Unknown error';
-          const errorType = event.error_type || 'Unknown';
+          const errorType = event.error_type || 'unknown';
           const stackTrace = event.stack_trace || null;
           const debugInfo = event.debug_info || null;
+          const recoverable = event.recoverable ?? true;
           
-          // Build detailed error message
-          let detailedErrorMsg = `Error: ${errorMsg}`;
-          if (errorType !== 'Unknown') {
-            detailedErrorMsg += `\nType: ${errorType}`;
+          // Map error types to human-readable labels
+          const errorTypeLabels: Record<string, string> = {
+            authentication: 'Authentication Error',
+            rate_limit: 'Rate Limit Exceeded',
+            network: 'Network Error',
+            api: 'API Error',
+            unknown: 'Error',
+          };
+          
+          // Build detailed error message with helpful formatting
+          let detailedErrorMsg = errorMsg;
+          const typeLabel = errorTypeLabels[errorType] || errorType;
+          if (errorType !== 'unknown' && !errorMsg.toLowerCase().includes(typeLabel.toLowerCase())) {
+            detailedErrorMsg = `${typeLabel}: ${errorMsg}`;
+          }
+          
+          // Add recovery hint if the error is recoverable
+          if (recoverable) {
+            detailedErrorMsg += '\n\nYou can try again or continue with a different request.';
           }
           if (stackTrace) {
             detailedErrorMsg += `\n\nStack Trace:\n${stackTrace}`;
@@ -515,6 +540,25 @@ export function useBackendConnection() {
     sendMessage({ type: 'get_settings' });
   }, [sendMessage]);
 
+  const createCronJob = useCallback((name: string, schedule: string, command: string, cwd?: string, enabled?: boolean) => {
+    sendMessage({ 
+      type: 'create_cron_job', 
+      cron_name: name,
+      cron_schedule: schedule,
+      cron_command: command,
+      cron_cwd: cwd,
+      cron_enabled: enabled,
+    });
+  }, [sendMessage]);
+
+  const deleteCronJob = useCallback((name: string) => {
+    sendMessage({ type: 'delete_cron_job', cron_name: name });
+  }, [sendMessage]);
+
+  const toggleCronJob = useCallback((name: string, enabled: boolean) => {
+    sendMessage({ type: 'toggle_cron_job', cron_name: name, cron_enabled: enabled });
+  }, [sendMessage]);
+
   const fetchSettingsFromBackend = useCallback(async () => {
     try {
       const response = await fetch('/api/config');
@@ -609,6 +653,9 @@ export function useBackendConnection() {
       setSendPermissionResponse(sendPermissionResponse);
       setClearConversationCallback(clearConversation);
       setSaveSettingsCallback(saveSettingsToBackend);
+      setCreateCronJobCallback(createCronJob);
+      setDeleteCronJobCallback(deleteCronJob);
+      setToggleCronJobCallback(toggleCronJob);
       
       // Sync frontend localStorage settings to backend on connection
       // This ensures user's preferences are applied to the backend
@@ -637,7 +684,9 @@ export function useBackendConnection() {
   }, [
     connected, submitPrompt, sendPermissionResponse, clearConversation, 
     saveSettingsToBackend, setSubmitPrompt, setSendPermissionResponse, 
-    setClearConversationCallback, setSaveSettingsCallback, sendConfig
+    setClearConversationCallback, setSaveSettingsCallback, sendConfig,
+    createCronJob, deleteCronJob, toggleCronJob,
+    setCreateCronJobCallback, setDeleteCronJobCallback, setToggleCronJobCallback
   ]);
 
   const disconnect = useCallback(() => {
@@ -662,5 +711,8 @@ export function useBackendConnection() {
     refreshSettings,
     fetchSettingsFromBackend,
     saveSettingsToBackend,
+    createCronJob,
+    deleteCronJob,
+    toggleCronJob,
   };
 }

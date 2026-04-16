@@ -32,6 +32,13 @@ from openharness.tasks import get_task_manager
 from openharness.ui.protocol import BackendEvent, FrontendRequest, TranscriptItem
 from openharness.ui.runtime import build_runtime, close_runtime, handle_line, start_runtime
 from openharness.services.session_backend import SessionBackend
+from openharness.services.cron import (
+    upsert_cron_job,
+    delete_cron_job,
+    set_job_enabled,
+    load_cron_jobs,
+    validate_cron_expression,
+)
 
 log = logging.getLogger(__name__)
 
@@ -139,6 +146,19 @@ class ReactBackendHost:
                     if not should_continue:
                         await self._emit(BackendEvent(type="shutdown"))
                         break
+                    continue
+                # Cron job handling
+                if request.type == "list_cron_jobs":
+                    await self._emit(BackendEvent.cron_snapshot())
+                    continue
+                if request.type == "create_cron_job":
+                    await self._handle_create_cron_job(request)
+                    continue
+                if request.type == "delete_cron_job":
+                    await self._handle_delete_cron_job(request)
+                    continue
+                if request.type == "toggle_cron_job":
+                    await self._handle_toggle_cron_job(request)
                     continue
                 if request.type != "submit_line":
                     await self._emit(BackendEvent(type="error", message=f"Unknown request type: {request.type}"))
@@ -285,9 +305,19 @@ class ReactBackendHost:
                     await self._emit(BackendEvent(type="plan_mode_change", plan_mode=new_mode))
                 return
             if isinstance(event, ErrorEvent):
-                await self._emit(BackendEvent(type="error", message=event.message))
                 await self._emit(
-                    BackendEvent(type="transcript_item", item=TranscriptItem(role="system", text=event.message))
+                    BackendEvent(
+                        type="error",
+                        message=event.message,
+                        error_type=event.error_category or "unknown",
+                        recoverable=event.recoverable,
+                    )
+                )
+                await self._emit(
+                    BackendEvent(
+                        type="transcript_item",
+                        item=TranscriptItem(role="system", text=event.message),
+                    )
                 )
                 return
             if isinstance(event, StatusEvent):
@@ -716,6 +746,74 @@ class ReactBackendHost:
             return await future
         finally:
             self._question_requests.pop(request_id, None)
+
+    async def _handle_create_cron_job(self, request: FrontendRequest) -> None:
+        """Handle create_cron_job request from frontend."""
+        name = request.cron_name or ""
+        schedule = request.cron_schedule or ""
+        command = request.cron_command or ""
+        cwd = request.cron_cwd or str(self._config.cwd or os.getcwd())
+        enabled = request.cron_enabled if request.cron_enabled is not None else True
+
+        if not name:
+            await self._emit(BackendEvent(type="error", message="Cron job name is required"))
+            return
+        if not schedule:
+            await self._emit(BackendEvent(type="error", message="Cron schedule is required"))
+            return
+        if not command:
+            await self._emit(BackendEvent(type="error", message="Cron command is required"))
+            return
+
+        if not validate_cron_expression(schedule):
+            await self._emit(
+                BackendEvent(
+                    type="error",
+                    message=f"Invalid cron expression: {schedule}. Use standard 5-field format (e.g., '*/5 * * * *')"
+                )
+            )
+            return
+
+        upsert_cron_job({
+            "name": name,
+            "schedule": schedule,
+            "command": command,
+            "cwd": cwd,
+            "enabled": enabled,
+        })
+
+        # Send updated cron jobs snapshot
+        await self._emit(BackendEvent.cron_snapshot())
+
+    async def _handle_delete_cron_job(self, request: FrontendRequest) -> None:
+        """Handle delete_cron_job request from frontend."""
+        name = request.cron_name or ""
+        if not name:
+            await self._emit(BackendEvent(type="error", message="Cron job name is required"))
+            return
+
+        if not delete_cron_job(name):
+            await self._emit(BackendEvent(type="error", message=f"Cron job '{name}' not found"))
+            return
+
+        # Send updated cron jobs snapshot
+        await self._emit(BackendEvent.cron_snapshot())
+
+    async def _handle_toggle_cron_job(self, request: FrontendRequest) -> None:
+        """Handle toggle_cron_job request from frontend."""
+        name = request.cron_name or ""
+        enabled = request.cron_enabled if request.cron_enabled is not None else True
+
+        if not name:
+            await self._emit(BackendEvent(type="error", message="Cron job name is required"))
+            return
+
+        if not set_job_enabled(name, enabled):
+            await self._emit(BackendEvent(type="error", message=f"Cron job '{name}' not found"))
+            return
+
+        # Send updated cron jobs snapshot
+        await self._emit(BackendEvent.cron_snapshot())
 
     async def _emit(self, event: BackendEvent) -> None:
         log.debug("emit event: type=%s tool=%s", event.type, getattr(event, "tool_name", None))

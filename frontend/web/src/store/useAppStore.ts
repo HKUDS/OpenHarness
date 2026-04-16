@@ -3,6 +3,7 @@ import type {
   Message, 
   SessionState, 
   TaskSnapshot, 
+  CronJobSnapshot,
   McpServerSnapshot, 
   BridgeSessionSnapshot,
   SwarmTeammateSnapshot,
@@ -53,6 +54,7 @@ interface AppState {
   messages: Message[];
   sessionState: SessionState | null;
   tasks: TaskSnapshot[];
+  cronJobs: CronJobSnapshot[];
   mcpServers: McpServerSnapshot[];
   bridgeSessions: BridgeSessionSnapshot[];
   swarmTeammates: SwarmTeammateSnapshot[];
@@ -110,6 +112,9 @@ interface AppState {
   sendPermissionResponse: ((requestId: string, allowed: boolean) => void) | null;
   clearConversationCallback: (() => void) | null;
   saveSettingsCallback: ((settings: Record<string, unknown>) => Promise<void>) | null;
+  createCronJobCallback: ((name: string, schedule: string, command: string, cwd?: string, enabled?: boolean) => void) | null;
+  deleteCronJobCallback: ((name: string) => void) | null;
+  toggleCronJobCallback: ((name: string, enabled: boolean) => void) | null;
   
   // Actions
   setConnected: (connected: boolean) => void;
@@ -119,6 +124,11 @@ interface AppState {
   updateMessage: (id: string, updates: Partial<Message>) => void;
   setSessionState: (state: Partial<SessionState>) => void;
   setTasks: (tasks: TaskSnapshot[]) => void;
+  setCronJobs: (cronJobs: CronJobSnapshot[]) => void;
+  createCronJob: (name: string, schedule: string, command: string, cwd?: string, enabled?: boolean, requirements?: string) => void;
+  updateCronJob: (name: string, updates: Partial<CronJobSnapshot>) => void;
+  deleteCronJob: (name: string) => void;
+  toggleCronJob: (name: string, enabled: boolean) => void;
   setMcpServers: (servers: McpServerSnapshot[]) => void;
   setBridgeSessions: (sessions: BridgeSessionSnapshot[]) => void;
   setSwarmTeammates: (teammates: SwarmTeammateSnapshot[]) => void;
@@ -130,6 +140,9 @@ interface AppState {
   setSendPermissionResponse: (fn: ((requestId: string, allowed: boolean) => void) | null) => void;
   setClearConversationCallback: (fn: (() => void) | null) => void;
   setSaveSettingsCallback: (fn: ((settings: Record<string, unknown>) => Promise<void>) | null) => void;
+  setCreateCronJobCallback: (fn: ((name: string, schedule: string, command: string, cwd?: string, enabled?: boolean, requirements?: string) => void) | null) => void;
+  setDeleteCronJobCallback: (fn: ((name: string) => void) | null) => void;
+  setToggleCronJobCallback: (fn: ((name: string, enabled: boolean) => void) | null) => void;
   toggleSidebar: () => void;
   setActivePanel: (panel: AppState['activePanel']) => void;
   setTerminalView: (view: AppState['terminalView']) => void;
@@ -253,6 +266,8 @@ const STORAGE_KEYS = {
   OPENHARNESS_CONFIG: 'openharness-openharness-config',
   CHAT_SIDEBAR_WIDTH: 'openharness-chat-sidebar-width',
   TIMELINE_WIDTH: 'openharness-timeline-width',
+  TASKS: 'openharness-tasks',
+  CRON_JOBS: 'openharness-cron-jobs',
 };
 
 // Helper to load from localStorage
@@ -312,7 +327,8 @@ export const useAppStore = create<AppState>((set) => ({
   error: null,
   messages: getInitialMessages(),
   sessionState: null,
-  tasks: [],
+  tasks: loadFromStorage<TaskSnapshot[]>(STORAGE_KEYS.TASKS, []),
+  cronJobs: loadFromStorage<CronJobSnapshot[]>(STORAGE_KEYS.CRON_JOBS, []),
   mcpServers: [],
   bridgeSessions: [],
   swarmTeammates: [],
@@ -333,6 +349,9 @@ export const useAppStore = create<AppState>((set) => ({
   sendPermissionResponse: null,
   clearConversationCallback: null,
   saveSettingsCallback: null,
+  createCronJobCallback: null,
+  deleteCronJobCallback: null,
+  toggleCronJobCallback: null,
   activeModal: null,
   expandedMessages: new Set(),
   isResizingSidebar: false,
@@ -425,7 +444,14 @@ export const useAppStore = create<AppState>((set) => ({
     sessionState: { ...prev.sessionState, ...state }
   })),
   
-  setTasks: (tasks) => set({ tasks }),
+  setTasks: (tasks) => {
+    saveToStorage(STORAGE_KEYS.TASKS, tasks);
+    set({ tasks });
+  },
+  setCronJobs: (cronJobs) => {
+    saveToStorage(STORAGE_KEYS.CRON_JOBS, cronJobs);
+    set({ cronJobs });
+  },
   setMcpServers: (servers) => set({ mcpServers: servers }),
   setBridgeSessions: (sessions) => set({ bridgeSessions: sessions }),
   setSwarmTeammates: (teammates) => set({ swarmTeammates: teammates }),
@@ -437,6 +463,9 @@ export const useAppStore = create<AppState>((set) => ({
   setSendPermissionResponse: (fn) => set({ sendPermissionResponse: fn }),
   setClearConversationCallback: (fn) => set({ clearConversationCallback: fn }),
   setSaveSettingsCallback: (fn) => set({ saveSettingsCallback: fn }),
+  setCreateCronJobCallback: (fn) => set({ createCronJobCallback: fn }),
+  setDeleteCronJobCallback: (fn) => set({ deleteCronJobCallback: fn }),
+  setToggleCronJobCallback: (fn) => set({ toggleCronJobCallback: fn }),
   
   toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
   setActivePanel: (panel) => set({ activePanel: panel }),
@@ -787,5 +816,65 @@ export const useAppStore = create<AppState>((set) => ({
     const newConfig = { ...state.openHarnessConfig, ...updates };
     saveToStorage(STORAGE_KEYS.OPENHARNESS_CONFIG, newConfig);
     return { openHarnessConfig: newConfig };
+  }),
+  
+  // Cron job actions
+  createCronJob: (name: string, schedule: string, command: string, cwd?: string, enabled = true, requirements?: string) => set((state) => {
+    // Call backend callback if available
+    if (state.createCronJobCallback) {
+      state.createCronJobCallback(name, schedule, command, cwd, enabled);
+      return state; // Backend will send back the updated list via cron_snapshot
+    }
+    
+    // Fallback: update local state only (for offline mode)
+    const newCronJob: CronJobSnapshot = {
+      name,
+      schedule,
+      command,
+      cwd,
+      enabled,
+      created_at: new Date().toISOString(),
+      requirements,
+    };
+    const newCronJobs = [...state.cronJobs, newCronJob];
+    saveToStorage(STORAGE_KEYS.CRON_JOBS, newCronJobs);
+    return { cronJobs: newCronJobs };
+  }),
+  
+  updateCronJob: (name: string, updates: Partial<CronJobSnapshot>) => set((state) => {
+    // Fallback: update local state only (for offline mode)
+    const newCronJobs = state.cronJobs.map(job =>
+      job.name === name ? { ...job, ...updates } : job
+    );
+    saveToStorage(STORAGE_KEYS.CRON_JOBS, newCronJobs);
+    return { cronJobs: newCronJobs };
+  }),
+  
+  deleteCronJob: (name) => set((state) => {
+    // Call backend callback if available
+    if (state.deleteCronJobCallback) {
+      state.deleteCronJobCallback(name);
+      return state; // Backend will send back the updated list via cron_snapshot
+    }
+    
+    // Fallback: update local state only (for offline mode)
+    const newCronJobs = state.cronJobs.filter(job => job.name !== name);
+    saveToStorage(STORAGE_KEYS.CRON_JOBS, newCronJobs);
+    return { cronJobs: newCronJobs };
+  }),
+  
+  toggleCronJob: (name, enabled) => set((state) => {
+    // Call backend callback if available
+    if (state.toggleCronJobCallback) {
+      state.toggleCronJobCallback(name, enabled);
+      return state; // Backend will send back the updated list via cron_snapshot
+    }
+    
+    // Fallback: update local state only (for offline mode)
+    const newCronJobs = state.cronJobs.map(job =>
+      job.name === name ? { ...job, enabled } : job
+    );
+    saveToStorage(STORAGE_KEYS.CRON_JOBS, newCronJobs);
+    return { cronJobs: newCronJobs };
   }),
 }));

@@ -277,10 +277,20 @@ class WebBackendHost:
                 except Exception as e:
                     logger.exception("Error setting model")
                     import traceback
+                    
+                    # Classify the error
+                    error_str = str(e).lower()
+                    if any(x in error_str for x in ["auth", "unauthorized", "401", "403"]):
+                        error_category = "authentication"
+                    elif any(x in error_str for x in ["network", "timeout", "connect"]):
+                        error_category = "network"
+                    else:
+                        error_category = "unknown"
+                    
                     await self.broadcast_with_sio(sio, {
                         'type': 'error',
                         'message': f'Failed to set model: {str(e)}',
-                        'error_type': type(e).__name__,
+                        'error_type': error_category,
                         'recoverable': True,
                         'stack_trace': traceback.format_exc() if logger.isEnabledFor(logging.DEBUG) else None,
                     })
@@ -333,10 +343,20 @@ class WebBackendHost:
             except Exception as e:
                 logger.exception("Error updating config")
                 import traceback
+                
+                # Classify the error
+                error_str = str(e).lower()
+                if any(x in error_str for x in ["auth", "unauthorized", "401", "403"]):
+                    error_category = "authentication"
+                elif any(x in error_str for x in ["network", "timeout", "connect"]):
+                    error_category = "network"
+                else:
+                    error_category = "unknown"
+                
                 await self.broadcast_with_sio(sio, {
                     'type': 'error',
                     'message': f'Failed to update config: {str(e)}',
-                    'error_type': type(e).__name__,
+                    'error_type': error_category,
                     'recoverable': True,
                     'stack_trace': traceback.format_exc() if logger.isEnabledFor(logging.DEBUG) else None,
                 })
@@ -399,7 +419,7 @@ class WebBackendHost:
                         'type': 'error',
                         'message': event.message,
                         'recoverable': event.recoverable,
-                        'error_type': type(event).__name__,
+                        'error_type': event.error_category or 'unknown',
                         'timestamp': asyncio.get_event_loop().time(),
                     }
                     # Add stack trace if available (for debugging)
@@ -442,11 +462,23 @@ class WebBackendHost:
                 logger.exception("Error handling line")
                 # Enhanced error reporting with detailed information
                 import traceback
+                
+                # Classify the error for better frontend handling
+                error_str = str(e).lower()
+                if any(x in error_str for x in ["auth", "unauthorized", "401", "403", "forbidden", "credentials"]):
+                    error_category = "authentication"
+                elif any(x in error_str for x in ["rate limit", "429", "throttle", "quota"]):
+                    error_category = "rate_limit"
+                elif any(x in error_str for x in ["network", "timeout", "connect", "socket", "dns"]):
+                    error_category = "network"
+                else:
+                    error_category = "unknown"
+                
                 error_details = {
                     'type': 'error',
                     'message': f'Error: {str(e)}',
-                    'error_type': type(e).__name__,
-                    'recoverable': True,
+                    'error_type': error_category,
+                    'recoverable': error_category != "authentication",
                     'timestamp': asyncio.get_event_loop().time(),
                 }
                 # Include stack trace in debug mode
@@ -475,10 +507,20 @@ class WebBackendHost:
             except Exception as e:
                 logger.exception("Error clearing conversation")
                 import traceback
+                
+                # Classify the error
+                error_str = str(e).lower()
+                if any(x in error_str for x in ["auth", "unauthorized", "401", "403"]):
+                    error_category = "authentication"
+                elif any(x in error_str for x in ["network", "timeout", "connect"]):
+                    error_category = "network"
+                else:
+                    error_category = "unknown"
+                
                 await self.broadcast_with_sio(sio, {
                     'type': 'error',
                     'message': f'Failed to clear conversation: {str(e)}',
-                    'error_type': type(e).__name__,
+                    'error_type': error_category,
                     'recoverable': True,
                     'stack_trace': traceback.format_exc() if logger.isEnabledFor(logging.DEBUG) else None,
                 })

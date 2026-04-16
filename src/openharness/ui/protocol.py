@@ -10,6 +10,7 @@ from openharness.state.app_state import AppState
 from openharness.bridge.manager import BridgeSessionRecord
 from openharness.mcp.types import McpConnectionStatus
 from openharness.tasks.types import TaskRecord
+from openharness.services.cron import load_cron_jobs
 
 
 class FrontendRequest(BaseModel):
@@ -23,6 +24,10 @@ class FrontendRequest(BaseModel):
         "select_command",
         "apply_select_command",
         "shutdown",
+        "create_cron_job",
+        "delete_cron_job",
+        "toggle_cron_job",
+        "list_cron_jobs",
     ]
     line: str | None = None
     command: str | None = None
@@ -30,6 +35,12 @@ class FrontendRequest(BaseModel):
     request_id: str | None = None
     allowed: bool | None = None
     answer: str | None = None
+    # Cron job fields
+    cron_name: str | None = None
+    cron_schedule: str | None = None
+    cron_command: str | None = None
+    cron_cwd: str | None = None
+    cron_enabled: bool | None = None
 
 
 class TranscriptItem(BaseModel):
@@ -62,6 +73,34 @@ class TaskSnapshot(BaseModel):
         )
 
 
+class CronJobSnapshot(BaseModel):
+    """UI-safe cron job representation."""
+
+    name: str
+    schedule: str
+    command: str
+    cwd: str | None = None
+    enabled: bool = True
+    last_run: str | None = None
+    next_run: str | None = None
+    last_status: str | None = None
+    created_at: str | None = None
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "CronJobSnapshot":
+        return cls(
+            name=data.get("name", ""),
+            schedule=data.get("schedule", ""),
+            command=data.get("command", ""),
+            cwd=data.get("cwd"),
+            enabled=data.get("enabled", True),
+            last_run=data.get("last_run"),
+            next_run=data.get("next_run"),
+            last_status=data.get("last_status"),
+            created_at=data.get("created_at"),
+        )
+
+
 class BackendEvent(BaseModel):
     """One event sent from the Python backend to the React frontend."""
 
@@ -69,6 +108,7 @@ class BackendEvent(BaseModel):
         "ready",
         "state_snapshot",
         "tasks_snapshot",
+        "cron_snapshot",
         "transcript_item",
         "compact_progress",
         "assistant_delta",
@@ -90,6 +130,7 @@ class BackendEvent(BaseModel):
     item: TranscriptItem | None = None
     state: dict[str, Any] | None = None
     tasks: list[TaskSnapshot] | None = None
+    cron_jobs: list[CronJobSnapshot] | None = None
     mcp_servers: list[dict[str, Any]] | None = None
     bridge_sessions: list[dict[str, Any]] | None = None
     commands: list[str] | None = None
@@ -108,6 +149,9 @@ class BackendEvent(BaseModel):
     plan_mode: str | None = None
     swarm_teammates: list[dict[str, Any]] | None = None
     swarm_notifications: list[dict[str, Any]] | None = None
+    # Error details
+    error_type: str | None = None
+    recoverable: bool | None = None
 
     @classmethod
     def ready(
@@ -116,10 +160,12 @@ class BackendEvent(BaseModel):
         tasks: list[TaskRecord],
         commands: list[str],
     ) -> "BackendEvent":
+        cron_jobs = load_cron_jobs()
         return cls(
             type="ready",
             state=_state_payload(state),
             tasks=[TaskSnapshot.from_record(task) for task in tasks],
+            cron_jobs=[CronJobSnapshot.from_dict(job) for job in cron_jobs],
             mcp_servers=[],
             bridge_sessions=[],
             commands=commands,
@@ -134,6 +180,15 @@ class BackendEvent(BaseModel):
         return cls(
             type="tasks_snapshot",
             tasks=[TaskSnapshot.from_record(task) for task in tasks],
+        )
+
+    @classmethod
+    def cron_snapshot(cls) -> "BackendEvent":
+        """Send current cron job list to frontend."""
+        cron_jobs = load_cron_jobs()
+        return cls(
+            type="cron_snapshot",
+            cron_jobs=[CronJobSnapshot.from_dict(job) for job in cron_jobs],
         )
 
     @classmethod
@@ -215,6 +270,7 @@ def _format_permission_mode(raw: str) -> str:
 
 __all__ = [
     "BackendEvent",
+    "CronJobSnapshot",
     "FrontendRequest",
     "TaskSnapshot",
     "TranscriptItem",

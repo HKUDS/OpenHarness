@@ -47,6 +47,7 @@ class ErrorEvent:
 
     message: str
     recoverable: bool = True
+    error_category: str | None = None  # e.g., "authentication", "rate_limit", "network", "api"
 
 
 @dataclass(frozen=True)

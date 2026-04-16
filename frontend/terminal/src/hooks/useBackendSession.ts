@@ -415,7 +415,33 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 		}
 		if (event.type === 'error') {
 			flushTranscriptItems();
-			queueTranscriptItem({role: 'system', text: `error: ${event.message ?? 'unknown error'}`});
+			const errorType = (event as any).error_type || 'unknown';
+			const recoverable = (event as any).recoverable ?? true;
+			
+			// Map error types to human-readable labels
+			const errorTypeLabels: Record<string, string> = {
+				authentication: 'Authentication Error',
+				rate_limit: 'Rate Limit Exceeded',
+				network: 'Network Error',
+				api: 'API Error',
+				unknown: 'Error',
+			};
+			
+			const typeLabel = errorTypeLabels[errorType] || errorType;
+			const baseMessage = event.message ?? 'unknown error';
+			
+			// Format error message with type prefix if useful
+			let errorMessage = baseMessage;
+			if (errorType !== 'unknown' && !baseMessage.toLowerCase().includes(typeLabel.toLowerCase())) {
+				errorMessage = `${typeLabel}: ${baseMessage}`;
+			}
+			
+			// Add recovery hint
+			if (recoverable) {
+				errorMessage += ' (retryable)';
+			}
+			
+			queueTranscriptItem({role: 'system', text: errorMessage});
 			clearAssistantDelta();
 			setBusy(false);
 			setBusyLabel(undefined);

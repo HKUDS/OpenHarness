@@ -23,6 +23,19 @@ export interface TaskSnapshot {
   type: 'local_bash' | 'local_agent';
 }
 
+export interface CronJobSnapshot {
+  name: string;
+  schedule: string;
+  command: string;
+  cwd?: string;
+  enabled: boolean;
+  last_run?: string;
+  next_run?: string;
+  last_status?: string;
+  created_at?: string;
+  requirements?: string;
+}
+
 export interface SessionState {
   permission_mode?: string;
   model?: string;
@@ -61,7 +74,7 @@ export interface QuestionModalRequest {
 export type ModalRequest = PermissionModalRequest | QuestionModalRequest;
 
 export interface BackendEvent {
-  type: 'ready' | 'state_snapshot' | 'tasks_snapshot' | 'transcript_item' | 
+  type: 'ready' | 'state_snapshot' | 'tasks_snapshot' | 'cron_snapshot' | 'transcript_item' | 
         'assistant_delta' | 'assistant_complete' | 'line_complete' | 
         'modal_request' | 'select_request' | 'error' | 'mcp_servers' | 
         'bridge_sessions' | 'todo_updated' | 'swarm_teammates' | 
@@ -70,6 +83,7 @@ export interface BackendEvent {
         'system' | 'status';
   state?: Record<string, unknown>;
   tasks?: TaskSnapshot[];
+  cron_jobs?: CronJobSnapshot[];
   item?: TranscriptItem;
   message?: string;
   commands?: string[];

@@ -16,6 +16,12 @@ from openharness.api.client import (
     ApiTextDeltaEvent,
     SupportsStreamingMessages,
 )
+from openharness.api.errors import (
+    AuthenticationFailure,
+    OpenHarnessApiError,
+    RateLimitFailure,
+    RequestFailure,
+)
 from openharness.api.usage import UsageSnapshot
 from openharness.engine.messages import ConversationMessage, ToolResultBlock
 from openharness.engine.stream_events import (
@@ -65,6 +71,182 @@ def _is_prompt_too_long_error(exc: Exception) -> bool:
             "maximum context length",
         )
     )
+
+
+def _is_network_error(exc: Exception) -> bool:
+    """Check if an exception is related to network connectivity."""
+    text = str(exc).lower()
+    return any(
+        needle in text
+        for needle in (
+            "connect",
+            "timeout",
+            "network",
+            "connection reset",
+            "connection refused",
+            "connection closed",
+            "socket",
+            "dns",
+            "resolve",
+            "unreachable",
+            "eof",
+            "broken pipe",
+            "ssl",
+            "certificate",
+            "handshake",
+        )
+    )
+
+
+def _is_rate_limit_error(exc: Exception) -> bool:
+    """Check if an exception is related to rate limiting."""
+    text = str(exc).lower()
+    return any(
+        needle in text
+        for needle in (
+            "rate limit",
+            "rate_limit",
+            "too many requests",
+            "429",
+            "overloaded",
+            "capacity",
+            "quota",
+            "throttle",
+            "slow down",
+        )
+    )
+
+
+def _is_authentication_error(exc: Exception) -> bool:
+    """Check if an exception is related to authentication."""
+    text = str(exc).lower()
+    return any(
+        needle in text
+        for needle in (
+            "authentication",
+            "auth",
+            "unauthorized",
+            "401",
+            "403",
+            "forbidden",
+            "invalid api key",
+            "invalid key",
+            "invalid token",
+            "expired",
+            "credentials",
+            "permission denied",
+        )
+    )
+
+
+def _classify_error(exc: Exception) -> str:
+    """Classify an exception into a category for better error handling."""
+    if isinstance(exc, AuthenticationFailure) or _is_authentication_error(exc):
+        return "authentication"
+    if isinstance(exc, RateLimitFailure) or _is_rate_limit_error(exc):
+        return "rate_limit"
+    if isinstance(exc, RequestFailure) or _is_network_error(exc):
+        return "network"
+    if isinstance(exc, OpenHarnessApiError):
+        return "api"
+    # Generic exception - try to classify by content
+    if _is_authentication_error(exc):
+        return "authentication"
+    if _is_rate_limit_error(exc):
+        return "rate_limit"
+    if _is_network_error(exc):
+        return "network"
+    return "unknown"
+
+
+def _format_api_error_message(exc: Exception) -> str:
+    """Generate a user-friendly error message based on exception type and content."""
+    error_msg = str(exc)
+
+    # Check exception type first for precise handling
+    if isinstance(exc, AuthenticationFailure):
+        return (
+            f"Authentication error: {error_msg}\n\n"
+            "Please check your API key or authentication credentials:\n"
+            "• Verify your API key is correctly configured\n"
+            "• Ensure your credentials haven't expired\n"
+            "• For OAuth-based providers, you may need to re-authenticate"
+        )
+
+    if isinstance(exc, RateLimitFailure):
+        return (
+            f"Rate limit reached: {error_msg}\n\n"
+            "The API is temporarily unavailable due to usage limits. Please:\n"
+            "• Wait a few moments before retrying\n"
+            "• Consider reducing request frequency\n"
+            "• Check if you've exceeded your plan's quota"
+        )
+
+    if isinstance(exc, RequestFailure):
+        # Check if it's a network-related request failure
+        if _is_network_error(exc):
+            return (
+                f"Network error: {error_msg}\n\n"
+                "Please check your internet connection and try again:\n"
+                "• Verify your network connectivity\n"
+                "• Check if you're behind a firewall or proxy\n"
+                "• Try refreshing the connection"
+            )
+        # Generic request failure
+        return (
+            f"Request failed: {error_msg}\n\n"
+            "The API request could not be completed. Please:\n"
+            "• Check the error details above\n"
+            "• Try again with a simpler request\n"
+            "• If the issue persists, check API status"
+        )
+
+    # Handle other OpenHarnessApiError subclasses
+    if isinstance(exc, OpenHarnessApiError):
+        if _is_authentication_error(exc):
+            return (
+                f"Authentication error: {error_msg}\n\n"
+                "Please check your API key or authentication credentials."
+            )
+        if _is_rate_limit_error(exc):
+            return (
+                f"Rate limit reached: {error_msg}\n\n"
+                "Please wait a few moments before retrying."
+            )
+        if _is_network_error(exc):
+            return (
+                f"Network error: {error_msg}\n\n"
+                "Please check your internet connection and try again."
+            )
+        return f"API error: {error_msg}"
+
+    # Fallback for generic exceptions - classify based on error message content
+    if _is_authentication_error(exc):
+        return (
+            f"Authentication error: {error_msg}\n\n"
+            "Please check your API key or authentication credentials:\n"
+            "• Verify your credentials are correctly configured\n"
+            "• Ensure your authentication hasn't expired"
+        )
+
+    if _is_rate_limit_error(exc):
+        return (
+            f"Rate limit reached: {error_msg}\n\n"
+            "Please wait a few moments before retrying. "
+            "Consider reducing request frequency if this happens often."
+        )
+
+    if _is_network_error(exc):
+        return (
+            f"Network error: {error_msg}\n\n"
+            "Please check your internet connection:\n"
+            "• Verify your network connectivity\n"
+            "• Check for firewall or proxy issues\n"
+            "• Try again in a moment"
+        )
+
+    # Generic fallback - but still provide some guidance
+    return f"API error: {error_msg}\n\nPlease try again. If the issue persists, check the error details above."
 
 
 class MaxTurnsExceeded(RuntimeError):
@@ -492,7 +674,7 @@ async def run_query(
                     final_message = event.message
                     usage = event.usage
         except Exception as exc:
-            error_msg = str(exc)
+            # Handle context length errors with automatic compaction
             if not reactive_compact_attempted and _is_prompt_too_long_error(exc):
                 reactive_compact_attempted = True
                 yield StatusEvent(message=REACTIVE_COMPACT_STATUS_MESSAGE), None
@@ -501,10 +683,20 @@ async def run_query(
                 messages, was_compacted = last_compaction_result
                 if was_compacted:
                     continue
-            if "connect" in error_msg.lower() or "timeout" in error_msg.lower() or "network" in error_msg.lower():
-                yield ErrorEvent(message=f"Network error: {error_msg}. Check your internet connection and try again."), None
-            else:
-                yield ErrorEvent(message=f"API error: {error_msg}"), None
+            
+            # Classify and format the error for better user experience
+            error_category = _classify_error(exc)
+            formatted_message = _format_api_error_message(exc)
+            # Authentication errors are not recoverable without user action
+            is_recoverable = not isinstance(exc, AuthenticationFailure) and not _is_authentication_error(exc)
+            
+            # Provide status update for transient errors
+            if error_category in ("network", "rate_limit"):
+                yield StatusEvent(
+                    message=f"Encountered {error_category.replace('_', ' ')} error. The request can be retried."
+                ), None
+            
+            yield ErrorEvent(message=formatted_message, recoverable=is_recoverable, error_category=error_category), None
             return
 
         if final_message is None:
@@ -521,7 +713,8 @@ async def run_query(
                 message=(
                     "Model returned an empty assistant message. "
                     "The turn was ignored to keep the session healthy."
-                )
+                ),
+                error_category="api",
             ), usage
             return
 
