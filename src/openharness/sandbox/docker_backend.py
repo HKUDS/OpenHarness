@@ -95,11 +95,16 @@ class DockerSandboxSession:
             self._container_name,
         ]
 
-        # Network isolation
-        if sandbox.network.allowed_domains:
-            argv.extend(["--network", "bridge"])
-        else:
-            argv.extend(["--network", "none"])
+        # Docker backend currently supports only fully disabled networking.
+        # Domain-level allow/deny policies exist for the srt backend, but Docker
+        # does not enforce them yet. Fail closed instead of silently widening
+        # egress to unrestricted bridge networking.
+        if sandbox.network.allowed_domains or sandbox.network.denied_domains:
+            logger.warning(
+                "Docker sandbox does not enforce allowed_domains/denied_domains yet; "
+                "keeping network disabled"
+            )
+        argv.extend(["--network", "none"])
 
         # Resource limits
         if docker_cfg.cpu_limit > 0:
