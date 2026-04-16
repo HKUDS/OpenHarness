@@ -17,7 +17,12 @@ from openharness.bridge import get_bridge_manager
 from openharness.commands import CommandContext, CommandResult, create_default_command_registry
 from openharness.config import get_config_file_path, load_settings
 from openharness.engine import QueryEngine
-from openharness.engine.messages import ConversationMessage, ToolResultBlock, ToolUseBlock
+from openharness.engine.messages import (
+    ConversationMessage,
+    ToolResultBlock,
+    ToolUseBlock,
+    sanitize_conversation_messages,
+)
 from openharness.engine.query import MaxTurnsExceeded
 from openharness.engine.stream_events import StreamEvent
 from openharness.hooks import HookEvent, HookExecutionContext, HookExecutor, load_hook_registry
@@ -111,6 +116,8 @@ class RuntimeBundle:
 
 def _resolve_api_client_from_settings(settings) -> SupportsStreamingMessages:
     """Build the appropriate API client for the resolved settings."""
+    # Ensure profile fields (base_url, model, api_format) are projected to settings
+    settings = settings.materialize_active_profile()
 
     def _safe_resolve_auth():
         try:
@@ -146,7 +153,7 @@ def _resolve_api_client_from_settings(settings) -> SupportsStreamingMessages:
             claude_oauth=True,
             auth_token_resolver=lambda: settings.resolve_auth().value,
         )
-    if settings.api_format == "openai":
+    if settings.api_format in ("openai", "openai_compat"):
         auth = _safe_resolve_auth()
         return OpenAICompatibleClient(
             api_key=auth.value,
@@ -301,9 +308,9 @@ async def build_runtime(
     )
     # Restore messages from a saved session if provided
     if restore_messages:
-        restored = [
-            ConversationMessage.model_validate(m) for m in restore_messages
-        ]
+        restored = sanitize_conversation_messages(
+            [ConversationMessage.model_validate(m) for m in restore_messages]
+        )
         engine.load_messages(restored)
 
     # Start Docker sandbox if configured

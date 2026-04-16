@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Annotated, Literal
 from uuid import uuid4
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class TextBlock(BaseModel):
@@ -67,6 +67,14 @@ class ConversationMessage(BaseModel):
     role: Literal["user", "assistant"]
     content: list[ContentBlock] = Field(default_factory=list)
 
+    @field_validator("content", mode="before")
+    @classmethod
+    def _normalize_content(cls, value: Any) -> list[Any]:
+        """Normalize legacy/null payloads before block validation."""
+        if value is None:
+            return []
+        return value
+
     @classmethod
     def from_user_text(cls, text: str) -> "ConversationMessage":
         """Construct a user message from raw text."""
@@ -95,6 +103,26 @@ class ConversationMessage(BaseModel):
             "role": self.role,
             "content": [serialize_content_block(block) for block in self.content],
         }
+
+    def is_effectively_empty(self) -> bool:
+        """Return True when the message carries no useful content."""
+        if self.content:
+            for block in self.content:
+                if isinstance(block, TextBlock) and block.text.strip():
+                    return False
+                if isinstance(block, (ImageBlock, ToolUseBlock, ToolResultBlock)):
+                    return False
+        return True
+
+
+def sanitize_conversation_messages(messages: list[ConversationMessage]) -> list[ConversationMessage]:
+    """Drop legacy empty assistant messages while preserving other content."""
+    sanitized: list[ConversationMessage] = []
+    for message in messages:
+        if message.role == "assistant" and message.is_effectively_empty():
+            continue
+        sanitized.append(message)
+    return sanitized
 
 
 def serialize_content_block(block: ContentBlock) -> dict[str, Any]:

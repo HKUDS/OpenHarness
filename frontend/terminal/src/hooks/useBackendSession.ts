@@ -37,6 +37,7 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 	const [todoMarkdown, setTodoMarkdown] = useState('');
 	const [swarmTeammates, setSwarmTeammates] = useState<SwarmTeammateSnapshot[]>([]);
 	const [swarmNotifications, setSwarmNotifications] = useState<SwarmNotificationSnapshot[]>([]);
+	const statusRef = useRef<Record<string, unknown>>({});
 	const childRef = useRef<ChildProcessWithoutNullStreams | null>(null);
 	const sentInitialPrompt = useRef(false);
 	const lastStatusSnapshotRef = useRef('');
@@ -180,8 +181,10 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 			setReady(true);
 			const statusSnapshot = stableStringify(event.state ?? {});
 			lastStatusSnapshotRef.current = statusSnapshot;
+			const nextStatus = event.state ?? {};
+			statusRef.current = nextStatus;
 			startTransition(() => {
-				setStatus(event.state ?? {});
+				setStatus(nextStatus);
 			});
 			const tasksSnapshot = stableStringify(event.tasks ?? []);
 			lastTasksSnapshotRef.current = tasksSnapshot;
@@ -210,8 +213,10 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 			const statusSnapshot = stableStringify(event.state ?? {});
 			if (statusSnapshot !== lastStatusSnapshotRef.current) {
 				lastStatusSnapshotRef.current = statusSnapshot;
+				const nextStatus = event.state ?? {};
+				statusRef.current = nextStatus;
 				startTransition(() => {
-					setStatus(event.state ?? {});
+					setStatus(nextStatus);
 				});
 			}
 			const mcpSnapshot = stableStringify(event.mcp_servers ?? []);
@@ -294,6 +299,13 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 			if (!delta) {
 				return;
 			}
+			const isCodexStyle = String(statusRef.current.output_style ?? 'default') === 'codex';
+			if (isCodexStyle) {
+				// Keep collecting text for assistant_complete fallback, but avoid
+				// token-level rerenders in compact codex mode.
+				assistantBufferRef.current += delta;
+				return;
+			}
 			pendingAssistantDeltaRef.current += delta;
 			if (pendingAssistantDeltaRef.current.length >= ASSISTANT_DELTA_FLUSH_CHARS) {
 				flushAssistantDelta();
@@ -313,7 +325,15 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 				assistantFlushTimerRef.current = null;
 			}
 			flushTranscriptItems();
-			flushAssistantDelta();
+			const isCodexStyle = String(statusRef.current.output_style ?? 'default') === 'codex';
+			if (isCodexStyle) {
+				if (pendingAssistantDeltaRef.current) {
+					assistantBufferRef.current += pendingAssistantDeltaRef.current;
+					pendingAssistantDeltaRef.current = '';
+				}
+			} else {
+				flushAssistantDelta();
+			}
 			const text = event.message ?? assistantBufferRef.current;
 			startTransition(() => {
 				setTranscript((items) => [...items, {role: 'assistant', text}]);
@@ -400,7 +420,11 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 		if (event.type === 'plan_mode_change') {
 			if (event.plan_mode != null) {
 				startTransition(() => {
-					setStatus((s) => ({...s, permission_mode: event.plan_mode}));
+					setStatus((s) => {
+						const next = {...s, permission_mode: event.plan_mode};
+						statusRef.current = next;
+						return next;
+					});
 				});
 			}
 			return;

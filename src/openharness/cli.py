@@ -272,6 +272,7 @@ _PROVIDER_LABELS: dict[str, str] = {
     "vertex": "Google Vertex AI",
     "moonshot": "Moonshot (Kimi)",
     "gemini": "Google Gemini",
+    "minimax": "MiniMax",
 }
 
 _AUTH_SOURCE_LABELS: dict[str, str] = {
@@ -285,6 +286,7 @@ _AUTH_SOURCE_LABELS: dict[str, str] = {
     "vertex_api_key": "Vertex credentials",
     "moonshot_api_key": "Moonshot API key",
     "gemini_api_key": "Gemini API key",
+    "minimax_api_key": "MiniMax API key",
 }
 
 
@@ -576,7 +578,7 @@ def _specialize_setup_target(manager, target: str) -> str:
         defaults = {
             "kimi-anthropic": ("Kimi (Anthropic-compatible)", "https://api.moonshot.cn/anthropic", "kimi-k2.5"),
             "glm-anthropic": ("GLM (Anthropic-compatible)", "", "glm-4.5"),
-            "minimax-anthropic": ("MiniMax (Anthropic-compatible)", "", "minimax-m1"),
+            "minimax-anthropic": ("MiniMax (Anthropic-compatible)", "", "MiniMax-M2.7"),
         }
         label, suggested_base_url, suggested_model = defaults[choice]
         base_url = _text_prompt("Base URL", default=suggested_base_url).strip()
@@ -726,7 +728,7 @@ def _login_provider(provider: str) -> None:
         _bind_external_provider(provider)
         return
 
-    if provider in ("anthropic", "openai", "dashscope", "bedrock", "vertex", "moonshot", "gemini"):
+    if provider in ("anthropic", "openai", "dashscope", "bedrock", "vertex", "moonshot", "gemini", "minimax"):
         label = _PROVIDER_LABELS.get(provider, provider)
         flow = ApiKeyFlow(provider=provider, prompt_text=f"Enter your {label} API key")
         try:
@@ -808,7 +810,7 @@ def auth_login(
     """Interactively authenticate with a provider.
 
     Run without arguments to choose a provider from a menu.
-    Supported providers: anthropic, anthropic_claude, openai, openai_codex, copilot, dashscope, bedrock, vertex, moonshot.
+    Supported providers: anthropic, anthropic_claude, openai, openai_codex, copilot, dashscope, bedrock, vertex, moonshot, minimax.
     """
     if provider is None:
         print("Select a provider to authenticate:", flush=True)

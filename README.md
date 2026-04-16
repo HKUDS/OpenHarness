@@ -210,12 +210,13 @@ iex (Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/HKUDS/OpenHarness
 pip install openharness-ai
 ```
 
-**Note**: Windows support is now native! The PowerShell installer handles virtual environment setup and PATH configuration automatically.
+**Note**: Windows support is now native. In PowerShell, use `openh` instead of `oh` because `oh` can resolve to the built-in `Out-Host` alias.
 
 ### 2. Configure
 
 ```bash
 oh setup    # interactive wizard — pick a provider, authenticate, done
+# On Windows PowerShell, use: openh setup
 ```
 
 Supports **Claude / OpenAI / Copilot / Codex / Moonshot(Kimi) / GLM / MiniMax** and any compatible endpoint.
@@ -224,6 +225,7 @@ Supports **Claude / OpenAI / Copilot / Codex / Moonshot(Kimi) / GLM / MiniMax** 
 
 ```bash
 oh
+# On Windows PowerShell, use: openh
 ```
 
 <p align="center">

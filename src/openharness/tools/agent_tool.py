@@ -70,8 +70,10 @@ class AgentTool(BaseTool):
             cwd=str(context.cwd),
             parent_session_id="main",
             model=arguments.model or (agent_def.model if agent_def else None),
+            command=arguments.command,
             system_prompt=agent_def.system_prompt if agent_def else None,
             permissions=agent_def.permissions if agent_def else [],
+            task_type=arguments.mode,
         )
 
         try:

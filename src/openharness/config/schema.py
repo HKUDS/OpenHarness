@@ -25,7 +25,10 @@ class ProviderConfigs(_CompatModel):
 
 class BaseChannelConfig(_CompatModel):
     enabled: bool = False
-    allow_from: list[str] = Field(default_factory=lambda: ["*"])
+    # Secure default: enabling a channel does not automatically trust every
+    # remote sender. Operators must explicitly allow specific identities, or
+    # intentionally set ["*"] when they want open access.
+    allow_from: list[str] = Field(default_factory=list)
 
 
 class TelegramConfig(BaseChannelConfig):

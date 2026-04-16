@@ -17,6 +17,17 @@ from openharness.tools.task_update_tool import TaskUpdateTool, TaskUpdateToolInp
 from openharness.tools.team_create_tool import TeamCreateTool, TeamCreateToolInput
 
 
+async def _wait_for_terminal_task(task_id: str, *, timeout_seconds: float = 2.0) -> None:
+    deadline = asyncio.get_running_loop().time() + timeout_seconds
+    manager = get_task_manager()
+    while asyncio.get_running_loop().time() < deadline:
+        task = manager.get_task(task_id)
+        if task is not None and task.status in {"completed", "failed", "killed"}:
+            return
+        await asyncio.sleep(0.05)
+    raise AssertionError(f"Task {task_id} did not reach a terminal status in time")
+
+
 @pytest.mark.asyncio
 async def test_task_create_and_output_tool(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("OPENHARNESS_DATA_DIR", str(tmp_path / "data"))
@@ -142,8 +153,9 @@ async def test_agent_tool_uses_subprocess_backend_and_task_is_pollable(
         f"task_id {task_id!r} not found in BackgroundTaskManager — "
         "task tools (TaskGet, TaskOutput, etc.) would have failed"
     )
-    assert record.command is not None
-    assert "--task-worker" in record.command
+    assert record.command == 'python -u -c "import sys; print(sys.stdin.readline().strip())"'
+    assert record.type == "local_agent"
+    await _wait_for_terminal_task(task_id)
 
 
 @pytest.mark.asyncio
@@ -225,5 +237,12 @@ async def test_agent_tool_supports_remote_and_teammate_modes(tmp_path: Path, mon
             context,
         )
         assert result.is_error is False
-        # Output format: "Spawned agent X (task_id=Y, backend=Z)"
-        assert "agent" in result.output.lower() or "task_id" in result.output.lower()
+        import re
+
+        match = re.search(r"task_id=(\S+?)[,)]", result.output)
+        assert match, result.output
+        task_id = match.group(1)
+        record = get_task_manager().get_task(task_id)
+        assert record is not None
+        assert record.type == mode
+        await _wait_for_terminal_task(task_id)

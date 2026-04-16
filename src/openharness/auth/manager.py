@@ -36,6 +36,7 @@ _KNOWN_PROVIDERS = [
     "vertex",
     "moonshot",
     "gemini",
+    "minimax",
 ]
 
 _AUTH_SOURCES = [
@@ -49,6 +50,7 @@ _AUTH_SOURCES = [
     "vertex_api_key",
     "moonshot_api_key",
     "gemini_api_key",
+    "minimax_api_key",
 ]
 
 _PROFILE_BY_PROVIDER = {
@@ -59,6 +61,7 @@ _PROFILE_BY_PROVIDER = {
     "copilot": "copilot",
     "moonshot": "moonshot",
     "gemini": "gemini",
+    "minimax": "minimax",
 }
 
 
@@ -239,6 +242,14 @@ class AuthManager:
                     configured = True
                     source = "env"
                 elif load_credential("moonshot", "api_key"):
+                    configured = True
+                    source = "file"
+
+            elif provider == "minimax":
+                if os.environ.get("MINIMAX_API_KEY"):
+                    configured = True
+                    source = "env"
+                elif load_credential("minimax", "api_key"):
                     configured = True
                     source = "file"
 

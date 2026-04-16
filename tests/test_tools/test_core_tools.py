@@ -136,6 +136,30 @@ async def test_skill_todo_and_config_tools(tmp_path: Path, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_todo_write_upsert(tmp_path: Path):
+    tool = TodoWriteTool()
+    ctx = ToolExecutionContext(cwd=tmp_path)
+
+    await tool.execute(TodoWriteToolInput(item="task A"), ctx)
+    await tool.execute(TodoWriteToolInput(item="task B"), ctx)
+
+    # Marking done should update in-place, not append a duplicate
+    result = await tool.execute(TodoWriteToolInput(item="task A", checked=True), ctx)
+    assert result.is_error is False
+
+    content = (tmp_path / "TODO.md").read_text(encoding="utf-8")
+    assert content.count("task A") == 1
+    assert "- [x] task A" in content
+    assert "- [ ] task A" not in content
+    assert "- [ ] task B" in content
+
+    # Calling again with same state is a no-op
+    noop = await tool.execute(TodoWriteToolInput(item="task A", checked=True), ctx)
+    assert "No change" in noop.output
+    assert (tmp_path / "TODO.md").read_text(encoding="utf-8").count("task A") == 1
+
+
+@pytest.mark.asyncio
 async def test_notebook_edit_tool(tmp_path: Path):
     result = await NotebookEditTool().execute(
         NotebookEditToolInput(path="demo.ipynb", cell_index=0, new_source="print('nb ok')\n"),

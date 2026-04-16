@@ -109,6 +109,7 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 	}, [session.commands, input]);
 
 	const showPicker = commandHints.length > 0 && !session.busy && !session.modal && !selectModal;
+	const outputStyle = String(session.status.output_style ?? 'default');
 
 	useEffect(() => {
 		setPickerIndex(0);
@@ -389,7 +390,8 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 				<ConversationView
 					items={deferredTranscript}
 					assistantBuffer={deferredAssistantBuffer}
-					showWelcome={session.ready}
+					showWelcome={session.ready && outputStyle !== 'codex'}
+					outputStyle={outputStyle}
 				/>
 			</Box>
 

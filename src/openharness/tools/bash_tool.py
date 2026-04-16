@@ -30,6 +30,13 @@ class BashTool(BaseTool):
 
     async def execute(self, arguments: BashToolInput, context: ToolExecutionContext) -> ToolResult:
         cwd = Path(arguments.cwd).expanduser() if arguments.cwd else context.cwd
+        preflight_error = _preflight_interactive_command(arguments.command)
+        if preflight_error is not None:
+            return ToolResult(
+                output=preflight_error,
+                is_error=True,
+                metadata={"interactive_required": True},
+            )
         process: asyncio.subprocess.Process | None = None
         try:
             process = await create_shell_subprocess(
@@ -132,6 +139,18 @@ def _format_timeout_output(output_buffer: bytearray, *, command: str, timeout_se
     if hint:
         parts.extend(["", hint])
     return "\n".join(parts)
+
+
+def _preflight_interactive_command(command: str) -> str | None:
+    lowered_command = command.lower()
+    if not _looks_like_interactive_scaffold(lowered_command):
+        return None
+    return (
+        "This command appears to require interactive input before it can continue. "
+        "The bash tool is non-interactive, so it cannot answer installer/scaffold prompts live. "
+        "Prefer non-interactive flags (for example --yes, -y, --skip-install, --defaults, --non-interactive), "
+        "or run the scaffolding step once in an external terminal before asking the agent to continue."
+    )
 
 
 def _interactive_command_hint(*, command: str, output: str) -> str | None:

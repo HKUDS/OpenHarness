@@ -31,13 +31,15 @@ function ConversationViewInner({
 	items,
 	assistantBuffer,
 	showWelcome,
+	outputStyle,
 }: {
 	items: TranscriptItem[];
 	assistantBuffer: string;
 	showWelcome: boolean;
+	outputStyle: string;
 }): React.JSX.Element {
 	const {theme} = useTheme();
-	// Show the most recent items that fit the viewport
+	const isCodexStyle = outputStyle === 'codex';
 	const visible = items.slice(-40);
 	const grouped = groupToolPairs(visible);
 
@@ -48,20 +50,40 @@ function ConversationViewInner({
 			{grouped.map((group, index) => {
 				if (Array.isArray(group)) {
 					const [toolItem, resultItem] = group as [TranscriptItem, TranscriptItem];
-					return <ToolCallDisplay key={index} item={toolItem} resultItem={resultItem} />;
+					return (
+						<ToolCallDisplay
+							key={index}
+							item={toolItem}
+							resultItem={resultItem}
+							outputStyle={outputStyle}
+						/>
+					);
 				}
-				return <MessageRow key={index} item={group as TranscriptItem} theme={theme} />;
+				return (
+					<MessageRow
+						key={index}
+						item={group as TranscriptItem}
+						theme={theme}
+						outputStyle={outputStyle}
+					/>
+				);
 			})}
 
 			{assistantBuffer ? (
-				<Box marginTop={1} marginBottom={0} flexDirection="column">
-					<Text>
-						<Text color={theme.colors.success} bold>{theme.icons.assistant}</Text>
-					</Text>
-					<Box marginLeft={2} flexDirection="column">
-						<MarkdownText content={assistantBuffer} />
+				isCodexStyle ? (
+					<Box flexDirection="row" marginTop={0}>
+						<Text>{assistantBuffer}</Text>
 					</Box>
-				</Box>
+				) : (
+					<Box marginTop={1} marginBottom={0} flexDirection="column">
+						<Text>
+							<Text color={theme.colors.success} bold>{theme.icons.assistant}</Text>
+						</Text>
+						<Box marginLeft={2} flexDirection="column">
+							<MarkdownText content={assistantBuffer} />
+						</Box>
+					</Box>
+				)
 			) : null}
 		</Box>
 	);
@@ -69,9 +91,29 @@ function ConversationViewInner({
 
 export const ConversationView = React.memo(ConversationViewInner);
 
-function MessageRow({item, theme}: {item: TranscriptItem; theme: ReturnType<typeof useTheme>['theme']}): React.JSX.Element {
+function MessageRow({
+	item,
+	theme,
+	outputStyle,
+}: {
+	item: TranscriptItem;
+	theme: ReturnType<typeof useTheme>['theme'];
+	outputStyle: string;
+}): React.JSX.Element {
+	const isCodexStyle = outputStyle === 'codex';
+
 	switch (item.role) {
 		case 'user':
+			if (isCodexStyle) {
+				return (
+					<Box marginTop={0}>
+						<Text>
+							<Text dimColor>{'> '}</Text>
+							<Text>{item.text}</Text>
+						</Text>
+					</Box>
+				);
+			}
 			return (
 				<Box marginTop={1} marginBottom={0}>
 					<Text>
@@ -82,6 +124,13 @@ function MessageRow({item, theme}: {item: TranscriptItem; theme: ReturnType<type
 			);
 
 		case 'assistant':
+			if (isCodexStyle) {
+				return (
+					<Box marginTop={0} marginBottom={0}>
+						<Text>{item.text}</Text>
+					</Box>
+				);
+			}
 			return (
 				<Box marginTop={1} marginBottom={0} flexDirection="column">
 					<Text>
@@ -95,9 +144,19 @@ function MessageRow({item, theme}: {item: TranscriptItem; theme: ReturnType<type
 
 		case 'tool':
 		case 'tool_result':
-			return <ToolCallDisplay item={item} />;
+			return <ToolCallDisplay item={item} outputStyle={outputStyle} />;
 
 		case 'system':
+			if (isCodexStyle) {
+				return (
+					<Box marginTop={0}>
+						<Text>
+							<Text color={theme.colors.warning}>[system]</Text>
+							<Text> {item.text}</Text>
+						</Text>
+					</Box>
+				);
+			}
 			return (
 				<Box marginTop={0}>
 					<Text>
