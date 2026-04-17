@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 
 from openharness.config.settings import Settings
 from openharness.hooks.loader import load_hook_registry
 from openharness.plugins import load_plugins
+from openharness.plugins.loader import get_user_plugins_dir
 from openharness.skills import load_skill_registry
 
 
@@ -115,3 +117,34 @@ def test_project_plugins_are_disabled_by_default(tmp_path: Path, monkeypatch):
     plugins = load_plugins(Settings(), project)
 
     assert plugins == []
+
+
+def test_project_plugins_disabled_by_default_warns_operator(tmp_path: Path, monkeypatch, caplog):
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
+    project = tmp_path / "repo"
+    plugins_root = project / ".openharness" / "plugins"
+    plugins_root.mkdir(parents=True)
+    _write_plugin(plugins_root)
+
+    with caplog.at_level(logging.WARNING):
+        plugins = load_plugins(Settings(), project)
+
+    assert plugins == []
+    assert "project-local plugins" in caplog.text
+    assert "allow_project_plugins=true" in caplog.text
+
+
+def test_user_plugins_still_load_when_project_plugins_are_disabled(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
+    project = tmp_path / "repo"
+    project_plugins_root = project / ".openharness" / "plugins"
+    project_plugins_root.mkdir(parents=True)
+    _write_plugin(project_plugins_root)
+
+    user_plugins_root = get_user_plugins_dir()
+    _write_plugin(user_plugins_root)
+
+    plugins = load_plugins(Settings(), project)
+
+    assert len(plugins) == 1
+    assert plugins[0].manifest.name == "example"

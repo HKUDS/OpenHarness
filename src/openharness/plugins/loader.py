@@ -103,6 +103,15 @@ def discover_plugin_paths_for_settings(
 
 def load_plugins(settings, cwd: str | Path, extra_roots: Iterable[str | Path] | None = None) -> list[LoadedPlugin]:
     """Load plugins from disk."""
+    project_plugins_dir = get_project_plugins_dir(cwd)
+    if not getattr(settings, "allow_project_plugins", False) and any(
+        path.is_dir() and _find_manifest(path) is not None for path in sorted(project_plugins_dir.iterdir())
+    ):
+        logger.warning(
+            "Found project-local plugins in %s, but they are disabled by default. "
+            "Set allow_project_plugins=true if you trust this workspace.",
+            project_plugins_dir,
+        )
     plugins: list[LoadedPlugin] = []
     for path in discover_plugin_paths_for_settings(settings, cwd, extra_roots=extra_roots):
         plugin = load_plugin(path, settings.enabled_plugins)
