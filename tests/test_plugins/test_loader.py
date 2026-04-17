@@ -76,7 +76,8 @@ def test_load_plugins_from_project_dir(tmp_path: Path, monkeypatch):
     plugins_root.mkdir(parents=True)
     _write_plugin(plugins_root)
 
-    plugins = load_plugins(Settings(), project)
+    settings = Settings(allow_project_plugins=True)
+    plugins = load_plugins(settings, project)
 
     assert len(plugins) == 1
     plugin = plugins[0]
@@ -95,9 +96,22 @@ def test_plugin_skills_and_hooks_are_merged(tmp_path: Path, monkeypatch):
     plugins_root.mkdir(parents=True)
     _write_plugin(plugins_root)
 
-    skills = load_skill_registry(project).list_skills()
+    settings = Settings(allow_project_plugins=True)
+    skills = load_skill_registry(project, settings=settings).list_skills()
     assert any(skill.name == "Deploy" and skill.source == "plugin" for skill in skills)
 
-    plugins = load_plugins(Settings(), project)
-    hooks = load_hook_registry(Settings(), plugins)
+    plugins = load_plugins(settings, project)
+    hooks = load_hook_registry(settings, plugins)
     assert "session_start" in hooks.summary()
+
+
+def test_project_plugins_are_disabled_by_default(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
+    project = tmp_path / "repo"
+    plugins_root = project / ".openharness" / "plugins"
+    plugins_root.mkdir(parents=True)
+    _write_plugin(plugins_root)
+
+    plugins = load_plugins(Settings(), project)
+
+    assert plugins == []
