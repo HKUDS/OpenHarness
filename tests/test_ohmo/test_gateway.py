@@ -26,7 +26,7 @@ from ohmo.session_storage import save_session_snapshot
 from ohmo.workspace import get_gateway_restart_notice_path, initialize_workspace
 
 
-def test_gateway_router_uses_thread_when_present():
+def test_gateway_router_uses_thread_and_sender_when_present():
     message = InboundMessage(
         channel="slack",
         sender_id="u1",
@@ -35,10 +35,10 @@ def test_gateway_router_uses_thread_when_present():
         timestamp=datetime.utcnow(),
         metadata={"thread_ts": "t1"},
     )
-    assert session_key_for_message(message) == "slack:c1:t1"
+    assert session_key_for_message(message) == "slack:c1:t1:u1"
 
 
-def test_gateway_router_falls_back_to_chat_scope():
+def test_gateway_router_falls_back_to_chat_and_sender_scope():
     message = InboundMessage(
         channel="telegram",
         sender_id="u1",
@@ -46,7 +46,28 @@ def test_gateway_router_falls_back_to_chat_scope():
         content="hello",
         timestamp=datetime.utcnow(),
     )
-    assert session_key_for_message(message) == "telegram:chat-1"
+    assert session_key_for_message(message) == "telegram:chat-1:u1"
+
+
+def test_gateway_router_separates_senders_in_same_chat_thread():
+    first = InboundMessage(
+        channel="slack",
+        sender_id="alice",
+        chat_id="shared-chat",
+        content="hello",
+        timestamp=datetime.utcnow(),
+        metadata={"thread_ts": "thread-1"},
+    )
+    second = InboundMessage(
+        channel="slack",
+        sender_id="bob",
+        chat_id="shared-chat",
+        content="hello",
+        timestamp=datetime.utcnow(),
+        metadata={"thread_ts": "thread-1"},
+    )
+    assert session_key_for_message(first) == "slack:shared-chat:thread-1:alice"
+    assert session_key_for_message(second) == "slack:shared-chat:thread-1:bob"
 
 
 def test_gateway_error_formats_claude_refresh_failure():
@@ -122,7 +143,7 @@ def test_stop_gateway_process_kills_matching_workspace_processes(tmp_path, monke
 
 
 @pytest.mark.asyncio
-async def test_runtime_pool_restores_messages_for_session_key(tmp_path, monkeypatch):
+async def test_runtime_pool_restores_messages_for_sender_scoped_session_key(tmp_path, monkeypatch):
     workspace = tmp_path / ".ohmo-home"
     initialize_workspace(workspace)
     save_session_snapshot(
@@ -130,10 +151,10 @@ async def test_runtime_pool_restores_messages_for_session_key(tmp_path, monkeypa
         workspace=workspace,
         model="gpt-5.4",
         system_prompt="system",
-        messages=[ConversationMessage.from_user_text("remember me")],
+        messages=[ConversationMessage.from_user_text("remember alice only")],
         usage=UsageSnapshot(),
         session_id="sess123",
-        session_key="feishu:chat-1",
+        session_key="feishu:chat-1:alice",
     )
 
     captured: dict[str, object] = {}
@@ -152,10 +173,47 @@ async def test_runtime_pool_restores_messages_for_session_key(tmp_path, monkeypa
     monkeypatch.setattr("ohmo.gateway.runtime.start_runtime", fake_start_runtime)
 
     pool = OhmoSessionRuntimePool(cwd=tmp_path, workspace=workspace, provider_profile="codex")
-    bundle = await pool.get_bundle("feishu:chat-1")
+    bundle = await pool.get_bundle("feishu:chat-1:alice")
 
     assert captured["restore_messages"] is not None
     assert bundle.session_id == "sess123"
+
+
+@pytest.mark.asyncio
+async def test_runtime_pool_does_not_restore_other_sender_session_key(tmp_path, monkeypatch):
+    workspace = tmp_path / ".ohmo-home"
+    initialize_workspace(workspace)
+    save_session_snapshot(
+        cwd=tmp_path,
+        workspace=workspace,
+        model="gpt-5.4",
+        system_prompt="system",
+        messages=[ConversationMessage.from_user_text("remember alice only")],
+        usage=UsageSnapshot(),
+        session_id="sess123",
+        session_key="feishu:chat-1:alice",
+    )
+
+    captured: dict[str, object] = {}
+
+    async def fake_build_runtime(**kwargs):
+        captured["restore_messages"] = kwargs.get("restore_messages")
+        return SimpleNamespace(
+            engine=SimpleNamespace(set_system_prompt=lambda prompt: None, messages=[]),
+            session_id="newsession",
+        )
+
+    async def fake_start_runtime(bundle):
+        return None
+
+    monkeypatch.setattr("ohmo.gateway.runtime.build_runtime", fake_build_runtime)
+    monkeypatch.setattr("ohmo.gateway.runtime.start_runtime", fake_start_runtime)
+
+    pool = OhmoSessionRuntimePool(cwd=tmp_path, workspace=workspace, provider_profile="codex")
+    bundle = await pool.get_bundle("feishu:chat-1:bob")
+
+    assert captured["restore_messages"] is None
+    assert bundle.session_id == "newsession"
 
 
 @pytest.mark.asyncio
@@ -689,7 +747,7 @@ async def test_gateway_bridge_restart_command_requests_gateway_restart():
         "🔄 正在重启 gateway，马上回来。\n"
         "Restarting the gateway now. I'll be back in a moment."
     )
-    assert restart_payloads == [("feishu", "c1", "feishu:c1")]
+    assert restart_payloads == [("feishu", "c1", "feishu:c1:u1")]
 
 
 @pytest.mark.asyncio
