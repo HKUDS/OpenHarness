@@ -65,6 +65,14 @@ class MemorySettings(BaseModel):
     max_entrypoint_lines: int = 200
     context_window_tokens: int | None = None
     auto_compact_threshold_tokens: int | None = None
+    # Pluggable memory backend. "local" keeps the existing project-markdown
+    # search; additional backends are registered via
+    # openharness.memory.register_memory_provider.
+    backend: str = "local"
+    # Per-provider configuration, keyed by provider name. Shape is
+    # intentionally loose so new providers can grow their own config without
+    # schema churn here.
+    providers: dict[str, dict[str, Any]] = Field(default_factory=dict)
 
 
 class SandboxNetworkSettings(BaseModel):
