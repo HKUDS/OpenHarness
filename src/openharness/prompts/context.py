@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Iterable
 
@@ -12,11 +13,13 @@ from openharness.config.paths import (
 )
 from openharness.config.settings import Settings
 from openharness.coordinator.coordinator_mode import get_coordinator_system_prompt, is_coordinator_mode
-from openharness.memory import find_relevant_memories, load_memory_prompt
+from openharness.memory import MemoryResult, get_memory_provider, load_memory_prompt
 from openharness.personalization.rules import load_local_rules
 from openharness.prompts.claudemd import load_claude_md_prompt
 from openharness.prompts.system_prompt import build_system_prompt
 from openharness.skills.loader import load_skill_registry
+
+logger = logging.getLogger(__name__)
 
 
 def _build_skills_section(
@@ -139,24 +142,42 @@ def build_runtime_system_prompt(
             sections.append(memory_section)
 
         if latest_user_prompt:
-            relevant = find_relevant_memories(
-                latest_user_prompt,
-                cwd,
-                max_results=settings.memory.max_files,
-            )
-            if relevant:
+            results = _search_memory_provider(settings, latest_user_prompt, cwd)
+            if results:
                 lines = ["# Relevant Memories"]
-                for header in relevant:
-                    content = header.path.read_text(encoding="utf-8", errors="replace").strip()
+                for result in results:
                     lines.extend(
                         [
                             "",
-                            f"## {header.path.name}",
+                            f"## {result.title}",
                             "```md",
-                            content[:8000],
+                            result.content[:8000],
                             "```",
                         ]
                     )
                 sections.append("\n".join(lines))
 
     return "\n\n".join(section for section in sections if section.strip())
+
+
+def _search_memory_provider(
+    settings: Settings, query: str, cwd: str | Path
+) -> list[MemoryResult]:
+    """Resolve the configured memory provider and return its results.
+
+    Any provider-side failure (unknown backend, search error) is logged and
+    treated as "no memories" so prompt assembly never fails because of a
+    misconfigured remote store.
+    """
+    try:
+        provider = get_memory_provider(settings.memory.backend, settings=settings)
+    except ValueError as exc:
+        logger.warning("Memory provider setup failed: %s", exc)
+        return []
+    try:
+        return provider.search(query, cwd=cwd, limit=settings.memory.max_files)
+    except Exception as exc:  # noqa: BLE001 — provider contract: fail open
+        logger.warning(
+            "Memory provider '%s' search failed: %s", settings.memory.backend, exc
+        )
+        return []
