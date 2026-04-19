@@ -6,6 +6,11 @@ The format is based on Keep a Changelog, and this project currently tracks chang
 
 ## [Unreleased]
 
+### Fixed
+
+- **macOS: bash tool no longer crashes with `script: illegal option -- f` or `tcgetattr/ioctl: Operation not supported on socket`.**
+  The BSD `script(1)` on macOS differs from GNU/Linux `script` in two ways: it does not accept `-f` (flush) or `-c` (command) flags, and it requires a real controlling TTY which is unavailable when OpenHarness runs commands through pipes in TUI mode.  `_wrap_command_with_script` now returns `None` on macOS, letting the bash tool fall back to plain `bash -lc` execution on that platform.
+
 ### Added
 
 - Built-in `minimax` provider profile so `oh setup` offers MiniMax as a first-class provider choice, with `MINIMAX_API_KEY` auth source, `MiniMax-M2.7` as the default model, and `MiniMax-M2.7-highspeed` in the model picker.

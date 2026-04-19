@@ -49,3 +49,55 @@ def test_resolve_shell_command_uses_powershell_on_windows(monkeypatch):
         "-Command",
         "Write-Output hi",
     ]
+
+
+def test_resolve_shell_command_skips_script_on_macos(monkeypatch):
+    """On macOS, prefer_pty must NOT wrap with script(1).
+
+    The BSD implementation of script requires a real controlling TTY and
+    raises 'tcgetattr/ioctl: Operation not supported on socket' when
+    stdin/stdout are pipes (as they are in the OpenHarness subprocess
+    backend).  The fix is to return None from _wrap_command_with_script
+    for the 'macos' platform so the caller falls back to plain bash.
+    """
+
+    def fake_which(name: str) -> str | None:
+        mapping = {
+            "bash": "/usr/bin/bash",
+            "script": "/usr/bin/script",
+        }
+        return mapping.get(name)
+
+    monkeypatch.setattr("openharness.utils.shell.shutil.which", fake_which)
+
+    command = resolve_shell_command("echo hi", platform_name="macos", prefer_pty=True)
+
+    # Must be plain bash, never wrapped with script
+    assert command == ["/usr/bin/bash", "-lc", "echo hi"]
+    assert "/usr/bin/script" not in command
+
+
+def test_resolve_shell_command_macos_without_pty_uses_bash(monkeypatch):
+    """Without prefer_pty, macOS should still resolve to plain bash."""
+
+    monkeypatch.setattr(
+        "openharness.utils.shell.shutil.which",
+        lambda name: "/usr/bin/bash" if name == "bash" else None,
+    )
+
+    command = resolve_shell_command("python --version", platform_name="macos")
+
+    assert command == ["/usr/bin/bash", "-lc", "python --version"]
+
+
+def test_resolve_shell_command_linux_without_script_falls_back(monkeypatch):
+    """On Linux with prefer_pty but no script binary, fall back to bash."""
+
+    monkeypatch.setattr(
+        "openharness.utils.shell.shutil.which",
+        lambda name: "/usr/bin/bash" if name == "bash" else None,
+    )
+
+    command = resolve_shell_command("echo hi", platform_name="linux", prefer_pty=True)
+
+    assert command == ["/usr/bin/bash", "-lc", "echo hi"]

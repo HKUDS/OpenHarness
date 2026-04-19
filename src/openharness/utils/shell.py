@@ -34,14 +34,14 @@ def resolve_shell_command(
     if bash:
         argv = [bash, "-lc", command]
         if prefer_pty:
-            wrapped = _wrap_command_with_script(argv)
+            wrapped = _wrap_command_with_script(argv, platform_name=resolved_platform)
             if wrapped is not None:
                 return wrapped
         return argv
     shell = shutil.which("sh") or os.environ.get("SHELL") or "/bin/sh"
     argv = [shell, "-lc", command]
     if prefer_pty:
-        wrapped = _wrap_command_with_script(argv)
+        wrapped = _wrap_command_with_script(argv, platform_name=resolved_platform)
         if wrapped is not None:
             return wrapped
     return argv
@@ -104,13 +104,24 @@ async def create_shell_subprocess(
     return process
 
 
-def _wrap_command_with_script(argv: list[str]) -> list[str] | None:
+def _wrap_command_with_script(
+    argv: list[str],
+    platform_name: PlatformName | None = None,
+) -> list[str] | None:
+    # macOS BSD script requires a real controlling TTY (tcgetattr/ioctl) and will
+    # fail with "Operation not supported on socket" when stdin/stdout are pipes.
+    # Skip PTY wrapping on macOS entirely; fall back to plain shell execution.
+    resolved_platform = platform_name or get_platform()
+    if resolved_platform == "macos":
+        return None
+
     script = shutil.which("script")
     if script is None:
         return None
-    if len(argv) >= 3 and argv[1] == "-lc":
-        return [script, "-qefc", argv[2], "/dev/null"]
-    return None
+    if len(argv) < 3 or argv[1] != "-lc":
+        return None
+    # GNU/Linux script: -q=quiet, -e=forward exit code, -f=flush, -c=command follows
+    return [script, "-qefc", argv[2], "/dev/null"]
 
 
 async def _cleanup_after_exit(process: asyncio.subprocess.Process, cleanup_path: Path) -> None:
