@@ -26,13 +26,17 @@ export function useBackendConnection() {
   const userMessageTimestampRef = useRef<number | null>(null);
   const processedMessageIdsRef = useRef<Set<string>>(new Set());
   const lastTranscriptTimestampRef = useRef<number>(0);
+  // Track the chat session that initiated the current request
+  const activeChatSessionRef = useRef<string | null>(null);
 
   // Granular selectors to prevent hook from re-rendering on EVERY store change.
   const setConnected = useAppStore((s) => s.setConnected);
   const setConnecting = useAppStore((s) => s.setConnecting);
   const setError = useAppStore((s) => s.setError);
   const addMessage = useAppStore((s) => s.addMessage);
+  const addMessageToChat = useAppStore((s) => s.addMessageToChat);
   const updateMessage = useAppStore((s) => s.updateMessage);
+  const updateMessageInChat = useAppStore((s) => s.updateMessageInChat);
   const setSessionState = useAppStore((s) => s.setSessionState);
   const setTasks = useAppStore((s) => s.setTasks);
   const setMcpServers = useAppStore((s) => s.setMcpServers);
@@ -52,10 +56,12 @@ export function useBackendConnection() {
   const setCreateCronJobCallback = useAppStore((s) => s.setCreateCronJobCallback);
   const setDeleteCronJobCallback = useAppStore((s) => s.setDeleteCronJobCallback);
   const setToggleCronJobCallback = useAppStore((s) => s.setToggleCronJobCallback);
+  const setTriggerCronJobCallback = useAppStore((s) => s.setTriggerCronJobCallback);
   
   const connected = useAppStore((s) => s.connected);
   const connecting = useAppStore((s) => s.connecting);
   const error = useAppStore((s) => s.error);
+  const currentChatId = useAppStore((s) => s.currentChatId);
 
   const handleBackendEvent = useCallback((data: string) => {
     // 🔒 LOCK ON: Prevent store changes from triggering outgoing saves
@@ -148,19 +154,31 @@ export function useBackendConnection() {
               userMessageTimestampRef.current = null;
             }
             
-            addMessage(message);
+            // Add message to the active chat session (not necessarily the current one)
+            const targetChatId = activeChatSessionRef.current;
+            if (targetChatId) {
+              addMessageToChat(targetChatId, message);
+            } else {
+              addMessage(message);
+            }
           }
           break;
         
         case 'token_usage':
           if (event.token_usage && streamingMessageRef.current) {
-            updateMessage(streamingMessageRef.current.id, { tokenUsage: event.token_usage });
+            const targetChatId = activeChatSessionRef.current;
+            if (targetChatId) {
+              updateMessageInChat(targetChatId, streamingMessageRef.current.id, { tokenUsage: event.token_usage });
+            } else {
+              updateMessage(streamingMessageRef.current.id, { tokenUsage: event.token_usage });
+            }
           }
           break;
 
         case 'assistant_delta':
           if (event.message) {
             const now = Date.now();
+            const targetChatId = activeChatSessionRef.current;
             if (!streamingMessageRef.current) {
               streamingMessageRef.current = {
                 id: crypto.randomUUID(),
@@ -169,12 +187,24 @@ export function useBackendConnection() {
                 timestamp: now,
                 responseTime: userMessageTimestampRef.current ? now - userMessageTimestampRef.current : undefined,
               };
-              addMessage(streamingMessageRef.current);
+              // Add message to the active chat session (not necessarily the current one)
+              if (targetChatId) {
+                addMessageToChat(targetChatId, streamingMessageRef.current);
+              } else {
+                addMessage(streamingMessageRef.current);
+              }
             } else {
               streamingMessageRef.current.content += event.message;
-              updateMessage(streamingMessageRef.current.id, {
-                content: streamingMessageRef.current.content,
-              });
+              // Update message in the correct chat session
+              if (targetChatId) {
+                updateMessageInChat(targetChatId, streamingMessageRef.current.id, {
+                  content: streamingMessageRef.current.content,
+                });
+              } else {
+                updateMessage(streamingMessageRef.current.id, {
+                  content: streamingMessageRef.current.content,
+                });
+              }
             }
           }
           break;
@@ -186,13 +216,24 @@ export function useBackendConnection() {
               ? Date.now() - userMessageTimestampRef.current 
               : streamingMessageRef.current.responseTime;
             
-            updateMessage(streamingMessageRef.current.id, {
+            const targetChatId = activeChatSessionRef.current;
+            // Update message with final content from the complete event and metadata
+            const updates: Partial<Message> = {
               responseTime,
+              ...(event.message && { content: event.message }),
               ...(event.token_usage && { tokenUsage: event.token_usage }),
-            });
+            };
+            // Update message in the correct chat session
+            if (targetChatId) {
+              updateMessageInChat(targetChatId, streamingMessageRef.current.id, updates);
+            } else {
+              updateMessage(streamingMessageRef.current.id, updates);
+            }
             userMessageTimestampRef.current = null;
           }
           streamingMessageRef.current = null;
+          // Clear the active session ref when response is complete
+          activeChatSessionRef.current = null;
           setBusy(false);
           break;
 
@@ -409,6 +450,10 @@ export function useBackendConnection() {
     userMessageTimestampRef.current = now;
     streamingMessageRef.current = null;
     
+    // Store the current chat session ID so responses go to the correct session
+    // even if the user switches chats while waiting for a response
+    activeChatSessionRef.current = currentChatId;
+    
     // Add user message immediately to chat history
     const userMessage: Message = {
       id: crypto.randomUUID(),
@@ -559,6 +604,10 @@ export function useBackendConnection() {
     sendMessage({ type: 'toggle_cron_job', cron_name: name, cron_enabled: enabled });
   }, [sendMessage]);
 
+  const triggerCronJob = useCallback((name: string) => {
+    sendMessage({ type: 'trigger_cron_job', cron_name: name });
+  }, [sendMessage]);
+
   const fetchSettingsFromBackend = useCallback(async () => {
     try {
       const response = await fetch('/api/config');
@@ -656,6 +705,7 @@ export function useBackendConnection() {
       setCreateCronJobCallback(createCronJob);
       setDeleteCronJobCallback(deleteCronJob);
       setToggleCronJobCallback(toggleCronJob);
+      setTriggerCronJobCallback(triggerCronJob);
       
       // Sync frontend localStorage settings to backend on connection
       // This ensures user's preferences are applied to the backend

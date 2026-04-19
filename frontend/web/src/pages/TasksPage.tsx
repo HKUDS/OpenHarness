@@ -1,6 +1,9 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useAppStore } from '../store/useAppStore';
-import { ListTodo, Clock, CheckCircle2, XCircle, Loader2, Plus, Trash2, Play, Square, Edit2, Save, X, HelpCircle } from 'lucide-react';
+import { 
+  ListTodo, Clock, CheckCircle2, XCircle, Loader2, Plus, Trash2, Play, Square, Edit2, Save, X, HelpCircle,
+  Search, Calendar, Terminal, RefreshCw, PlayCircle, AlertCircle, Activity, Zap, LayoutGrid
+} from 'lucide-react';
 import styles from './PageLayout.module.css';
 
 const CRON_PRESETS = [
@@ -25,8 +28,27 @@ const CRON_HELP = {
   dayOfWeek: '0-6 (or Sun-Sat, 0=Sunday)',
 };
 
+type TaskFilter = 'all' | 'running' | 'completed' | 'failed';
+
+const STAT_COLORS = {
+  running: { bg: 'rgba(59, 130, 246, 0.15)', color: '#3b82f6', icon: Activity },
+  completed: { bg: 'rgba(34, 197, 94, 0.15)', color: '#22c55e', icon: CheckCircle2 },
+  failed: { bg: 'rgba(239, 68, 68, 0.15)', color: '#ef4444', icon: AlertCircle },
+  total: { bg: 'rgba(168, 85, 247, 0.15)', color: '#a855f7', icon: LayoutGrid },
+};
+
 export function TasksPage() {
-  const { tasks, cronJobs, createCronJob, deleteCronJob, toggleCronJob, updateCronJob } = useAppStore();
+  const { 
+    tasks, 
+    cronJobs, 
+    createCronJob, 
+    deleteCronJob, 
+    toggleCronJob, 
+    updateCronJob,
+    triggerCronJob 
+  } = useAppStore();
+  
+  // Form states
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [editingJob, setEditingJob] = useState<string | null>(null);
   const [newJobName, setNewJobName] = useState('');
@@ -37,26 +59,108 @@ export function TasksPage() {
   const [showCronHelp, setShowCronHelp] = useState(false);
   const [selectedPreset, setSelectedPreset] = useState('');
   
-  const getStatusIcon = (status: string) => {
+  // Filter and search states
+  const [taskFilter, setTaskFilter] = useState<TaskFilter>('all');
+  const [taskSearch, setTaskSearch] = useState('');
+  const [cronSearch, setCronSearch] = useState('');
+  
+  const getStatusIcon = (status: string, size = 16) => {
     switch (status) {
       case 'running':
-        return <Loader2 size={16} className={styles.spinning} />;
+        return <Loader2 size={size} className={styles.spinning} />;
       case 'completed':
-        return <CheckCircle2 size={16} />;
+        return <CheckCircle2 size={size} />;
       case 'failed':
-        return <XCircle size={16} />;
+        return <XCircle size={size} />;
       default:
-        return <Clock size={16} />;
+        return <Clock size={size} />;
     }
   };
   
-  const getStatusClass = (status: string) => {
-    return `${styles.status} ${styles[status] || ''}`;
+  const getEnhancedStatusBadge = (status: string) => {
+    const statusClasses: Record<string, string> = {
+      running: styles.statusBadgeRunning,
+      completed: styles.statusBadgeCompleted,
+      failed: styles.statusBadgeFailed,
+    };
+    return `${styles.enhancedStatusBadge} ${statusClasses[status] || ''}`;
   };
   
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'running':
+        return '#3b82f6';
+      case 'completed':
+        return '#22c55e';
+      case 'failed':
+        return '#ef4444';
+      default:
+        return 'var(--primary-500)';
+    }
+  };
+  
+  const getStatusBg = (status: string) => {
+    switch (status) {
+      case 'running':
+        return 'rgba(59, 130, 246, 0.15)';
+      case 'completed':
+        return 'rgba(34, 197, 94, 0.15)';
+      case 'failed':
+        return 'rgba(239, 68, 68, 0.15)';
+      default:
+        return 'var(--bg-tertiary)';
+    }
+  };
+  
+  // Derived task stats
   const runningTasks = tasks.filter(t => t.status === 'running');
   const completedTasks = tasks.filter(t => t.status === 'completed');
   const failedTasks = tasks.filter(t => t.status === 'failed');
+  
+  // Filtered background tasks
+  const filteredTasks = useMemo(() => {
+    let filtered = tasks;
+    
+    // Apply status filter
+    if (taskFilter !== 'all') {
+      filtered = filtered.filter(t => t.status === taskFilter);
+    }
+    
+    // Apply search filter
+    if (taskSearch.trim()) {
+      const query = taskSearch.toLowerCase();
+      filtered = filtered.filter(t => 
+        t.description.toLowerCase().includes(query) ||
+        t.id.toLowerCase().includes(query) ||
+        (t.status_note && t.status_note.toLowerCase().includes(query))
+      );
+    }
+    
+    return filtered.sort((a, b) => {
+      // Sort by status priority: running first, then failed, then completed
+      const priority: Record<string, number> = { running: 0, failed: 1, completed: 2 };
+      return (priority[a.status] ?? 3) - (priority[b.status] ?? 3);
+    });
+  }, [tasks, taskFilter, taskSearch]);
+  
+  // Filtered cron jobs
+  const filteredCronJobs = useMemo(() => {
+    if (!cronSearch.trim()) return cronJobs;
+    const query = cronSearch.toLowerCase();
+    return cronJobs.filter(job => 
+      job.name.toLowerCase().includes(query) ||
+      job.command.toLowerCase().includes(query) ||
+      (job.requirements && job.requirements.toLowerCase().includes(query))
+    );
+  }, [cronJobs, cronSearch]);
+  
+  const handleRunNow = async (jobName: string) => {
+    try {
+      await triggerCronJob(jobName);
+    } catch (err) {
+      console.error('Failed to trigger job:', err);
+    }
+  };
   
   const handleCreateCronJob = (e: React.FormEvent) => {
     e.preventDefault();
@@ -235,102 +339,218 @@ export function TasksPage() {
     <div className={styles.page}>
       <div className={styles.pageHeader}>
         <h1><ListTodo size={24} /> Tasks</h1>
-        <p>Manage and monitor background tasks</p>
+        <p>Manage and monitor background tasks and scheduled jobs</p>
       </div>
       
+      {/* Enhanced Stats Grid */}
       <div className={styles.statsGrid}>
-        <div className={styles.statCard}>
-          <span className={styles.statValue}>{runningTasks.length}</span>
-          <span className={styles.statLabel}>Running</span>
+        <div className={`${styles.statCard} ${styles.statCardRunning}`}>
+          <div className={styles.statCardHeader}>
+            <div className={styles.statIcon} style={{ background: STAT_COLORS.running.bg, color: STAT_COLORS.running.color }}>
+              <Activity size={20} />
+            </div>
+            {runningTasks.length > 0 && <div className={styles.statPulse} />}
+          </div>
+          <div className={styles.statContent}>
+            <span className={styles.statValue} style={{ color: STAT_COLORS.running.color }}>{runningTasks.length}</span>
+            <span className={styles.statLabel}>Running</span>
+          </div>
         </div>
-        <div className={styles.statCard}>
-          <span className={styles.statValue}>{completedTasks.length}</span>
-          <span className={styles.statLabel}>Completed</span>
+        
+        <div className={`${styles.statCard} ${styles.statCardCompleted}`}>
+          <div className={styles.statCardHeader}>
+            <div className={styles.statIcon} style={{ background: STAT_COLORS.completed.bg, color: STAT_COLORS.completed.color }}>
+              <CheckCircle2 size={20} />
+            </div>
+          </div>
+          <div className={styles.statContent}>
+            <span className={styles.statValue} style={{ color: STAT_COLORS.completed.color }}>{completedTasks.length}</span>
+            <span className={styles.statLabel}>Completed</span>
+          </div>
         </div>
-        <div className={styles.statCard}>
-          <span className={styles.statValue}>{failedTasks.length}</span>
-          <span className={styles.statLabel}>Failed</span>
+        
+        <div className={`${styles.statCard} ${styles.statCardFailed}`}>
+          <div className={styles.statCardHeader}>
+            <div className={styles.statIcon} style={{ background: STAT_COLORS.failed.bg, color: STAT_COLORS.failed.color }}>
+              <AlertCircle size={20} />
+            </div>
+            {failedTasks.length > 0 && (
+              <div className={styles.statAlertBadge}>{failedTasks.length}</div>
+            )}
+          </div>
+          <div className={styles.statContent}>
+            <span className={styles.statValue} style={{ color: STAT_COLORS.failed.color }}>{failedTasks.length}</span>
+            <span className={styles.statLabel}>Failed</span>
+          </div>
         </div>
-        <div className={styles.statCard}>
-          <span className={styles.statValue}>{tasks.length}</span>
-          <span className={styles.statLabel}>Total</span>
+        
+        <div className={`${styles.statCard} ${styles.statCardScheduled}`}>
+          <div className={styles.statCardHeader}>
+            <div className={styles.statIcon} style={{ background: STAT_COLORS.total.bg, color: STAT_COLORS.total.color }}>
+              <Calendar size={20} />
+            </div>
+          </div>
+          <div className={styles.statContent}>
+            <span className={styles.statValue} style={{ color: STAT_COLORS.total.color }}>{cronJobs.length}</span>
+            <span className={styles.statLabel}>Scheduled</span>
+          </div>
         </div>
       </div>
       
       {/* Scheduled Tasks Section */}
       <div className={styles.pageContent}>
-        <div className={styles.sectionHeader}>
+        <div className={styles.sectionHeaderEnhanced}>
           <h2><Clock size={20} /> Scheduled Tasks</h2>
-          <button 
-            className={styles.primaryButton}
-            onClick={() => setShowCreateForm(!showCreateForm)}
-          >
-            <Plus size={16} /> {showCreateForm ? 'Cancel' : 'Add Scheduled Task'}
-          </button>
+          <div className={styles.sectionMeta}>
+            <span className={styles.totalCount}>{filteredCronJobs.length} jobs</span>
+            <button 
+              className={styles.primaryButton}
+              onClick={() => setShowCreateForm(!showCreateForm)}
+            >
+              {showCreateForm ? <><X size={16} /> Cancel</> : <><Plus size={16} /> Add Job</>}
+            </button>
+          </div>
         </div>
         
-        {showCreateForm && renderCronJobForm()}
+        {/* Search bar for cron jobs */}
+        <div className={styles.pageToolbar}>
+          <div style={{ position: 'relative', flex: 1, maxWidth: '400px' }}>
+            <Search size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-tertiary)' }} />
+            <input
+              type="text"
+              placeholder="Search scheduled tasks..."
+              value={cronSearch}
+              onChange={(e) => setCronSearch(e.target.value)}
+              style={{
+                width: '100%',
+                padding: 'var(--space-2) var(--space-3) var(--space-2) var(--space-8)',
+                background: 'var(--bg-tertiary)',
+                border: '1px solid var(--border-subtle)',
+                borderRadius: 'var(--radius-md)',
+                color: 'var(--text-primary)',
+                fontSize: '0.875rem',
+              }}
+            />
+          </div>
+        </div>
         
-        {cronJobs.length === 0 ? (
+        {showCreateForm && (
+          <div className={styles.formCard} style={{ marginBottom: 'var(--space-4)' }}>
+            {renderCronJobForm()}
+          </div>
+        )}
+        
+        {filteredCronJobs.length === 0 ? (
           <div className={styles.emptyState}>
-            <Clock size={48} />
-            <h3>No scheduled tasks</h3>
-            <p>Create a scheduled task to run commands automatically</p>
+            <div className={styles.emptyStateIcon}>
+              <div className={styles.emptyStateIconInner}>
+                <Clock size={32} />
+              </div>
+              <div className={styles.emptyStateRing} />
+            </div>
+            <h3>{cronSearch ? 'No matching tasks' : 'No scheduled tasks'}</h3>
+            <p>{cronSearch ? 'Try adjusting your search' : 'Create a scheduled task to run commands automatically'}</p>
           </div>
         ) : (
-          <div className={styles.taskList}>
-            {cronJobs.map((job) => (
-              <div key={job.name} className={styles.taskCard}>
+          <div className={styles.taskListGrid}>
+            {filteredCronJobs.map((job) => (
+              <div key={job.name} className={`${styles.enhancedTaskCard} ${!job.enabled ? styles.taskStatusDisabled : ''}`}>
                 {editingJob === job.name ? (
-                  renderCronJobForm(job, true)
+                  <div style={{ padding: 'var(--space-2)' }}>{renderCronJobForm(job, true)}</div>
                 ) : (
                   <>
-                    <div className={styles.taskHeader}>
-                      <div className={styles.taskTitle}>
-                        <Clock size={16} />
-                        <span>{job.name}</span>
+                    <div className={styles.enhancedTaskHeader}>
+                      <div className={styles.enhancedTaskStatus}>
+                        <div 
+                          className={styles.enhancedStatusIcon}
+                          style={{ 
+                            background: job.enabled ? 'rgba(168, 85, 247, 0.15)' : 'var(--bg-tertiary)',
+                            color: job.enabled ? '#a855f7' : 'var(--text-tertiary)'
+                          }}
+                        >
+                          <Clock size={18} />
+                        </div>
+                        <div className={styles.enhancedStatusInfo}>
+                          <span className={styles.enhancedTaskDescription}>{job.name}</span>
+                          <span 
+                            className={`${styles.enhancedStatusBadge} ${job.enabled ? styles.statusBadgeCompleted : styles.statusBadgeFailed}`}
+                            style={{ 
+                              background: job.enabled ? 'rgba(34, 197, 94, 0.15)' : 'rgba(156, 163, 175, 0.15)',
+                              color: job.enabled ? '#22c55e' : 'var(--text-tertiary)'
+                            }}
+                          >
+                            {job.enabled ? 'Enabled' : 'Disabled'}
+                          </span>
+                        </div>
                       </div>
-                      <div className={styles.taskActions}>
+                      <div className={styles.enhancedTaskActions}>
                         <button
-                          className={styles.iconButton}
+                          className={styles.enhancedActionButton}
+                          onClick={() => handleRunNow(job.name)}
+                          title="Run now"
+                        >
+                          <PlayCircle size={14} />
+                        </button>
+                        <button
+                          className={styles.enhancedActionButton}
                           onClick={() => toggleCronJob(job.name, !job.enabled)}
                           title={job.enabled ? 'Disable' : 'Enable'}
                         >
-                          {job.enabled ? <Square size={16} /> : <Play size={16} />}
+                          {job.enabled ? <Square size={14} /> : <Play size={14} />}
                         </button>
                         <button
-                          className={styles.iconButton}
+                          className={styles.enhancedActionButton}
                           onClick={() => startEditing(job)}
                           title="Edit"
                         >
-                          <Edit2 size={16} />
+                          <Edit2 size={14} />
                         </button>
                         <button
-                          className={styles.iconButton}
+                          className={`${styles.enhancedActionButton} ${styles.danger}`}
                           onClick={() => deleteCronJob(job.name)}
                           title="Delete"
                         >
-                          <Trash2 size={16} className={styles.danger} />
+                          <Trash2 size={14} />
                         </button>
                       </div>
                     </div>
                     
-                    <div className={styles.taskMeta}>
-                      <span>Schedule: {job.schedule}</span>
-                      <span>Command: {job.command}</span>
-                      {job.cwd && <span>CWD: {job.cwd}</span>}
-                      <span>Status: {job.enabled ? 'Enabled' : 'Disabled'}</span>
+                    <div className={styles.enhancedTaskMeta} style={{ marginTop: 'var(--space-3)' }}>
+                      <div className={styles.enhancedTaskMetaItem}>
+                        <RefreshCw size={12} />
+                        <code style={{ fontSize: '0.75rem', background: 'var(--bg-tertiary)', padding: '2px 6px', borderRadius: 'var(--radius-sm)' }}>
+                          {job.schedule}
+                        </code>
+                      </div>
+                      <div className={styles.enhancedTaskMetaItem}>
+                        <Terminal size={12} />
+                        <span style={{ maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {job.command}
+                        </span>
+                      </div>
+                      {job.cwd && (
+                        <div className={styles.enhancedTaskMetaItem}>
+                          <LayoutGrid size={12} />
+                          <span style={{ maxWidth: '150px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {job.cwd}
+                          </span>
+                        </div>
+                      )}
                     </div>
                     
                     {job.requirements && (
-                      <div style={{ marginTop: 'var(--space-2)', padding: 'var(--space-2)', background: 'var(--bg-tertiary)', borderRadius: 'var(--radius-md)', fontSize: '0.8125rem', color: 'var(--text-secondary)' }}>
-                        <strong>Requirements:</strong>
-                        <p style={{ margin: 'var(--space-1) 0 0 0', whiteSpace: 'pre-wrap' }}>{job.requirements}</p>
+                      <div style={{ marginTop: 'var(--space-3)', padding: 'var(--space-2) var(--space-3)', background: 'var(--bg-tertiary)', borderRadius: 'var(--radius-md)', fontSize: '0.8125rem', color: 'var(--text-secondary)', borderLeft: '3px solid var(--primary-500)' }}>
+                        <p style={{ margin: 0, whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>{job.requirements}</p>
                       </div>
                     )}
                     
                     {job.next_run && (
-                      <div className={styles.taskNote}>Next run: {job.next_run}</div>
+                      <div className={styles.enhancedTaskMeta} style={{ marginTop: 'var(--space-3)', paddingTop: 'var(--space-3)', borderTop: '1px solid var(--border-subtle)' }}>
+                        <div className={styles.enhancedTaskMetaItem}>
+                          <Calendar size={12} />
+                          <span>Next run: {job.next_run}</span>
+                        </div>
+                      </div>
                     )}
                   </>
                 )}
@@ -342,49 +562,157 @@ export function TasksPage() {
       
       {/* Background Tasks Section */}
       <div className={styles.pageContent}>
-        <div className={styles.sectionHeader}>
+        <div className={styles.sectionHeaderEnhanced}>
           <h2><ListTodo size={20} /> Background Tasks</h2>
+          <div className={styles.sectionMeta}>
+            <span className={styles.totalCount}>{filteredTasks.length} of {tasks.length}</span>
+          </div>
         </div>
         
-        {tasks.length === 0 ? (
+        {/* Filter Tabs & Search */}
+        <div className={styles.pageToolbar} style={{ flexWrap: 'wrap', gap: 'var(--space-3)' }}>
+          {/* Status Filter Tabs */}
+          <div style={{ display: 'flex', gap: 'var(--space-1)', background: 'var(--bg-tertiary)', padding: '4px', borderRadius: 'var(--radius-md)' }}>
+            {(['all', 'running', 'completed', 'failed'] as TaskFilter[]).map((filter) => (
+              <button
+                key={filter}
+                onClick={() => setTaskFilter(filter)}
+                style={{
+                  padding: 'var(--space-1) var(--space-3)',
+                  background: taskFilter === filter ? 'var(--bg-primary)' : 'transparent',
+                  border: 'none',
+                  borderRadius: 'var(--radius-sm)',
+                  color: taskFilter === filter ? 'var(--text-primary)' : 'var(--text-secondary)',
+                  fontSize: '0.8125rem',
+                  fontWeight: taskFilter === filter ? 600 : 500,
+                  cursor: 'pointer',
+                  transition: 'var(--transition-fast)',
+                  boxShadow: taskFilter === filter ? 'var(--shadow-sm)' : 'none',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 'var(--space-1)',
+                }}
+              >
+                {filter === 'all' && <LayoutGrid size={14} />}
+                {filter === 'running' && <Activity size={14} />}
+                {filter === 'completed' && <CheckCircle2 size={14} />}
+                {filter === 'failed' && <AlertCircle size={14} />}
+                {filter.charAt(0).toUpperCase() + filter.slice(1)}
+                <span style={{ 
+                  marginLeft: 'var(--space-1)', 
+                  padding: '0 6px', 
+                  background: taskFilter === filter ? 'var(--bg-tertiary)' : 'var(--bg-secondary)',
+                  borderRadius: 'var(--radius-full)',
+                  fontSize: '0.6875rem',
+                  fontWeight: 600,
+                }}>
+                  {filter === 'all' ? tasks.length : tasks.filter(t => t.status === filter).length}
+                </span>
+              </button>
+            ))}
+          </div>
+          
+          {/* Search */}
+          <div style={{ position: 'relative', flex: 1, minWidth: '200px', maxWidth: '300px', marginLeft: 'auto' }}>
+            <Search size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-tertiary)' }} />
+            <input
+              type="text"
+              placeholder="Search tasks..."
+              value={taskSearch}
+              onChange={(e) => setTaskSearch(e.target.value)}
+              style={{
+                width: '100%',
+                padding: 'var(--space-2) var(--space-3) var(--space-2) var(--space-8)',
+                background: 'var(--bg-tertiary)',
+                border: '1px solid var(--border-subtle)',
+                borderRadius: 'var(--radius-md)',
+                color: 'var(--text-primary)',
+                fontSize: '0.875rem',
+              }}
+            />
+          </div>
+        </div>
+        
+        {filteredTasks.length === 0 ? (
           <div className={styles.emptyState}>
-            <ListTodo size={48} />
-            <h3>No tasks yet</h3>
-            <p>Tasks will appear here when you start background operations</p>
+            <div className={styles.emptyStateIcon}>
+              <div className={styles.emptyStateIconInner}>
+                <ListTodo size={32} />
+              </div>
+              <div className={styles.emptyStateRing} />
+            </div>
+            <h3>{taskSearch || taskFilter !== 'all' ? 'No matching tasks' : 'No tasks yet'}</h3>
+            <p>{taskSearch || taskFilter !== 'all' ? 'Try adjusting your filters' : 'Tasks will appear here when you start background operations'}</p>
           </div>
         ) : (
           <div className={styles.taskList}>
-            {tasks.map((task) => (
-              <div key={task.id} className={styles.taskCard}>
-                <div className={styles.taskHeader}>
-                  <div className={styles.taskTitle}>
-                    {getStatusIcon(task.status)}
-                    <span>{task.description}</span>
+            {filteredTasks.map((task) => (
+              <div 
+                key={task.id} 
+                className={`${styles.enhancedTaskCard} ${
+                  task.status === 'running' ? styles.taskStatusRunning : 
+                  task.status === 'failed' ? styles.taskStatusFailed : 
+                  task.status === 'completed' ? styles.taskStatusCompleted : ''
+                }`}
+              >
+                <div className={styles.enhancedTaskHeader}>
+                  <div className={styles.enhancedTaskStatus}>
+                    <div 
+                      className={styles.enhancedStatusIcon}
+                      style={{ 
+                        background: getStatusBg(task.status),
+                        color: getStatusColor(task.status)
+                      }}
+                    >
+                      {getStatusIcon(task.status, 18)}
+                    </div>
+                    <div className={styles.enhancedStatusInfo}>
+                      <span className={styles.enhancedTaskDescription}>{task.description}</span>
+                      <span className={getEnhancedStatusBadge(task.status)}>
+                        {task.status}
+                      </span>
+                    </div>
                   </div>
-                  <span className={getStatusClass(task.status)}>
-                    {task.status}
-                  </span>
+                  <span className={styles.enhancedProgressText}>{task.progress !== undefined ? `${task.progress}%` : ''}</span>
                 </div>
                 
                 {task.progress !== undefined && (
-                  <div className={styles.progressContainer}>
-                    <div className={styles.progressBar}>
+                  <div className={styles.enhancedProgressContainer}>
+                    <div className={styles.enhancedProgressBar}>
                       <div 
-                        className={styles.progressFill}
-                        style={{ width: `${task.progress}%` }}
+                        className={styles.enhancedProgressFill}
+                        style={{ 
+                          width: `${task.progress}%`,
+                          background: getStatusColor(task.status)
+                        }}
                       />
                     </div>
-                    <span className={styles.progressText}>{task.progress}%</span>
                   </div>
                 )}
                 
                 {task.status_note && (
-                  <p className={styles.taskNote}>{task.status_note}</p>
+                  <div style={{ marginTop: 'var(--space-3)', padding: 'var(--space-2) var(--space-3)', background: 'var(--bg-tertiary)', borderRadius: 'var(--radius-md)', fontSize: '0.8125rem', color: 'var(--text-secondary)' }}>
+                    <p style={{ margin: 0 }}>{task.status_note}</p>
+                  </div>
                 )}
                 
-                <div className={styles.taskMeta}>
-                  <span>ID: {task.id}</span>
-                  <span>Type: {task.type || 'local_bash'}</span>
+                <div className={styles.enhancedTaskMeta} style={{ marginTop: 'var(--space-3)', paddingTop: 'var(--space-3)', borderTop: '1px solid var(--border-subtle)' }}>
+                  <div className={styles.enhancedTaskMetaItem}>
+                    <Terminal size={12} />
+                    <code style={{ fontSize: '0.75rem', background: 'var(--bg-tertiary)', padding: '2px 6px', borderRadius: 'var(--radius-sm)' }}>
+                      {task.id.slice(0, 8)}
+                    </code>
+                  </div>
+                  <div className={styles.enhancedTaskMetaItem}>
+                    <Zap size={12} />
+                    <span>{task.type || 'local_bash'}</span>
+                  </div>
+                  {task.progress !== undefined && (
+                    <div className={styles.enhancedTaskMetaItem}>
+                      <Activity size={12} />
+                      <span>{task.progress}% complete</span>
+                    </div>
+                  )}
                 </div>
               </div>
             ))}

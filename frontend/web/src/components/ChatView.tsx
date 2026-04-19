@@ -45,7 +45,6 @@ export function ChatView() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContentRef = useRef<HTMLDivElement>(null);
   const timelineTrackRef = useRef<HTMLDivElement>(null);
-  const timelineContentRef = useRef<HTMLDivElement>(null);
   const timelineBarRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const inputContainerRef = useRef<HTMLDivElement>(null);
@@ -210,115 +209,55 @@ export function ChatView() {
     return () => resizeObserver.disconnect();
   }, [calculateMessagePositions]);
 
-  // Track scroll position for timeline and sync timeline scroll
-  // Sync timeline scroll with messages and update viewport indicator
+  // Track scroll position for timeline and update viewport indicator
+  // Timeline markers are fixed in the panel; viewport indicator shows current position
   // Use useLayoutEffect to ensure sync happens after DOM updates
   useLayoutEffect(() => {
     const container = messagesContentRef.current;
     const timelineTrack = timelineTrackRef.current;
-    const timelineContent = timelineContentRef.current;
-    const viewportIndicator = timelineContent?.querySelector(`.${styles.timelineViewport}`) as HTMLElement;
-    if (!container || !timelineTrack || !timelineContent) return;
-
-    let isSyncingFromTimeline = false;
-    let isSyncingFromMessages = false;
-
-    // Set timeline content height to match messages scroll height
-    // This ensures markers are correctly positioned relative to scroll
-    const syncTimelineHeight = () => {
-      const messagesScrollHeight = container.scrollHeight;
-      const messagesClientHeight = container.clientHeight;
-      
-      // Calculate the scale factor between timeline track and messages
-      // The timeline content should be tall enough to accommodate all markers
-      // with proper spacing that matches the messages scroll
-      const timelineTrackHeight = timelineTrack.clientHeight;
-      
-      // Set timeline content height proportional to messages scroll height
-      // This ensures the scroll ratio is 1:1
-      if (messagesClientHeight > 0) {
-        const scrollRatio = messagesScrollHeight / messagesClientHeight;
-        const timelineContentHeight = timelineTrackHeight * scrollRatio;
-        timelineContent.style.height = `${Math.max(timelineContentHeight, timelineTrackHeight)}px`;
-      }
-    };
+    const viewportIndicator = timelineTrack?.querySelector(`.${styles.timelineViewport}`) as HTMLElement;
+    if (!container || !timelineTrack) return;
 
     const handleMessagesScroll = () => {
-      if (isSyncingFromTimeline) return;
       // Skip sync during jump operations to prevent interference
       if (isJumpingRef.current) return;
-      isSyncingFromMessages = true;
       
       const scrollTop = container.scrollTop;
       const maxScroll = container.scrollHeight - container.clientHeight;
       const progress = maxScroll > 0 ? scrollTop / maxScroll : 0;
       
-      // Sync timeline scroll position based on progress
-      const timelineMaxScroll = timelineTrack.scrollHeight - timelineTrack.clientHeight;
-      if (timelineMaxScroll > 0) {
-        timelineTrack.scrollTop = progress * timelineMaxScroll;
-      }
-      
-      // Update viewport indicator position (relative to timeline content)
+      // Update viewport indicator position (relative to fixed timeline track height)
       if (viewportIndicator) {
-        const contentHeight = timelineContent.clientHeight;
-        const viewportHeight = Math.max(20, (container.clientHeight / container.scrollHeight) * contentHeight);
-        const viewportTop = progress * (contentHeight - viewportHeight);
+        const trackHeight = timelineTrack.clientHeight;
+        const viewportHeight = Math.max(20, (container.clientHeight / container.scrollHeight) * trackHeight);
+        const viewportTop = progress * (trackHeight - viewportHeight);
         viewportIndicator.style.height = `${viewportHeight}px`;
         viewportIndicator.style.top = `${viewportTop}px`;
       }
-      
-      isSyncingFromMessages = false;
-    };
-
-    const handleTimelineScroll = () => {
-      if (isSyncingFromMessages) return;
-      // Skip sync during jump operations to prevent interference
-      if (isJumpingRef.current) return;
-      isSyncingFromTimeline = true;
-      
-      const scrollTop = timelineTrack.scrollTop;
-      const maxScroll = timelineTrack.scrollHeight - timelineTrack.clientHeight;
-      const progress = maxScroll > 0 ? scrollTop / maxScroll : 0;
-      
-      // Sync messages scroll position based on progress
-      const messagesMaxScroll = container.scrollHeight - container.clientHeight;
-      if (messagesMaxScroll > 0) {
-        container.scrollTop = progress * messagesMaxScroll;
-      }
-      
-      isSyncingFromTimeline = false;
     };
 
     // Initial sync - defer to allow DOM to update
     requestAnimationFrame(() => {
-      syncTimelineHeight();
-      // Wait for height to be applied before syncing scroll
-      requestAnimationFrame(() => {
-        handleMessagesScroll();
-      });
+      handleMessagesScroll();
     });
     
     // Sync on scroll
     container.addEventListener('scroll', handleMessagesScroll, { passive: true });
-    timelineTrack.addEventListener('scroll', handleTimelineScroll, { passive: true });
     
     // Sync on resize
     const resizeObserver = new ResizeObserver(() => {
-      syncTimelineHeight();
-      // Defer scroll sync to allow height update to apply
       requestAnimationFrame(() => {
         handleMessagesScroll();
       });
     });
     resizeObserver.observe(container);
+    resizeObserver.observe(timelineTrack);
     
     return () => {
       container.removeEventListener('scroll', handleMessagesScroll);
-      timelineTrack.removeEventListener('scroll', handleTimelineScroll);
       resizeObserver.disconnect();
     };
-  }, [messages, styles.timelineViewport, styles.timelineContent]);
+  }, [messages, styles.timelineViewport]);
 
   // Clear copied state after 2 seconds
   useEffect(() => {
@@ -453,19 +392,22 @@ export function ChatView() {
     });
   };
 
-  // Generate timeline markers - show ALL messages for easy navigation
+  // Generate timeline markers - show only user input events
   const getTimelineMarkers = () => {
     if (messages.length === 0) return [];
     
     const markers: { id: string; position: number; label: string; timestamp: number; role: string; index: number }[] = [];
     
-    // Show all messages for navigation purposes
-    messages.forEach((message, index) => {
+    // Filter for user messages only
+    const userMessages = messages.filter((message) => message.role === 'user');
+    
+    userMessages.forEach((message, index) => {
       if (!message?.id) return;
       
       // Use actual calculated position if available, otherwise estimate
       const actualPosition = messagePositions.get(message.id);
-      let position = actualPosition ?? (index / (messages.length - 1 || 1));
+      const messageIndex = messages.findIndex((m) => m.id === message.id);
+      let position = actualPosition ?? (messageIndex / (messages.length - 1 || 1));
       
       // Clamp position to valid range (0-1) to prevent markers from going out of bounds
       position = Math.max(0, Math.min(1, position));
@@ -1098,29 +1040,23 @@ export function ChatView() {
               </div>
               
               <div className={styles.timelineTrack} ref={timelineTrackRef}>
-                <div className={styles.timelineContent} ref={timelineContentRef}>
-                  {/* Message count indicator */}
-                  <div className={styles.timelineInfo}>
-                    {messages.length} messages
+                {/* Timeline markers - positioned proportionally within fixed viewport */}
+                {getTimelineMarkers().map((marker) => (
+                  <div
+                    key={marker.id}
+                    className={`${styles.timelineMarker} ${styles[`marker-${marker.role}`] || ''}`}
+                    style={{ top: `${marker.position * 100}%` }}
+                    onClick={() => handleTimelineClick(marker.id)}
+                    title={`${marker.role === 'user' ? 'Your message' : marker.role === 'assistant' ? 'Assistant' : 'Tool'} - ${marker.label}`}
+                  >
+                    <div className={`${styles.markerDot} ${styles[`dot-${marker.role}`] || ''}`} />
+                    <span className={styles.timelineLabel}>
+                      {marker.role === 'user' ? '👤' : marker.role === 'assistant' ? '🤖' : '🔧'}
+                    </span>
                   </div>
-                  {/* Timeline markers */}
-                  {getTimelineMarkers().map((marker) => (
-                    <div
-                      key={marker.id}
-                      className={`${styles.timelineMarker} ${styles[`marker-${marker.role}`] || ''}`}
-                      style={{ top: `${marker.position * 100}%` }}
-                      onClick={() => handleTimelineClick(marker.id)}
-                      title={`${marker.role === 'user' ? 'Your message' : marker.role === 'assistant' ? 'Assistant' : 'Tool'} - ${marker.label}`}
-                    >
-                      <div className={`${styles.markerDot} ${styles[`dot-${marker.role}`] || ''}`} />
-                      <span className={styles.timelineLabel}>
-                        {marker.role === 'user' ? '👤' : marker.role === 'assistant' ? '🤖' : '🔧'}
-                      </span>
-                    </div>
-                  ))}
-                  {/* Viewport indicator */}
-                  <div className={styles.timelineViewport} />
-                </div>
+                ))}
+                {/* Viewport indicator - shows current scroll position */}
+                <div className={styles.timelineViewport} />
               </div>
             </div>
           </>

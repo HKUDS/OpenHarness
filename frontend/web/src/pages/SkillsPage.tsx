@@ -529,8 +529,15 @@ export function SkillsPage() {
                     </div>
                   </div>
                   
-                  <div className={styles.toggleSwitch} onClick={() => toggleSkill(skill.id)}>
-                    <div className={`${styles.toggleSwitchKnob} ${skill.enabled ? styles.enabled : ''}`} />
+                  <div className={styles.toggleWrapper}>
+                    <div className={`${styles.toggleSwitch} ${skill.enabled ? styles.enabled : ''}`} onClick={() => toggleSkill(skill.id)}>
+                      <span className={`${styles.toggleStatusLabel} ${styles.on}`}>ON</span>
+                      <span className={`${styles.toggleStatusLabel} ${styles.off}`}>OFF</span>
+                      <div className={styles.toggleSwitchKnob} />
+                    </div>
+                    <span className={`${styles.statusText} ${skill.enabled ? styles.enabled : styles.disabled}`}>
+                      {skill.enabled ? 'Enabled' : 'Disabled'}
+                    </span>
                   </div>
                 </div>
                 

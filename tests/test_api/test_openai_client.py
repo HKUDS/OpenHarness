@@ -196,6 +196,37 @@ class TestConvertMessagesToOpenai:
         assert result[0]["tool_call_id"] == "c1"
         assert result[1]["tool_call_id"] == "c2"
 
+    def test_tool_results_with_user_content_only_outputs_tools(self):
+        """When tool results are present, no user message should follow.
+
+        OpenAI requires that after an assistant message with tool_calls,
+        only role="tool" messages can follow. User content in the same
+        message should be dropped to maintain API compatibility.
+        """
+        messages = [
+            ConversationMessage(
+                role="assistant",
+                content=[
+                    TextBlock(text="I'll check those files."),
+                    ToolUseBlock(id="call_1", name="read_file", input={"path": "/tmp/a.txt"}),
+                ],
+            ),
+            ConversationMessage(
+                role="user",
+                content=[
+                    ToolResultBlock(tool_use_id="call_1", content="content A", is_error=False),
+                    TextBlock(text="Please also check /tmp/b.txt"),
+                ],
+            ),
+        ]
+        result = _convert_messages_to_openai(messages, None)
+        # Should be: assistant(with tool_calls) → tool (NOT followed by user)
+        assert len(result) == 2
+        assert result[0]["role"] == "assistant"
+        assert len(result[0]["tool_calls"]) == 1
+        assert result[1]["role"] == "tool"
+        assert result[1]["tool_call_id"] == "call_1"
+
 
 class TestNormalizeOpenAIBaseUrl:
     def test_preserves_explicit_v1_path(self):

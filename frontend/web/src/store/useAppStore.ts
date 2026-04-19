@@ -115,13 +115,16 @@ interface AppState {
   createCronJobCallback: ((name: string, schedule: string, command: string, cwd?: string, enabled?: boolean) => void) | null;
   deleteCronJobCallback: ((name: string) => void) | null;
   toggleCronJobCallback: ((name: string, enabled: boolean) => void) | null;
+  triggerCronJobCallback: ((name: string) => void) | null;
   
   // Actions
   setConnected: (connected: boolean) => void;
   setConnecting: (connecting: boolean) => void;
   setError: (error: string | null) => void;
   addMessage: (message: Message) => void;
+  addMessageToChat: (chatId: string, message: Message) => void;
   updateMessage: (id: string, updates: Partial<Message>) => void;
+  updateMessageInChat: (chatId: string, messageId: string, updates: Partial<Message>) => void;
   setSessionState: (state: Partial<SessionState>) => void;
   setTasks: (tasks: TaskSnapshot[]) => void;
   setCronJobs: (cronJobs: CronJobSnapshot[]) => void;
@@ -129,6 +132,7 @@ interface AppState {
   updateCronJob: (name: string, updates: Partial<CronJobSnapshot>) => void;
   deleteCronJob: (name: string) => void;
   toggleCronJob: (name: string, enabled: boolean) => void;
+  triggerCronJob: (name: string) => void;
   setMcpServers: (servers: McpServerSnapshot[]) => void;
   setBridgeSessions: (sessions: BridgeSessionSnapshot[]) => void;
   setSwarmTeammates: (teammates: SwarmTeammateSnapshot[]) => void;
@@ -143,6 +147,7 @@ interface AppState {
   setCreateCronJobCallback: (fn: ((name: string, schedule: string, command: string, cwd?: string, enabled?: boolean, requirements?: string) => void) | null) => void;
   setDeleteCronJobCallback: (fn: ((name: string) => void) | null) => void;
   setToggleCronJobCallback: (fn: ((name: string, enabled: boolean) => void) | null) => void;
+  setTriggerCronJobCallback: (fn: ((name: string) => void) | null) => void;
   toggleSidebar: () => void;
   setActivePanel: (panel: AppState['activePanel']) => void;
   setTerminalView: (view: AppState['terminalView']) => void;
@@ -352,6 +357,7 @@ export const useAppStore = create<AppState>((set) => ({
   createCronJobCallback: null,
   deleteCronJobCallback: null,
   toggleCronJobCallback: null,
+  triggerCronJobCallback: null,
   activeModal: null,
   expandedMessages: new Set(),
   isResizingSidebar: false,
@@ -416,6 +422,45 @@ export const useAppStore = create<AppState>((set) => ({
     };
   }),
   
+  addMessageToChat: (chatId, message) => set((state) => {
+    // Prevent adding duplicate messages by checking recent messages in target chat
+    const targetChat = state.chatSessions.find(c => c.id === chatId);
+    const existingMessages = targetChat?.messages || [];
+    const recentMessages = existingMessages.slice(-5);
+    const isDuplicate = recentMessages.some(
+      m => m.role === message.role && 
+           m.content === message.content && 
+           Math.abs(m.timestamp - message.timestamp) < 100
+    );
+    
+    if (isDuplicate) {
+      console.log('[useAppStore] Skipping duplicate message for chat', chatId, message.id);
+      return state;
+    }
+    
+    const newMessages = [...existingMessages, message];
+    
+    // Update the specific chat session
+    const updatedSessions = state.chatSessions.map((chat) =>
+      chat.id === chatId
+        ? { ...chat, messages: newMessages, updatedAt: Date.now() }
+        : chat
+    );
+    saveToStorage(STORAGE_KEYS.CHAT_SESSIONS, updatedSessions);
+    
+    // Only update current messages if we're viewing this chat
+    if (state.currentChatId === chatId) {
+      return {
+        messages: newMessages,
+        chatSessions: updatedSessions
+      };
+    }
+    
+    return {
+      chatSessions: updatedSessions
+    };
+  }),
+  
   updateMessage: (id, updates) => set((state) => {
     const newMessages = state.messages.map((msg) => 
       msg.id === id ? { ...msg, ...updates } : msg
@@ -437,6 +482,37 @@ export const useAppStore = create<AppState>((set) => ({
     
     return {
       messages: newMessages
+    };
+  }),
+  
+  updateMessageInChat: (chatId, messageId, updates) => set((state) => {
+    // Find the target chat session
+    const targetChat = state.chatSessions.find(c => c.id === chatId);
+    if (!targetChat) return state;
+    
+    const existingMessages = targetChat.messages || [];
+    const newMessages = existingMessages.map((msg) => 
+      msg.id === messageId ? { ...msg, ...updates } : msg
+    );
+    
+    // Update the specific chat session
+    const updatedSessions = state.chatSessions.map((chat) =>
+      chat.id === chatId
+        ? { ...chat, messages: newMessages, updatedAt: Date.now() }
+        : chat
+    );
+    saveToStorage(STORAGE_KEYS.CHAT_SESSIONS, updatedSessions);
+    
+    // Only update current messages if we're viewing this chat
+    if (state.currentChatId === chatId) {
+      return {
+        messages: newMessages,
+        chatSessions: updatedSessions
+      };
+    }
+    
+    return {
+      chatSessions: updatedSessions
     };
   }),
   
@@ -466,6 +542,7 @@ export const useAppStore = create<AppState>((set) => ({
   setCreateCronJobCallback: (fn) => set({ createCronJobCallback: fn }),
   setDeleteCronJobCallback: (fn) => set({ deleteCronJobCallback: fn }),
   setToggleCronJobCallback: (fn) => set({ toggleCronJobCallback: fn }),
+  setTriggerCronJobCallback: (fn) => set({ triggerCronJobCallback: fn }),
   
   toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
   setActivePanel: (panel) => set({ activePanel: panel }),
@@ -876,5 +953,13 @@ export const useAppStore = create<AppState>((set) => ({
     );
     saveToStorage(STORAGE_KEYS.CRON_JOBS, newCronJobs);
     return { cronJobs: newCronJobs };
+  }),
+  
+  triggerCronJob: (name) => set((state) => {
+    // Call backend callback if available
+    if (state.triggerCronJobCallback) {
+      state.triggerCronJobCallback(name);
+    }
+    return state; // Backend will send back the updated state via cron_snapshot
   }),
 }));

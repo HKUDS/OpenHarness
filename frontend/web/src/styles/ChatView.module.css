@@ -174,8 +174,7 @@
 .timelineTrack {
   position: relative;
   flex: 1;
-  overflow-y: auto;
-  overflow-x: hidden;
+  overflow: hidden; /* Fixed viewport - no internal scrolling */
   pointer-events: auto;
   padding: 0;
   min-height: 0; /* Allow flexbox to shrink */
@@ -199,11 +198,12 @@
   background: var(--primary-500);
 }
 
-/* Inner content wrapper for markers - sized to match scrollable content */
+/* Inner content wrapper for markers - fixed to viewport height */
 .timelineContent {
   position: relative;
-  min-height: 100%;
+  height: 100%;
   width: 100%;
+  overflow: hidden;
 }
 
 .timelineViewport {
@@ -216,6 +216,8 @@
   transition: top 0.05s ease, height 0.05s ease;
   pointer-events: none;
   z-index: 1;
+  top: 0;
+  height: 100%;
 }
 
 .timelineMarker {

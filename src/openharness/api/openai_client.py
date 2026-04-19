@@ -110,14 +110,20 @@ def _convert_messages_to_openai(
                         "tool_call_id": tr.tool_use_id,
                         "content": tr.content,
                     })
-            if user_blocks:
+                # When tool results are present, we must NOT add a user message
+                # immediately after them. OpenAI requires that after an assistant
+                # message with tool_calls, only tool role messages can follow.
+                # User content here is typically empty or acknowledgment text
+                # that can be safely dropped.
+                pass
+            elif user_blocks:
                 content = _convert_user_content_to_openai(user_blocks)
                 if isinstance(content, str):
                     if content.strip():
                         openai_messages.append({"role": "user", "content": content})
                 elif content:
                     openai_messages.append({"role": "user", "content": content})
-            if not tool_results and not user_blocks:
+            else:
                 # Empty user message (shouldn't happen, but handle gracefully)
                 openai_messages.append({"role": "user", "content": ""})
 
