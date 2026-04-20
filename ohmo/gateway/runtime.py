@@ -13,7 +13,12 @@ import string
 
 from openharness.channels.bus.events import InboundMessage
 from openharness.commands import CommandContext, CommandResult
-from openharness.engine.messages import ConversationMessage, ImageBlock, TextBlock
+from openharness.engine.messages import (
+    ConversationMessage,
+    ImageBlock,
+    TextBlock,
+    sanitize_conversation_messages,
+)
 from openharness.engine.query import MaxTurnsExceeded
 from openharness.engine.stream_events import (
     AssistantTextDelta,
@@ -488,7 +493,7 @@ class OhmoSessionRuntimePool:
         bundle: RuntimeBundle,
         latest_user_prompt: str | None,
     ) -> RuntimeBundle:
-        snapshot = list(bundle.engine.messages)
+        snapshot = sanitize_conversation_messages(list(bundle.engine.messages))
         prior_session_id = bundle.session_id
         await close_runtime(bundle)
         refreshed = await build_runtime(

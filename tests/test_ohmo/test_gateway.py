@@ -13,7 +13,7 @@ from openharness.channels.bus.events import InboundMessage
 from openharness.channels.bus.queue import MessageBus
 from openharness.commands import CommandResult
 from openharness.commands.registry import SlashCommand
-from openharness.engine.messages import ConversationMessage, ImageBlock, TextBlock
+from openharness.engine.messages import ConversationMessage, ImageBlock, TextBlock, ToolUseBlock
 from openharness.engine.stream_events import AssistantTextDelta, CompactProgressEvent, ToolExecutionStarted
 
 from ohmo.gateway.bridge import OhmoGatewayBridge, _format_gateway_error
@@ -964,6 +964,76 @@ async def test_runtime_pool_stream_message_handles_slash_command_and_refresh_run
     assert [u.text for u in updates] == ["Permission mode set to plan"]
     assert len(build_calls) == 2
     assert close_calls == ["sess123"]
+    assert build_calls[1]["restore_messages"] == [ConversationMessage.from_user_text("before").model_dump(mode="json")]
+
+
+@pytest.mark.asyncio
+async def test_runtime_pool_refresh_runtime_drops_dangling_tool_use_tail(tmp_path, monkeypatch):
+    workspace = tmp_path / ".ohmo-home"
+    initialize_workspace(workspace)
+    build_calls: list[dict[str, object]] = []
+
+    class FakeEngine:
+        def __init__(self):
+            self.messages = [
+                ConversationMessage.from_user_text("before"),
+                ConversationMessage(
+                    role="assistant",
+                    content=[ToolUseBlock(id="write_file:234", name="write_file", input={"path": "x"})],
+                ),
+            ]
+            self.total_usage = UsageSnapshot()
+
+        def set_system_prompt(self, prompt):
+            del prompt
+            return None
+
+        async def submit_message(self, content):
+            del content
+            if False:
+                yield None
+
+    class FakeCommand:
+        async def handler(self, args, context):
+            del args, context
+            return CommandResult(message="Switched provider profile", refresh_runtime=True)
+
+    async def fake_build_runtime(**kwargs):
+        build_calls.append(kwargs)
+        return SimpleNamespace(
+            engine=FakeEngine(),
+            session_id="sess123",
+            current_settings=lambda: SimpleNamespace(model="gpt-5.4"),
+            commands=SimpleNamespace(lookup=lambda raw: (FakeCommand(), "") if raw == "/provider github" else None),
+            hook_summary=lambda: "",
+            mcp_summary=lambda: "",
+            plugin_summary=lambda: "",
+            cwd=str(tmp_path),
+            tool_registry=None,
+            app_state=None,
+            session_backend=None,
+            extra_skill_dirs=(),
+            extra_plugin_roots=(),
+            enforce_max_turns=False,
+        )
+
+    async def fake_start_runtime(bundle):
+        del bundle
+        return None
+
+    async def fake_close_runtime(bundle):
+        del bundle
+        return None
+
+    monkeypatch.setattr("ohmo.gateway.runtime.build_runtime", fake_build_runtime)
+    monkeypatch.setattr("ohmo.gateway.runtime.start_runtime", fake_start_runtime)
+    monkeypatch.setattr("ohmo.gateway.runtime.close_runtime", fake_close_runtime)
+
+    pool = OhmoSessionRuntimePool(cwd=tmp_path, workspace=workspace, provider_profile="codex")
+    message = InboundMessage(channel="feishu", sender_id="u1", chat_id="c1", content="/provider github")
+    _ = [u async for u in pool.stream_message(message, "feishu:c1")]
+
+    assert len(build_calls) == 2
     assert build_calls[1]["restore_messages"] == [ConversationMessage.from_user_text("before").model_dump(mode="json")]
 
 
