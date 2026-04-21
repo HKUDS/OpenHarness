@@ -75,10 +75,45 @@ def discover_plugin_paths(cwd: str | Path, extra_roots: Iterable[str | Path] | N
     return paths
 
 
+def discover_plugin_paths_for_settings(
+    settings,
+    cwd: str | Path,
+    extra_roots: Iterable[str | Path] | None = None,
+) -> list[Path]:
+    """Find plugin directories that are permitted by the active settings."""
+    roots = [get_user_plugins_dir()]
+    if getattr(settings, "allow_project_plugins", False):
+        roots.append(get_project_plugins_dir(cwd))
+    if extra_roots:
+        for root in extra_roots:
+            path = Path(root).expanduser().resolve()
+            path.mkdir(parents=True, exist_ok=True)
+            roots.append(path)
+    paths: list[Path] = []
+    seen: set[Path] = set()
+    for root in roots:
+        if not root.exists():
+            continue
+        for path in sorted(root.iterdir()):
+            if path.is_dir() and _find_manifest(path) is not None and path not in seen:
+                seen.add(path)
+                paths.append(path)
+    return paths
+
+
 def load_plugins(settings, cwd: str | Path, extra_roots: Iterable[str | Path] | None = None) -> list[LoadedPlugin]:
     """Load plugins from disk."""
+    project_plugins_dir = get_project_plugins_dir(cwd)
+    if not getattr(settings, "allow_project_plugins", False) and any(
+        path.is_dir() and _find_manifest(path) is not None for path in sorted(project_plugins_dir.iterdir())
+    ):
+        logger.warning(
+            "Found project-local plugins in %s, but they are disabled by default. "
+            "Set allow_project_plugins=true if you trust this workspace.",
+            project_plugins_dir,
+        )
     plugins: list[LoadedPlugin] = []
-    for path in discover_plugin_paths(cwd, extra_roots=extra_roots):
+    for path in discover_plugin_paths_for_settings(settings, cwd, extra_roots=extra_roots):
         plugin = load_plugin(path, settings.enabled_plugins)
         if plugin is not None:
             plugins.append(plugin)

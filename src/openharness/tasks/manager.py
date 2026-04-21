@@ -3,16 +3,22 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import shlex
 import time
 from dataclasses import replace
 from pathlib import Path
+from typing import Awaitable, Callable
 from uuid import uuid4
 
 from openharness.config.paths import get_tasks_dir
 from openharness.tasks.types import TaskRecord, TaskStatus, TaskType
 from openharness.utils.shell import create_shell_subprocess
+
+log = logging.getLogger(__name__)
+
+CompletionListener = Callable[[TaskRecord], Awaitable[None] | None]
 
 
 class BackgroundTaskManager:
@@ -25,6 +31,7 @@ class BackgroundTaskManager:
         self._output_locks: dict[str, asyncio.Lock] = {}
         self._input_locks: dict[str, asyncio.Lock] = {}
         self._generations: dict[str, int] = {}
+        self._completion_listeners: dict[str, CompletionListener] = {}
 
     async def create_shell_task(
         self,
@@ -168,6 +175,16 @@ class BackgroundTaskManager:
             return content[-max_bytes:]
         return content
 
+    def register_completion_listener(self, listener: CompletionListener) -> Callable[[], None]:
+        """Register a callback fired whenever a task reaches a terminal state."""
+        listener_id = uuid4().hex
+        self._completion_listeners[listener_id] = listener
+
+        def _unregister() -> None:
+            self._completion_listeners.pop(listener_id, None)
+
+        return _unregister
+
     async def _watch_process(
         self,
         task_id: str,
@@ -188,6 +205,7 @@ class BackgroundTaskManager:
         if task.status != "killed":
             task.status = "completed" if return_code == 0 else "failed"
         task.ended_at = time.time()
+        await self._notify_completion_listeners(task)
         self._processes.pop(task_id, None)
         self._waiters.pop(task_id, None)
 
@@ -254,6 +272,16 @@ class BackgroundTaskManager:
         task.ended_at = None
         task.return_code = None
         return await self._start_process(task.id)
+
+    async def _notify_completion_listeners(self, task: TaskRecord) -> None:
+        snapshot = replace(task, metadata=dict(task.metadata))
+        for listener_id, listener in list(self._completion_listeners.items()):
+            try:
+                maybe_awaitable = listener(snapshot)
+                if maybe_awaitable is not None:
+                    await maybe_awaitable
+            except Exception:
+                log.exception("Task completion listener %s failed for task %s", listener_id, task.id)
 
     def close(self) -> None:
         """Best-effort cleanup for any tracked subprocesses and watcher tasks."""

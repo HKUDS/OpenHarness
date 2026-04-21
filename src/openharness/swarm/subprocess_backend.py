@@ -54,6 +54,8 @@ class SubprocessBackend:
 
         flags = build_inherited_cli_flags(
             model=config.model,
+            system_prompt=config.system_prompt,
+            system_prompt_mode=config.system_prompt_mode,
             plan_mode_required=config.plan_mode_required,
         )
         extra_env = build_inherited_env_vars()

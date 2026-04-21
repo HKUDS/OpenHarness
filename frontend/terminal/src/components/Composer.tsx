@@ -24,7 +24,7 @@ export function Composer({
 			</Box>
 			<Box marginTop={1}>
 				<Text dimColor>
-					enter=submit tab=complete ctrl-p/ctrl-n=history history_index={String(historyIndex)}
+					shift+enter=newline enter=submit tab=complete ctrl-p/ctrl-n=history history_index={String(historyIndex)}
 				</Text>
 			</Box>
 		</Box>

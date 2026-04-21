@@ -153,6 +153,10 @@ OpenHarness is an open-source Python implementation designed for **researchers, 
 
 ## 📰 What's New
 
+- **2026-04-18** ⚙️ **v0.1.7** — Packaging & TUI polish:
+  - Install script now links `oh`, `ohmo`, and `openharness` into `~/.local/bin` instead of prepending the virtualenv `bin` directory to `PATH`, which avoids clobbering Conda-managed shells.
+  - React TUI now supports `Shift+Enter` to insert a newline while keeping plain `Enter` as submit.
+  - Busy-state animation in the React TUI is quieter and less error-prone on Windows terminals, with conservative spinner frames and reduced flashing.
 - **2026-04-10** 🧠 **v0.1.6** — Auto-Compaction & Markdown TUI:
   - Auto-Compaction preserves task state and channel logs across context compression — agents can run multi-day sessions without manual compact/clear
   - Subprocess teammates run in headless worker mode; agent team creation stabilized

@@ -11,7 +11,7 @@ from openharness.coordinator.coordinator_mode import get_coordinator_user_contex
 from openharness.engine.messages import ConversationMessage, TextBlock, ToolResultBlock
 from openharness.engine.query import AskUserPrompt, PermissionPrompt, QueryContext, remember_user_goal, run_query
 from openharness.engine.stream_events import AssistantTurnComplete, StreamEvent
-from openharness.hooks import HookExecutor
+from openharness.hooks import HookEvent, HookExecutor
 from openharness.permissions.checker import PermissionChecker
 from openharness.tools.base import ToolRegistry
 
@@ -154,6 +154,14 @@ class QueryEngine:
         if user_message.text.strip():
             remember_user_goal(self._tool_metadata, user_message.text)
         self._messages.append(user_message)
+        if self._hook_executor is not None:
+            await self._hook_executor.execute(
+                HookEvent.USER_PROMPT_SUBMIT,
+                {
+                    "event": HookEvent.USER_PROMPT_SUBMIT.value,
+                    "prompt": user_message.text,
+                },
+            )
         context = QueryContext(
             api_client=self._api_client,
             tool_registry=self._tool_registry,

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from typing import Any, AsyncIterator
 from urllib.parse import urlsplit, urlunsplit
 
@@ -298,6 +299,8 @@ class OpenAICompatibleClient:
         collected_tool_calls: dict[int, dict[str, Any]] = {}
         finish_reason: str | None = None
         usage_data: dict[str, int] = {}
+        # Buffer to strip inline <think>…</think> blocks across streaming chunks.
+        _think_buf = ""
 
         stream = await self._client.chat.completions.create(**params)
         async for chunk in stream:
@@ -321,10 +324,13 @@ class OpenAICompatibleClient:
             if reasoning_piece:
                 collected_reasoning += reasoning_piece
 
-            # Stream text content to user
+            # Stream text content to user, stripping inline <think> blocks
             if delta.content:
-                collected_content += delta.content
-                yield ApiTextDeltaEvent(text=delta.content)
+                _think_buf += delta.content
+                visible, _think_buf = _strip_think_blocks(_think_buf)
+                if visible:
+                    collected_content += visible
+                    yield ApiTextDeltaEvent(text=visible)
 
             # Accumulate tool calls
             if delta.tool_calls:
@@ -406,3 +412,34 @@ class OpenAICompatibleClient:
         if status == 429:
             return RateLimitFailure(msg)
         return RequestFailure(msg)
+
+
+# Matches complete <think>…</think> blocks (DOTALL so newlines are included).
+_THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
+_THINK_OPEN_TAG = "<think>"
+
+
+def _strip_think_blocks(buf: str) -> tuple[str, str]:
+    """Strip complete ``<think>…</think>`` blocks and return ``(visible_text, leftover)``.
+
+    Complete pairs are removed via regex.  An unclosed ``<think>`` is held in
+    *leftover* so it can be re-evaluated once the closing tag arrives in the
+    next streaming chunk.
+    """
+    # Remove fully-closed blocks.
+    cleaned = _THINK_RE.sub("", buf)
+
+    # Hold back any unclosed <think> for the next chunk.
+    open_idx = cleaned.find(_THINK_OPEN_TAG)
+    if open_idx != -1:
+        return cleaned[:open_idx], cleaned[open_idx:]
+
+    # Streaming providers may split the opening tag itself across chunk
+    # boundaries (e.g. ``"<thi"`` then ``"nk>..."``). Hold back the longest
+    # suffix that could still become ``<think>`` on the next chunk.
+    max_prefix = min(len(cleaned), len(_THINK_OPEN_TAG) - 1)
+    for prefix_len in range(max_prefix, 0, -1):
+        if _THINK_OPEN_TAG.startswith(cleaned[-prefix_len:]):
+            return cleaned[:-prefix_len], cleaned[-prefix_len:]
+
+    return cleaned, ""

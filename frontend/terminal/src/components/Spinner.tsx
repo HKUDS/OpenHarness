@@ -14,16 +14,18 @@ const VERBS = [
 	'Considering',
 ];
 
+const WINDOWS_SAFE_FRAMES = ['-', '\\', '|', '/'];
+
 export function Spinner({label}: {label?: string}): React.JSX.Element {
 	const {theme} = useTheme();
-	const frames = theme.icons.spinner;
+	const frames = process.platform === 'win32' ? WINDOWS_SAFE_FRAMES : theme.icons.spinner;
 	const [frame, setFrame] = useState(0);
 	const [verbIndex, setVerbIndex] = useState(0);
 
 	useEffect(() => {
 		const timer = setInterval(() => {
 			setFrame((f) => (f + 1) % frames.length);
-		}, 80);
+		}, 100);
 		return () => clearInterval(timer);
 	}, [frames.length]);
 

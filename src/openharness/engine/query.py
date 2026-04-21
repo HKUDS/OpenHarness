@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -45,6 +46,7 @@ AskUserPrompt = Callable[[str], Awaitable[str]]
 MAX_TRACKED_READ_FILES = 6
 MAX_TRACKED_SKILLS = 8
 MAX_TRACKED_ASYNC_AGENT_EVENTS = 8
+MAX_TRACKED_ASYNC_AGENT_TASKS = 12
 MAX_TRACKED_WORK_LOG = 10
 MAX_TRACKED_USER_GOALS = 5
 MAX_TRACKED_ACTIVE_ARTIFACTS = 8
@@ -263,6 +265,55 @@ def _remember_async_agent_activity(
         del bucket[:-MAX_TRACKED_ASYNC_AGENT_EVENTS]
 
 
+def _parse_spawned_agent_identity(
+    output: str,
+    metadata: dict[str, object] | None = None,
+) -> tuple[str, str] | None:
+    if isinstance(metadata, dict):
+        agent_id = str(metadata.get("agent_id") or "").strip()
+        task_id = str(metadata.get("task_id") or "").strip()
+        if agent_id and task_id:
+            return agent_id, task_id
+    match = re.search(r"Spawned agent (.+?) \(task_id=(\S+?)(?:[,)]|$)", output.strip())
+    if match is None:
+        return None
+    return match.group(1).strip(), match.group(2).strip()
+
+
+def _remember_async_agent_task(
+    tool_metadata: dict[str, object] | None,
+    *,
+    tool_name: str,
+    tool_input: dict[str, object],
+    output: str,
+    result_metadata: dict[str, object] | None = None,
+) -> None:
+    if tool_name != "agent":
+        return
+    identity = _parse_spawned_agent_identity(output, result_metadata)
+    if identity is None:
+        return
+    agent_id, task_id = identity
+    bucket = _tool_metadata_bucket(tool_metadata, "async_agent_tasks")
+    description = str(tool_input.get("description") or tool_input.get("prompt") or "").strip()
+    entry = {
+        "agent_id": agent_id,
+        "task_id": task_id,
+        "description": description[:240],
+        "status": "spawned",
+        "notification_sent": False,
+        "spawned_at": time.time(),
+    }
+    bucket[:] = [
+        existing
+        for existing in bucket
+        if not isinstance(existing, dict) or str(existing.get("task_id") or "") != task_id
+    ]
+    bucket.append(entry)
+    if len(bucket) > MAX_TRACKED_ASYNC_AGENT_TASKS:
+        del bucket[:-MAX_TRACKED_ASYNC_AGENT_TASKS]
+
+
 def _remember_work_log(
     tool_metadata: dict[str, object] | None,
     *,
@@ -289,6 +340,7 @@ def _record_tool_carryover(
     tool_name: str,
     tool_input: dict[str, object],
     tool_output: str,
+    tool_result_metadata: dict[str, object] | None,
     is_error: bool,
     resolved_file_path: str | None,
 ) -> None:
@@ -325,6 +377,13 @@ def _record_tool_carryover(
             tool_name=tool_name,
             tool_input=tool_input,
             output=tool_output,
+        )
+        _remember_async_agent_task(
+            context.tool_metadata,
+            tool_name=tool_name,
+            tool_input=tool_input,
+            output=tool_output,
+            result_metadata=tool_result_metadata,
         )
         description = str(tool_input.get("description") or tool_input.get("prompt") or tool_name).strip()
         _remember_verified_work(
@@ -532,6 +591,14 @@ async def run_query(
             messages.append(coordinator_context_message)
 
         if not final_message.tool_uses:
+            if context.hook_executor is not None:
+                await context.hook_executor.execute(
+                    HookEvent.STOP,
+                    {
+                        "event": HookEvent.STOP.value,
+                        "stop_reason": "tool_uses_empty",
+                    },
+                )
             return
 
         tool_calls = final_message.tool_uses
@@ -647,6 +714,16 @@ async def _execute_tool_call(
     if not decision.allowed:
         if decision.requires_confirmation and context.permission_prompt is not None:
             log.debug("permission prompt for %s: %s", tool_name, decision.reason)
+            if context.hook_executor is not None:
+                await context.hook_executor.execute(
+                    HookEvent.NOTIFICATION,
+                    {
+                        "event": HookEvent.NOTIFICATION.value,
+                        "notification_type": "permission_prompt",
+                        "tool_name": tool_name,
+                        "reason": decision.reason,
+                    },
+                )
             confirmed = await context.permission_prompt(tool_name, decision.reason)
             if not confirmed:
                 log.debug("permission denied by user for %s", tool_name)
@@ -674,6 +751,7 @@ async def _execute_tool_call(
                 "ask_user_prompt": context.ask_user_prompt,
                 **(context.tool_metadata or {}),
             },
+            hook_executor=context.hook_executor,
         ),
     )
     elapsed = time.monotonic() - t0
@@ -689,6 +767,7 @@ async def _execute_tool_call(
         tool_name=tool_name,
         tool_input=tool_input,
         tool_output=tool_result.content,
+        tool_result_metadata=result.metadata,
         is_error=tool_result.is_error,
         resolved_file_path=_file_path,
     )

@@ -144,3 +144,63 @@ def test_task_worker_flag_routes_to_run_task_worker(monkeypatch):
 
     assert result.exit_code == 0
     assert captured["model"] == "kimi-k2.5"
+
+
+def test_autopilot_run_next_cli(monkeypatch, tmp_path: Path):
+    runner = CliRunner()
+
+    class FakeStore:
+        def __init__(self, cwd):
+            self.cwd = cwd
+
+        async def run_next(self, *, model=None, max_turns=None, permission_mode=None):
+            class Result:
+                card_id = "ap-1234"
+                status = "completed"
+                run_report_path = "/tmp/run.md"
+                verification_report_path = "/tmp/verify.md"
+
+            return Result()
+
+    monkeypatch.setattr("openharness.autopilot.RepoAutopilotStore", FakeStore)
+
+    result = runner.invoke(app, ["autopilot", "run-next", "--cwd", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "ap-1234 -> completed" in result.output
+
+
+def test_autopilot_install_cron_cli(monkeypatch, tmp_path: Path):
+    runner = CliRunner()
+
+    class FakeStore:
+        def __init__(self, cwd):
+            self.cwd = cwd
+
+        def install_default_cron(self):
+            return ["autopilot.scan", "autopilot.tick"]
+
+    monkeypatch.setattr("openharness.autopilot.RepoAutopilotStore", FakeStore)
+
+    result = runner.invoke(app, ["autopilot", "install-cron", "--cwd", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "autopilot.scan" in result.output
+
+
+def test_autopilot_export_dashboard_cli(monkeypatch, tmp_path: Path):
+    runner = CliRunner()
+
+    class FakeStore:
+        def __init__(self, cwd):
+            self.cwd = cwd
+
+        def export_dashboard(self, output=None):
+            return tmp_path / "docs" / "autopilot"
+
+    monkeypatch.setattr("openharness.autopilot.RepoAutopilotStore", FakeStore)
+
+    result = runner.invoke(app, ["autopilot", "export-dashboard", "--cwd", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "Exported autopilot dashboard" in result.output

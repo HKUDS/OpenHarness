@@ -43,6 +43,7 @@ class BashTool(BaseTool):
                 arguments.command,
                 cwd=cwd,
                 prefer_pty=True,
+                stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
             )

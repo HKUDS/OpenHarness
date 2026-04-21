@@ -14,6 +14,7 @@ from openharness.api.openai_client import (
     _convert_messages_to_openai,
     _convert_tools_to_openai,
     _normalize_openai_base_url,
+    _strip_think_blocks,
     _token_limit_param_for_model,
 )
 from openharness.engine.messages import (
@@ -350,3 +351,81 @@ class TestStreamMessageTokenParams:
         assert fake_sdk.chat.completions.last_kwargs is not None
         assert "max_tokens" in fake_sdk.chat.completions.last_kwargs
         assert "max_completion_tokens" not in fake_sdk.chat.completions.last_kwargs
+
+
+class TestStripThinkBlocks:
+    """Unit tests for the _strip_think_blocks streaming helper."""
+
+    def test_no_think_tags_passthrough(self):
+        visible, leftover = _strip_think_blocks("Hello world")
+        assert visible == "Hello world"
+        assert leftover == ""
+
+    def test_complete_think_block_removed(self):
+        visible, leftover = _strip_think_blocks("<think>internal reasoning</think>answer")
+        assert visible == "answer"
+        assert leftover == ""
+
+    def test_multiline_think_block_removed(self):
+        buf = "<think>\nstep 1\nstep 2\n</think>final answer"
+        visible, leftover = _strip_think_blocks(buf)
+        assert visible == "final answer"
+        assert leftover == ""
+
+    def test_unclosed_think_held_in_leftover(self):
+        # Streaming chunk ends before </think> arrives
+        visible, leftover = _strip_think_blocks("prefix<think>partial reasoning")
+        assert visible == "prefix"
+        assert leftover == "<think>partial reasoning"
+
+    def test_empty_string(self):
+        visible, leftover = _strip_think_blocks("")
+        assert visible == ""
+        assert leftover == ""
+
+    def test_only_think_block(self):
+        visible, leftover = _strip_think_blocks("<think>all hidden</think>")
+        assert visible == ""
+        assert leftover == ""
+
+    def test_multiple_think_blocks(self):
+        buf = "<think>a</think>text1<think>b</think>text2"
+        visible, leftover = _strip_think_blocks(buf)
+        assert visible == "text1text2"
+        assert leftover == ""
+
+    def test_text_before_unclosed_think(self):
+        visible, leftover = _strip_think_blocks("before<think>unclosed")
+        assert visible == "before"
+        assert leftover == "<think>unclosed"
+
+    def test_closed_then_unclosed(self):
+        # One complete block followed by a new unclosed one (cross-chunk scenario)
+        buf = "<think>done</think>visible<think>still open"
+        visible, leftover = _strip_think_blocks(buf)
+        assert visible == "visible"
+        assert leftover == "<think>still open"
+
+    def test_partial_open_tag_is_held_for_next_chunk(self):
+        visible, leftover = _strip_think_blocks("prefix<thi")
+        assert visible == "prefix"
+        assert leftover == "<thi"
+
+    def test_partial_open_tag_after_closed_block_is_held(self):
+        buf = "<think>done</think>visible<thi"
+        visible, leftover = _strip_think_blocks(buf)
+        assert visible == "visible"
+        assert leftover == "<thi"
+
+    def test_split_open_tag_across_chunks_does_not_leak_reasoning(self):
+        buf = ""
+
+        buf += "<thi"
+        visible, buf = _strip_think_blocks(buf)
+        assert visible == ""
+        assert buf == "<thi"
+
+        buf += "nk>secret</think>answer"
+        visible, buf = _strip_think_blocks(buf)
+        assert visible == "answer"
+        assert buf == ""

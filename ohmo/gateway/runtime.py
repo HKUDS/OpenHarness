@@ -13,7 +13,12 @@ import string
 
 from openharness.channels.bus.events import InboundMessage
 from openharness.commands import CommandContext, CommandResult
-from openharness.engine.messages import ConversationMessage, ImageBlock, TextBlock
+from openharness.engine.messages import (
+    ConversationMessage,
+    ImageBlock,
+    TextBlock,
+    sanitize_conversation_messages,
+)
 from openharness.engine.query import MaxTurnsExceeded
 from openharness.engine.stream_events import (
     AssistantTextDelta,
@@ -137,6 +142,7 @@ class OhmoSessionRuntimePool:
         if snapshot and snapshot.get("session_id"):
             bundle.session_id = str(snapshot["session_id"])
         await start_runtime(bundle)
+        bundle.engine.set_system_prompt(self._runtime_system_prompt(bundle, latest_user_prompt))
         logger.info(
             "ohmo runtime started session_key=%s session_id=%s restored_messages=%s",
             session_key,
@@ -487,7 +493,7 @@ class OhmoSessionRuntimePool:
         bundle: RuntimeBundle,
         latest_user_prompt: str | None,
     ) -> RuntimeBundle:
-        snapshot = list(bundle.engine.messages)
+        snapshot = sanitize_conversation_messages(list(bundle.engine.messages))
         prior_session_id = bundle.session_id
         await close_runtime(bundle)
         refreshed = await build_runtime(
@@ -516,6 +522,8 @@ class OhmoSessionRuntimePool:
         return refreshed
 
     def _runtime_system_prompt(self, bundle: RuntimeBundle, latest_user_prompt: str | None) -> str:
+        if not hasattr(bundle, "current_settings"):
+            return build_ohmo_system_prompt(self._cwd, workspace=self._workspace, extra_prompt=None)
         settings = bundle.current_settings()
         if not hasattr(settings, "system_prompt"):
             return build_ohmo_system_prompt(self._cwd, workspace=self._workspace, extra_prompt=None)
