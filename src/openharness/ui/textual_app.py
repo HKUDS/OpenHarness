@@ -323,12 +323,12 @@ class OpenHarnessTerminalApp(App[None]):
 
         if isinstance(event, ToolExecutionStarted):
             payload = json.dumps(event.tool_input, ensure_ascii=False)
-            self._append_line(f"tool> {event.tool_name} {payload}")
+            self._append_line(f"tool> {event.tool_name} [{event.tool_call_id}] {payload}")
             return
 
         if isinstance(event, ToolExecutionCompleted):
             prefix = "tool-error>" if event.is_error else "tool-result>"
-            self._append_line(f"{prefix} {event.tool_name}: {event.output}")
+            self._append_line(f"{prefix} {event.tool_name} [{event.tool_call_id}]: {event.output}")
 
     def action_clear_conversation(self) -> None:
         if self._bundle is None:

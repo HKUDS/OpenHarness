@@ -76,13 +76,14 @@ class OutputRenderer:
                 self.console.print()
                 self._assistant_line_open = False
             tool_name = event.tool_name
+            tool_call_id = event.tool_call_id
             summary = _summarize_tool_input(tool_name, event.tool_input)
             self._last_tool_input = event.tool_input
             if self._style_name == "minimal":
-                self.console.print(f"  > {tool_name} {summary}")
+                self.console.print(f"  > {tool_name} [{tool_call_id}] {summary}")
             else:
                 self.console.print(
-                    f"  [bold cyan]\u23f5 {tool_name}[/bold cyan] [dim]{summary}[/dim]"
+                    f"  [bold cyan]\u23f5 {tool_name}[/bold cyan] [dim]{summary} [{tool_call_id}][/dim]"
                 )
                 self._start_spinner(tool_name)
             return
@@ -90,13 +91,14 @@ class OutputRenderer:
         if isinstance(event, ToolExecutionCompleted):
             self._stop_spinner()
             tool_name = event.tool_name
+            tool_call_id = event.tool_call_id
             output = event.output
             is_error = event.is_error
             if self._style_name == "minimal":
-                self.console.print(f"    {output}")
+                self.console.print(f"    [{tool_call_id}] {output}")
                 return
             if is_error:
-                self.console.print(Panel(output, title=f"{tool_name} error", border_style="red", padding=(0, 1)))
+                self.console.print(Panel(output, title=f"{tool_name} error [{tool_call_id}]", border_style="red", padding=(0, 1)))
                 return
             # Render tool output based on tool type
             tool_input = getattr(event, "tool_input", None) or self._last_tool_input
