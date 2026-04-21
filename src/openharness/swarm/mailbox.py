@@ -9,7 +9,6 @@ Atomic writes use a .tmp file followed by os.rename to prevent partial reads.
 from __future__ import annotations
 
 import asyncio
-import fcntl
 import json
 import os
 import time
@@ -17,6 +16,8 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
+
+from openharness.swarm.lockfile import exclusive_file_lock
 
 
 # ---------------------------------------------------------------------------
@@ -119,6 +120,9 @@ class TeammateMailbox:
         """Return the inbox directory path, creating it if necessary."""
         return get_agent_mailbox_dir(self.team_name, self.agent_id)
 
+    def _lock_path(self) -> Path:
+        return self.get_mailbox_dir() / ".write_lock"
+
     async def write(self, msg: MailboxMessage) -> None:
         """Atomically write *msg* to the inbox as a JSON file.
 
@@ -138,15 +142,9 @@ class TeammateMailbox:
         payload = json.dumps(msg.to_dict(), indent=2)
 
         def _write_atomic() -> None:
-            # Acquire exclusive lock to prevent concurrent writes
-            lock_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(lock_path, "w") as lock_file:
-                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
-                try:
-                    tmp_path.write_text(payload, encoding="utf-8")
-                    os.rename(tmp_path, final_path)
-                finally:
-                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+            with exclusive_file_lock(lock_path):
+                tmp_path.write_text(payload, encoding="utf-8")
+                os.replace(tmp_path, final_path)
 
         # Offload blocking I/O to thread pool
         loop = asyncio.get_event_loop()
@@ -185,32 +183,26 @@ class TeammateMailbox:
     async def mark_read(self, message_id: str) -> None:
         """Mark the message with *message_id* as read (in-place update)."""
         inbox = self.get_mailbox_dir()
-        lock_path = inbox / ".write_lock"
+        lock_path = self._lock_path()
 
         def _mark_read() -> bool:
-            # Acquire exclusive lock to prevent concurrent modifications
-            lock_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(lock_path, "w") as lock_file:
-                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
-                try:
-                    for path in inbox.glob("*.json"):
-                        # Skip lock files and temp files
-                        if path.name.startswith(".") or path.name.endswith(".tmp"):
-                            continue
-                        try:
-                            data = json.loads(path.read_text(encoding="utf-8"))
-                        except (json.JSONDecodeError, OSError):
-                            continue
+            with exclusive_file_lock(lock_path):
+                for path in inbox.glob("*.json"):
+                    # Skip lock files and temp files
+                    if path.name.startswith(".") or path.name.endswith(".tmp"):
+                        continue
+                    try:
+                        data = json.loads(path.read_text(encoding="utf-8"))
+                    except (json.JSONDecodeError, OSError):
+                        continue
 
-                        if data.get("id") == message_id:
-                            data["read"] = True
-                            tmp_path = path.with_suffix(".json.tmp")
-                            tmp_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
-                            os.rename(tmp_path, path)
-                            return True
-                    return False
-                finally:
-                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+                    if data.get("id") == message_id:
+                        data["read"] = True
+                        tmp_path = path.with_suffix(".json.tmp")
+                        tmp_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+                        os.replace(tmp_path, path)
+                        return True
+                return False
 
         # Offload blocking I/O to thread pool
         loop = asyncio.get_event_loop()
@@ -219,16 +211,18 @@ class TeammateMailbox:
     async def clear(self) -> None:
         """Remove all message files from the inbox."""
         inbox = self.get_mailbox_dir()
+        lock_path = self._lock_path()
 
         def _clear() -> None:
-            for path in inbox.glob("*.json"):
-                # Skip lock files
-                if path.name.startswith("."):
-                    continue
-                try:
-                    path.unlink()
-                except OSError:
-                    pass
+            with exclusive_file_lock(lock_path):
+                for path in inbox.glob("*.json"):
+                    # Skip lock files
+                    if path.name.startswith("."):
+                        continue
+                    try:
+                        path.unlink()
+                    except OSError:
+                        pass
 
         # Offload blocking I/O to thread pool
         loop = asyncio.get_event_loop()

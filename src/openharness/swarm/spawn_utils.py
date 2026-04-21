@@ -57,6 +57,13 @@ _TEAMMATE_ENV_VARS = [
     "NODE_EXTRA_CA_CERTS",
     "REQUESTS_CA_BUNDLE",
     "CURL_CA_BUNDLE",
+    # --- OpenHarness-native provider settings --------------------------------
+    # These are read by settings._apply_env_overrides() and must survive across
+    # tmux boundaries so teammates use the same provider as the leader.
+    "OPENHARNESS_API_FORMAT",
+    "OPENHARNESS_BASE_URL",
+    "OPENHARNESS_MODEL",
+    "OPENAI_API_KEY",
 ]
 
 
@@ -66,26 +73,31 @@ def get_teammate_command() -> str:
     Resolution order:
     1. ``OPENHARNESS_TEAMMATE_COMMAND`` environment variable — allows the
        operator to point at a specific binary or wrapper script.
-    2. The ``openharness`` entry-point on PATH (installed package mode).
-    3. The current Python interpreter running the ``openharness`` module
-       (development / editable-install fallback).
+    2. The current Python interpreter running the ``openharness`` module.
+       This keeps spawned teammates on the same venv/source tree as the
+       leader process.
+    3. The ``openharness`` entry-point on PATH (installed package fallback).
     """
     override = os.environ.get(TEAMMATE_COMMAND_ENV_VAR)
     if override:
         return override
 
-    # Check if we are running as an installed package with an entry-point.
+    # Prefer the current interpreter so teammates inherit the same runtime and
+    # editable-install source tree as the parent process.
+    if sys.executable:
+        return sys.executable
+
     entry_point = shutil.which("openharness")
     if entry_point:
         return entry_point
-
-    # Fall back to the Python interpreter that is currently running this code.
-    return sys.executable
+    return "python"
 
 
 def build_inherited_cli_flags(
     *,
     model: str | None = None,
+    system_prompt: str | None = None,
+    system_prompt_mode: str | None = None,
     permission_mode: str | None = None,
     plan_mode_required: bool = False,
     settings_path: str | None = None,
@@ -104,6 +116,10 @@ def build_inherited_cli_flags(
 
     Args:
         model: Model override to forward (e.g. ``"claude-opus-4-6"``).
+        system_prompt: System prompt override to forward to the teammate.
+        system_prompt_mode: One of ``"replace"``/``"default"`` or ``"append"``.
+            ``append`` maps to ``--append-system-prompt``; anything else uses
+            ``--system-prompt``.
         permission_mode: One of ``"bypassPermissions"``, ``"acceptEdits"``, or None.
         plan_mode_required: When True, bypass-permissions flag is suppressed
             (plan mode takes precedence over bypass for safety).
@@ -121,7 +137,7 @@ def build_inherited_cli_flags(
     Returns:
         List of CLI flag strings ready to be passed to :mod:`subprocess`.
     """
-    flags: list[str] = ["--headless"]
+    flags: list[str] = []
 
     # --- Permission mode ---------------------------------------------------
     # Plan mode takes precedence over bypass permissions for safety.
@@ -132,8 +148,16 @@ def build_inherited_cli_flags(
             flags.extend(["--permission-mode", "acceptEdits"])
 
     # --- Model override ----------------------------------------------------
-    if model:
+    # "inherit" means use the parent's model via the OPENHARNESS_MODEL env var.
+    if model and model != "inherit":
         flags.extend(["--model", shlex.quote(model)])
+
+    # --- System prompt override ------------------------------------------
+    # Agent definitions can carry a dedicated worker system prompt. Forward it
+    # explicitly so subprocess teammates preserve their role/personality.
+    if system_prompt:
+        prompt_flag = "--append-system-prompt" if system_prompt_mode == "append" else "--system-prompt"
+        flags.extend([prompt_flag, shlex.quote(system_prompt)])
 
     # --- Settings path propagation ----------------------------------------
     # Ensures teammates load the same settings JSON as the leader process.
@@ -169,6 +193,9 @@ def build_inherited_env_vars() -> dict[str, str]:
     """
     env: dict[str, str] = {
         "OPENHARNESS_AGENT_TEAMS": "1",
+        # Spawned workers should behave like workers, not recursively re-enter
+        # coordinator mode just because the parent leader had the flag set.
+        "CLAUDE_CODE_COORDINATOR_MODE": "0",
     }
 
     for key in _TEAMMATE_ENV_VARS:

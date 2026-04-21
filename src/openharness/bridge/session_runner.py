@@ -7,6 +7,8 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from openharness.utils.shell import create_shell_subprocess
+
 
 @dataclass
 class SessionHandle:
@@ -35,11 +37,9 @@ async def spawn_session(
 ) -> SessionHandle:
     """Spawn a bridge-managed child session."""
     resolved_cwd = Path(cwd).resolve()
-    process = await asyncio.create_subprocess_exec(
-        "/bin/bash",
-        "-lc",
+    process = await create_shell_subprocess(
         command,
-        cwd=str(resolved_cwd),
+        cwd=resolved_cwd,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )

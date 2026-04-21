@@ -1,7 +1,7 @@
 import React from 'react';
 import {Box, Text} from 'ink';
 
-export function CommandPicker({
+function CommandPickerInner({
 	hints,
 	selectedIndex,
 }: {
@@ -31,3 +31,5 @@ export function CommandPicker({
 		</Box>
 	);
 }
+
+export const CommandPicker = React.memo(CommandPickerInner);

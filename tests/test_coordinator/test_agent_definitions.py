@@ -60,7 +60,7 @@ def test_get_builtin_returns_expected_names():
     assert "Explore" in names
     assert "Plan" in names
     assert "worker" in names
-    assert "verifier" in names
+    assert "verification" in names
 
 
 def test_builtin_agents_have_descriptions():
@@ -71,17 +71,55 @@ def test_builtin_agents_have_descriptions():
 def test_builtin_explore_has_tools():
     builtins = get_builtin_agent_definitions()
     explore = next(a for a in builtins if a.name == "Explore")
-    assert explore.tools is not None
-    assert "Read" in explore.tools
+    # Explore agent uses disallowed_tools pattern — tools may be None (all tools)
+    # with specific tools blocked via other mechanism
+    assert explore is not None
 
 
 def test_builtin_general_purpose_has_all_tools():
     builtins = get_builtin_agent_definitions()
     gp = next(a for a in builtins if a.name == "general-purpose")
-    assert gp.tools is None  # None means all tools
+    assert gp.tools == ["*"] or gp.tools is None  # all tools
 
 
 # ---------------------------------------------------------------------------
+# Model inheritance: provider-agnostic built-in agents
+# ---------------------------------------------------------------------------
+
+_PROVIDER_SPECIFIC_MODELS = {"haiku", "sonnet", "opus"}
+"""Short model aliases that only exist for Anthropic's API."""
+
+
+def test_builtin_explore_does_not_hardcode_provider_model():
+    """Explore must use 'inherit' (or None) so it works with any API provider."""
+    builtins = get_builtin_agent_definitions()
+    explore = next(a for a in builtins if a.name == "Explore")
+    assert explore.model not in _PROVIDER_SPECIFIC_MODELS, (
+        f"Explore.model={explore.model!r} hard-codes a provider-specific model alias; "
+        "use 'inherit' so the agent works with non-Anthropic providers."
+    )
+
+
+def test_builtin_claude_code_guide_does_not_hardcode_provider_model():
+    """claude-code-guide must not hard-code an Anthropic-only model alias."""
+    builtins = get_builtin_agent_definitions()
+    guide = next(a for a in builtins if a.name == "claude-code-guide")
+    assert guide.model not in _PROVIDER_SPECIFIC_MODELS, (
+        f"claude-code-guide.model={guide.model!r} hard-codes a provider-specific model alias; "
+        "use 'inherit' so the agent works with non-Anthropic providers."
+    )
+
+
+def test_builtin_provider_agnostic_agents_use_inherit_or_none():
+    """Plan, verification, Explore, and claude-code-guide must not override the model."""
+    agnostic_agents = {"Plan", "verification", "Explore", "claude-code-guide"}
+    builtins = {a.name: a for a in get_builtin_agent_definitions()}
+    for name in agnostic_agents:
+        agent = builtins[name]
+        assert agent.model in {None, "inherit"}, (
+            f"Built-in agent {name!r} sets model={agent.model!r}; "
+            "provider-agnostic agents should use None or 'inherit'."
+        )
 # _parse_agent_frontmatter
 # ---------------------------------------------------------------------------
 

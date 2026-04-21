@@ -3,15 +3,22 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import shlex
 import time
 from dataclasses import replace
 from pathlib import Path
+from typing import Awaitable, Callable
 from uuid import uuid4
 
 from openharness.config.paths import get_tasks_dir
 from openharness.tasks.types import TaskRecord, TaskStatus, TaskType
+from openharness.utils.shell import create_shell_subprocess
+
+log = logging.getLogger(__name__)
+
+CompletionListener = Callable[[TaskRecord], Awaitable[None] | None]
 
 
 class BackgroundTaskManager:
@@ -24,6 +31,7 @@ class BackgroundTaskManager:
         self._output_locks: dict[str, asyncio.Lock] = {}
         self._input_locks: dict[str, asyncio.Lock] = {}
         self._generations: dict[str, int] = {}
+        self._completion_listeners: dict[str, CompletionListener] = {}
 
     async def create_shell_task(
         self,
@@ -72,7 +80,7 @@ class BackgroundTaskManager:
                 raise ValueError(
                     "Local agent tasks require ANTHROPIC_API_KEY or an explicit command override"
                 )
-            cmd = ["python", "-m", "openharness", "--headless", "--api-key", effective_api_key]
+            cmd = ["python", "-m", "openharness", "--api-key", effective_api_key]
             if model:
                 cmd.extend(["--model", model])
             command = " ".join(shlex.quote(part) for part in cmd)
@@ -138,6 +146,7 @@ class BackgroundTaskManager:
         except asyncio.TimeoutError:
             process.kill()
             await process.wait()
+        await _close_process_stdin(process)
 
         task.status = "killed"
         task.ended_at = time.time()
@@ -166,6 +175,16 @@ class BackgroundTaskManager:
             return content[-max_bytes:]
         return content
 
+    def register_completion_listener(self, listener: CompletionListener) -> Callable[[], None]:
+        """Register a callback fired whenever a task reaches a terminal state."""
+        listener_id = uuid4().hex
+        self._completion_listeners[listener_id] = listener
+
+        def _unregister() -> None:
+            self._completion_listeners.pop(listener_id, None)
+
+        return _unregister
+
     async def _watch_process(
         self,
         task_id: str,
@@ -175,6 +194,7 @@ class BackgroundTaskManager:
         reader = asyncio.create_task(self._copy_output(task_id, process))
         return_code = await process.wait()
         await reader
+        await _close_process_stdin(process)
 
         current_generation = self._generations.get(task_id)
         if current_generation != generation:
@@ -185,6 +205,7 @@ class BackgroundTaskManager:
         if task.status != "killed":
             task.status = "completed" if return_code == 0 else "failed"
         task.ended_at = time.time()
+        await self._notify_completion_listeners(task)
         self._processes.pop(task_id, None)
         self._waiters.pop(task_id, None)
 
@@ -212,9 +233,7 @@ class BackgroundTaskManager:
 
         generation = self._generations.get(task_id, 0) + 1
         self._generations[task_id] = generation
-        process = await asyncio.create_subprocess_exec(
-            "/bin/bash",
-            "-lc",
+        process = await create_shell_subprocess(
             task.command,
             cwd=task.cwd,
             stdin=asyncio.subprocess.PIPE,
@@ -254,6 +273,62 @@ class BackgroundTaskManager:
         task.return_code = None
         return await self._start_process(task.id)
 
+    async def _notify_completion_listeners(self, task: TaskRecord) -> None:
+        snapshot = replace(task, metadata=dict(task.metadata))
+        for listener_id, listener in list(self._completion_listeners.items()):
+            try:
+                maybe_awaitable = listener(snapshot)
+                if maybe_awaitable is not None:
+                    await maybe_awaitable
+            except Exception:
+                log.exception("Task completion listener %s failed for task %s", listener_id, task.id)
+
+    def close(self) -> None:
+        """Best-effort cleanup for any tracked subprocesses and watcher tasks."""
+        for waiter in list(self._waiters.values()):
+            waiter.cancel()
+        self._waiters.clear()
+
+        for process in list(self._processes.values()):
+            stdin = process.stdin
+            if stdin is not None and not stdin.is_closing():
+                try:
+                    stdin.close()
+                except RuntimeError:
+                    pass
+            if process.returncode is None:
+                try:
+                    process.kill()
+                except (ProcessLookupError, RuntimeError):
+                    pass
+        self._processes.clear()
+
+    async def aclose(self) -> None:
+        """Asynchronously shut down tracked subprocesses and waiters."""
+        processes = list(self._processes.values())
+        waiters = list(self._waiters.values())
+
+        for process in processes:
+            if process.returncode is None:
+                try:
+                    process.kill()
+                except ProcessLookupError:
+                    pass
+            await _close_process_stdin(process)
+
+        for process in processes:
+            if process.returncode is None:
+                try:
+                    await process.wait()
+                except ProcessLookupError:
+                    pass
+
+        if waiters:
+            await asyncio.gather(*waiters, return_exceptions=True)
+
+        self._processes.clear()
+        self._waiters.clear()
+
 
 _DEFAULT_MANAGER: BackgroundTaskManager | None = None
 _DEFAULT_MANAGER_KEY: str | None = None
@@ -264,9 +339,29 @@ def get_task_manager() -> BackgroundTaskManager:
     global _DEFAULT_MANAGER, _DEFAULT_MANAGER_KEY
     current_key = str(get_tasks_dir().resolve())
     if _DEFAULT_MANAGER is None or _DEFAULT_MANAGER_KEY != current_key:
+        if _DEFAULT_MANAGER is not None:
+            _DEFAULT_MANAGER.close()
         _DEFAULT_MANAGER = BackgroundTaskManager()
         _DEFAULT_MANAGER_KEY = current_key
     return _DEFAULT_MANAGER
+
+
+def reset_task_manager() -> None:
+    """Reset the singleton task manager, closing tracked subprocesses first."""
+    global _DEFAULT_MANAGER, _DEFAULT_MANAGER_KEY
+    if _DEFAULT_MANAGER is not None:
+        _DEFAULT_MANAGER.close()
+    _DEFAULT_MANAGER = None
+    _DEFAULT_MANAGER_KEY = None
+
+
+async def shutdown_task_manager() -> None:
+    """Async reset that fully reaps tracked subprocesses before clearing state."""
+    global _DEFAULT_MANAGER, _DEFAULT_MANAGER_KEY
+    if _DEFAULT_MANAGER is not None:
+        await _DEFAULT_MANAGER.aclose()
+    _DEFAULT_MANAGER = None
+    _DEFAULT_MANAGER_KEY = None
 
 
 def _task_id(task_type: TaskType) -> str:
@@ -277,3 +372,14 @@ def _task_id(task_type: TaskType) -> str:
         "in_process_teammate": "t",
     }
     return f"{prefixes[task_type]}{uuid4().hex[:8]}"
+
+
+async def _close_process_stdin(process: asyncio.subprocess.Process) -> None:
+    stdin = process.stdin
+    if stdin is None or stdin.is_closing():
+        return
+    stdin.close()
+    try:
+        await stdin.wait_closed()
+    except (BrokenPipeError, ConnectionResetError):
+        pass

@@ -8,7 +8,9 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 
 from openharness.services.cron import get_cron_job
+from openharness.sandbox import SandboxUnavailableError
 from openharness.tools.base import BaseTool, ToolExecutionContext, ToolResult
+from openharness.utils.shell import create_shell_subprocess
 
 
 class RemoteTriggerToolInput(BaseModel):
@@ -35,14 +37,15 @@ class RemoteTriggerTool(BaseTool):
             return ToolResult(output=f"Cron job not found: {arguments.name}", is_error=True)
 
         cwd = Path(job.get("cwd") or context.cwd).expanduser()
-        process = await asyncio.create_subprocess_exec(
-            "/bin/bash",
-            "-lc",
-            str(job["command"]),
-            cwd=str(cwd),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
+        try:
+            process = await create_shell_subprocess(
+                str(job["command"]),
+                cwd=cwd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+        except SandboxUnavailableError as exc:
+            return ToolResult(output=str(exc), is_error=True)
         try:
             stdout, stderr = await asyncio.wait_for(
                 process.communicate(),

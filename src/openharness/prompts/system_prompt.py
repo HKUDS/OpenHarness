@@ -55,6 +55,11 @@ Carefully consider the reversibility and blast radius of actions. Freely take lo
  - If you can say it in one sentence, don't use three."""
 
 
+def get_base_system_prompt() -> str:
+    """Return the built-in base system prompt without environment info."""
+    return _BASE_SYSTEM_PROMPT
+
+
 def _format_environment_section(env: EnvironmentInfo) -> str:
     """Format the environment info section of the system prompt."""
     lines = [
@@ -65,7 +70,11 @@ def _format_environment_section(env: EnvironmentInfo) -> str:
         f"- Working directory: {env.cwd}",
         f"- Date: {env.date}",
         f"- Python: {env.python_version}",
+        f"- Python executable: {env.python_executable}",
     ]
+
+    if env.virtual_env:
+        lines.append(f"- Virtual environment: {env.virtual_env}")
 
     if env.is_git_repo:
         git_line = "- Git: yes"

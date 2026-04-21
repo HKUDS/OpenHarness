@@ -3,10 +3,38 @@
 from __future__ import annotations
 
 import fnmatch
+import logging
 from dataclasses import dataclass
 
 from openharness.config.settings import PermissionSettings
 from openharness.permissions.modes import PermissionMode
+
+log = logging.getLogger(__name__)
+
+# Paths that are always denied regardless of permission mode or user config.
+# These protect high-value credential and key material from LLM-directed access
+# (including via prompt injection).  Patterns use fnmatch syntax and are matched
+# against the fully-resolved absolute path produced by the query engine.
+SENSITIVE_PATH_PATTERNS: tuple[str, ...] = (
+    # SSH keys and config
+    "*/.ssh/*",
+    # AWS credentials
+    "*/.aws/credentials",
+    "*/.aws/config",
+    # GCP credentials
+    "*/.config/gcloud/*",
+    # Azure credentials
+    "*/.azure/*",
+    # GPG keys
+    "*/.gnupg/*",
+    # Docker credentials
+    "*/.docker/config.json",
+    # Kubernetes credentials
+    "*/.kube/config",
+    # OpenHarness own credential stores
+    "*/.openharness/credentials.json",
+    "*/.openharness/copilot_auth.json",
+)
 
 
 @dataclass(frozen=True)
@@ -36,8 +64,13 @@ class PermissionChecker:
         for rule in getattr(settings, "path_rules", []):
             pattern = getattr(rule, "pattern", None) or (rule.get("pattern") if isinstance(rule, dict) else None)
             allow = getattr(rule, "allow", True) if not isinstance(rule, dict) else rule.get("allow", True)
-            if pattern:
-                self._path_rules.append(PathRule(pattern=pattern, allow=allow))
+            if isinstance(pattern, str) and pattern.strip():
+                self._path_rules.append(PathRule(pattern=pattern.strip(), allow=allow))
+            else:
+                log.warning(
+                    "Skipping path rule with missing, empty, or non-string 'pattern' field: %r",
+                    rule,
+                )
 
     def evaluate(
         self,
@@ -48,6 +81,22 @@ class PermissionChecker:
         command: str | None = None,
     ) -> PermissionDecision:
         """Return whether the tool may run immediately."""
+        # Built-in sensitive path protection — always active, cannot be
+        # overridden by user settings or permission mode.  This is a
+        # defence-in-depth measure against LLM-directed or prompt-injection
+        # driven access to credential files.
+        if file_path:
+            for candidate_path in _policy_match_paths(file_path):
+                for pattern in SENSITIVE_PATH_PATTERNS:
+                    if fnmatch.fnmatch(candidate_path, pattern):
+                        return PermissionDecision(
+                            allowed=False,
+                            reason=(
+                                f"Access denied: {file_path} is a sensitive credential path "
+                                f"(matched built-in pattern '{pattern}')"
+                            ),
+                        )
+
         # Explicit tool deny list
         if tool_name in self._settings.denied_tools:
             return PermissionDecision(allowed=False, reason=f"{tool_name} is explicitly denied")
@@ -58,13 +107,14 @@ class PermissionChecker:
 
         # Check path-level rules
         if file_path and self._path_rules:
-            for rule in self._path_rules:
-                if fnmatch.fnmatch(file_path, rule.pattern):
-                    if not rule.allow:
-                        return PermissionDecision(
-                            allowed=False,
-                            reason=f"Path {file_path} matches deny rule: {rule.pattern}",
-                        )
+            for candidate_path in _policy_match_paths(file_path):
+                for rule in self._path_rules:
+                    if fnmatch.fnmatch(candidate_path, rule.pattern):
+                        if not rule.allow:
+                            return PermissionDecision(
+                                allowed=False,
+                                reason=f"Path {file_path} matches deny rule: {rule.pattern}",
+                            )
 
         # Check command deny patterns (e.g. deny "rm -rf /")
         if command:
@@ -91,8 +141,60 @@ class PermissionChecker:
             )
 
         # Default mode: require confirmation for mutating tools
+        bash_hint = _bash_permission_hint(command)
+        reason = (
+            "Mutating tools require user confirmation in default mode. "
+            "Approve the prompt when asked, or run /permissions full_auto "
+            "if you want to allow them for this session."
+        )
+        if bash_hint:
+            reason = f"{reason} {bash_hint}"
         return PermissionDecision(
             allowed=False,
             requires_confirmation=True,
-            reason="Mutating tools require user confirmation in default mode",
+            reason=reason,
         )
+
+
+def _policy_match_paths(file_path: str) -> tuple[str, ...]:
+    """Return path forms that should participate in policy matching.
+
+    Directory-scoped tools like ``grep`` and ``glob`` may operate on a root such
+    as ``/home/user/.ssh``. Appending a trailing slash lets glob-style deny
+    patterns like ``*/.ssh/*`` and ``/etc/*`` match the directory root itself.
+    """
+    normalized = file_path.rstrip("/")
+    if not normalized:
+        return (file_path,)
+    return (normalized, normalized + "/")
+
+
+def _bash_permission_hint(command: str | None) -> str:
+    if not command:
+        return ""
+    lowered = command.lower()
+    install_markers = (
+        "npm install",
+        "pnpm install",
+        "yarn install",
+        "bun install",
+        "pip install",
+        "uv pip install",
+        "poetry install",
+        "cargo install",
+        "create-next-app",
+        "npm create ",
+        "pnpm create ",
+        "yarn create ",
+        "bun create ",
+        "npx create-",
+        "npm init ",
+        "pnpm init ",
+        "yarn init ",
+    )
+    if any(marker in lowered for marker in install_markers):
+        return (
+            "Package installation and scaffolding commands change the workspace, "
+            "so they will not run automatically in default mode."
+        )
+    return ""

@@ -18,10 +18,8 @@ from openharness.config.settings import load_settings
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def _spawn_oh(prompt: str | None = None, *, env: dict[str, str] | None = None) -> pexpect.spawn:
+def _spawn_oh(*, env: dict[str, str] | None = None) -> pexpect.spawn:
     args = ["run", "oh"]
-    if prompt is not None:
-        args.append(prompt)
     child = pexpect.spawn(
         "uv",
         args,
@@ -67,16 +65,17 @@ def _run_permission_file_io() -> None:
     if path.exists():
         path.unlink()
     temp_dir, env = _isolated_env()
-    child = _spawn_oh(
-        "You are running a React TUI end-to-end test. "
-        "Use write_file to create react_tui_smoke.txt with exact content REACT_TUI_OK, "
-        "then use read_file to verify it, then reply with exactly FINAL_OK_REACT_TUI.",
-        env=env,
-    )
+    child = _spawn_oh(env=env)
     try:
         print("[react_tui_permission_file_io] waiting for app shell")
-        child.expect("OpenHarness React TUI")
-        child.expect("model=kimi-k2.5")
+        child.expect("OpenHarness")
+        child.expect("model: kimi-k2.5")
+        _submit(
+            child,
+            "You are running a React TUI end-to-end test. "
+            "Use write_file to create react_tui_smoke.txt with exact content REACT_TUI_OK, "
+            "then use read_file to verify it, then reply with exactly FINAL_OK_REACT_TUI.",
+        )
         print("[react_tui_permission_file_io] waiting for final marker")
         child.expect(r"(?s)assistant>.*FINAL_OK_REACT_TUI")
     finally:
@@ -92,16 +91,17 @@ def _run_question_flow() -> None:
     if path.exists():
         path.unlink()
     temp_dir, env = _isolated_env()
-    child = _spawn_oh(
-        "You are running a React TUI question flow test. "
-        "Use ask_user_question to ask for a color. "
-        "After the answer arrives, use write_file to create react_tui_question.txt with that exact answer, "
-        "then use read_file to verify it, then reply with exactly FINAL_OK_REACT_TUI_QUESTION.",
-        env=env,
-    )
+    child = _spawn_oh(env=env)
     try:
-        child.expect("OpenHarness React TUI")
-        child.expect("model=kimi-k2.5")
+        child.expect("OpenHarness")
+        child.expect("model: kimi-k2.5")
+        _submit(
+            child,
+            "You are running a React TUI question flow test. "
+            "Use ask_user_question to ask for a color. "
+            "After the answer arrives, use write_file to create react_tui_question.txt with that exact answer, "
+            "then use read_file to verify it, then reply with exactly FINAL_OK_REACT_TUI_QUESTION.",
+        )
         print("[react_tui_question_flow] waiting for question modal")
         child.expect("Question")
         child.expect("color")
@@ -120,26 +120,17 @@ def _run_command_flow() -> None:
     temp_dir, env = _isolated_env()
     env["OPENHARNESS_FRONTEND_SCRIPT"] = json.dumps(
         [
-            "/permissions set full_auto",
-            "/effort high",
-            "/passes 3",
-            "/status",
+            "/plan",
             "Reply with exactly FINAL_OK_REACT_TUI_COMMANDS.",
         ]
     )
     child = _spawn_oh(env=env)
     try:
         print("[react_tui_command_flow] waiting for app shell")
-        child.expect("OpenHarness React TUI")
-        child.expect("model=kimi-k2.5")
-        child.expect("Permission mode set to full_auto")
-        print("[react_tui_command_flow] waiting for effort confirmation")
-        child.expect("Reasoning effort set to high.")
-        print("[react_tui_command_flow] waiting for passes confirmation")
-        child.expect("Pass count set to 3.")
-        print("[react_tui_command_flow] waiting for status output")
-        child.expect("Effort: high")
-        child.expect("Passes: 3")
+        child.expect("OpenHarness")
+        child.expect("model: kimi-k2.5")
+        print("[react_tui_command_flow] waiting for plan mode indicator")
+        child.expect("PLAN MODE")
         print("[react_tui_command_flow] waiting for final marker")
         child.expect(r"(?s)assistant>.*FINAL_OK_REACT_TUI_COMMANDS")
     finally:

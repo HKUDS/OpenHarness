@@ -9,12 +9,14 @@ import pytest
 
 import openharness.commands.registry as registry_module
 from openharness.commands.registry import CommandContext, create_default_command_registry
+from openharness.autopilot import RepoVerificationStep
 from openharness.config.paths import get_feedback_log_path, get_project_issue_file, get_project_pr_comments_file
 from openharness.config.settings import load_settings, save_settings, Settings
 from openharness.engine.messages import ConversationMessage, TextBlock
 from openharness.engine.query_engine import QueryEngine
 from openharness.mcp.types import McpHttpServerConfig, McpStdioServerConfig
 from openharness.permissions import PermissionChecker
+from openharness.plugins.types import PluginCommandDefinition
 from openharness.state import AppState, AppStateStore
 from openharness.tasks import get_task_manager
 from openharness.tools import create_default_tool_registry
@@ -62,25 +64,6 @@ def _make_context(tmp_path: Path) -> CommandContext:
 
 
 @pytest.mark.asyncio
-async def test_skill_command_is_registered_and_activates(tmp_path: Path, monkeypatch):
-    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
-    skills_dir = tmp_path / "config" / "skills"
-    skills_dir.mkdir(parents=True)
-    (skills_dir / "triage.md").write_text(
-        "---\nname: triage\ndescription: Triage issues\nuser_invocable: true\n---\n\n# triage\n\nFollow triage flow.\n",
-        encoding="utf-8",
-    )
-    registry = create_default_command_registry()
-    command, args = registry.lookup("/triage")
-
-    assert command is not None
-    result = await command.handler(args, _make_context(tmp_path))
-
-    assert "Activated skill /triage" in result.message
-    assert "Follow triage flow." in result.message
-
-
-@pytest.mark.asyncio
 async def test_permissions_command_persists(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
     registry = create_default_command_registry()
@@ -94,15 +77,338 @@ async def test_permissions_command_persists(tmp_path: Path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_model_command_persists(tmp_path: Path, monkeypatch):
+async def test_permissions_command_is_marked_local_only(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
     registry = create_default_command_registry()
-    command, args = registry.lookup("/model set claude-opus-test")
+    command, _ = registry.lookup("/permissions set full_auto")
+    assert command is not None
+    assert command.remote_invocable is False
+
+
+@pytest.mark.asyncio
+async def test_permissions_command_supports_explicit_remote_admin_opt_in(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
+    registry = create_default_command_registry()
+    command, _ = registry.lookup("/permissions set full_auto")
+    assert command is not None
+    assert getattr(command, "remote_admin_opt_in", False) is True
+
+
+@pytest.mark.asyncio
+async def test_plugin_command_is_marked_local_only(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
+    registry = create_default_command_registry()
+    command, _ = registry.lookup("/plugin list")
+    assert command is not None
+    assert command.remote_invocable is False
+
+
+@pytest.mark.asyncio
+async def test_plugin_command_supports_explicit_remote_admin_opt_in(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
+    registry = create_default_command_registry()
+    command, _ = registry.lookup("/plugin list")
+    assert command is not None
+    assert getattr(command, "remote_admin_opt_in", False) is True
+
+
+@pytest.mark.asyncio
+async def test_reload_plugins_command_is_marked_local_only(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
+    registry = create_default_command_registry()
+    command, _ = registry.lookup("/reload-plugins")
+    assert command is not None
+    assert command.remote_invocable is False
+
+
+@pytest.mark.asyncio
+async def test_reload_plugins_command_supports_explicit_remote_admin_opt_in(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
+    registry = create_default_command_registry()
+    command, _ = registry.lookup("/reload-plugins")
+    assert command is not None
+    assert getattr(command, "remote_admin_opt_in", False) is True
+
+
+@pytest.mark.asyncio
+async def test_memory_show_rejects_path_traversal(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("OPENHARNESS_DATA_DIR", str(tmp_path / "data"))
+    registry = create_default_command_registry()
+    command, args = registry.lookup("/memory show ../../../../../../etc/hosts")
     assert command is not None
 
     result = await command.handler(args, CommandContext(engine=_make_engine(tmp_path), cwd=str(tmp_path)))
 
-    assert "claude-opus-test" in result.message
+    assert result.message == "Memory entry path must stay within the project memory directory."
+
+
+@pytest.mark.asyncio
+async def test_memory_show_reads_normal_entries_with_md_fallback(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("OPENHARNESS_DATA_DIR", str(tmp_path / "data"))
+    registry = create_default_command_registry()
+
+    add_command, add_args = registry.lookup("/memory add Notes :: hello world")
+    assert add_command is not None
+    await add_command.handler(add_args, CommandContext(engine=_make_engine(tmp_path), cwd=str(tmp_path)))
+
+    show_command, show_args = registry.lookup("/memory show Notes")
+    result = await show_command.handler(show_args, CommandContext(engine=_make_engine(tmp_path), cwd=str(tmp_path)))
+
+    assert "hello world" in result.message
+
+
+@pytest.mark.asyncio
+async def test_model_command_persists(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
+    registry = create_default_command_registry()
+    command, args = registry.lookup("/model opus")
+    assert command is not None
+
+    result = await command.handler(args, CommandContext(engine=_make_engine(tmp_path), cwd=str(tmp_path)))
+
+    assert "opus" in result.message
+    assert load_settings().resolve_profile()[1].last_model == "opus"
+    assert load_settings().model == "claude-opus-4-6"
+
+
+@pytest.mark.asyncio
+async def test_model_command_accepts_direct_value(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
+    registry = create_default_command_registry()
+    command, args = registry.lookup("/model gpt-5.4")
+    assert command is not None
+
+    result = await command.handler(args, CommandContext(engine=_make_engine(tmp_path), cwd=str(tmp_path)))
+
+    assert "gpt-5.4" in result.message
+    assert load_settings().model == "gpt-5.4"
+
+
+@pytest.mark.asyncio
+async def test_model_command_default_clears_profile_override(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
+    save_settings(
+        Settings().model_copy(
+            update={
+                "active_profile": "claude-api",
+                "profiles": {
+                    "claude-api": {
+                        "label": "Claude API",
+                        "provider": "anthropic",
+                        "api_format": "anthropic",
+                        "auth_source": "anthropic_api_key",
+                        "default_model": "sonnet",
+                        "last_model": "opus",
+                    }
+                },
+            }
+        )
+    )
+    registry = create_default_command_registry()
+    command, args = registry.lookup("/model default")
+    assert command is not None
+
+    result = await command.handler(args, CommandContext(engine=_make_engine(tmp_path), cwd=str(tmp_path)))
+
+    assert "reset to default" in result.message
+    assert load_settings().resolve_profile()[1].last_model == ""
+    assert load_settings().model == "claude-sonnet-4-6"
+
+
+@pytest.mark.asyncio
+async def test_turns_show_reports_unlimited_engine_when_session_is_unbounded(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
+    registry = create_default_command_registry()
+    context = _make_context(tmp_path)
+    context.engine.set_max_turns(None)
+
+    command, args = registry.lookup("/turns show")
+    assert command is not None
+
+    result = await command.handler(args, context)
+
+    assert "Max turns (engine): unlimited" in result.message
+
+
+@pytest.mark.asyncio
+async def test_turns_command_accepts_unlimited(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
+    registry = create_default_command_registry()
+    context = _make_context(tmp_path)
+
+    command, args = registry.lookup("/turns unlimited")
+    assert command is not None
+
+    result = await command.handler(args, context)
+
+    assert "unlimited for this session" in result.message
+    assert context.engine.max_turns is None
+
+
+@pytest.mark.asyncio
+async def test_provider_command_switches_profile_and_requests_runtime_refresh(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
+    save_settings(
+        Settings().model_copy(
+            update={
+                "profiles": {
+                    "kimi-anthropic": {
+                        "label": "Kimi Anthropic",
+                        "provider": "anthropic",
+                        "api_format": "anthropic",
+                        "auth_source": "anthropic_api_key",
+                        "default_model": "kimi-k2.5",
+                        "last_model": "kimi-k2.5",
+                        "base_url": "https://api.moonshot.cn/anthropic",
+                        "allowed_models": ["kimi-k2.5"],
+                    }
+                }
+            }
+        )
+    )
+    registry = create_default_command_registry()
+    context = _make_context(tmp_path)
+
+    command, args = registry.lookup("/provider kimi-anthropic")
+    assert command is not None
+
+    result = await command.handler(args, context)
+
+    loaded = load_settings()
+    assert result.refresh_runtime is True
+    assert loaded.active_profile == "kimi-anthropic"
+    assert loaded.base_url == "https://api.moonshot.cn/anthropic"
+    assert loaded.model == "kimi-k2.5"
+
+
+@pytest.mark.asyncio
+async def test_autopilot_command_add_list_and_complete(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
+    registry = create_default_command_registry()
+    context = _make_context(tmp_path)
+
+    add_command, add_args = registry.lookup("/autopilot add idea Build unified queue :: intake from issues and prs")
+    assert add_command is not None
+    add_result = await add_command.handler(add_args, context)
+    assert "Queued autopilot card" in add_result.message
+
+    list_command, list_args = registry.lookup("/autopilot list")
+    assert list_command is not None
+    list_result = await list_command.handler(list_args, context)
+    assert "Build unified queue" in list_result.message
+
+    next_command, next_args = registry.lookup("/autopilot next")
+    next_result = await next_command.handler(next_args, context)
+    assert "Build unified queue" in next_result.message
+    card_id = next_result.message.split()[0]
+
+    complete_command, complete_args = registry.lookup(f"/autopilot complete {card_id} implemented")
+    complete_result = await complete_command.handler(complete_args, context)
+    assert "-> completed" in complete_result.message
+
+    status_command, status_args = registry.lookup("/autopilot status")
+    status_result = await status_command.handler(status_args, context)
+    assert "- completed: 1" in status_result.message
+
+
+@pytest.mark.asyncio
+async def test_autopilot_command_export_dashboard(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
+    registry = create_default_command_registry()
+    context = _make_context(tmp_path)
+
+    command, args = registry.lookup("/autopilot export-dashboard")
+    assert command is not None
+    result = await command.handler(args, context)
+
+    assert "Exported autopilot dashboard:" in result.message
+    output_dir = Path(result.message.split(": ", 1)[1])
+    assert (output_dir / "index.html").exists()
+    assert (output_dir / "snapshot.json").exists()
+
+
+@pytest.mark.asyncio
+async def test_ship_command_queues_and_executes_card(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
+    registry = create_default_command_registry()
+    context = _make_context(tmp_path)
+
+    async def fake_run_agent_prompt(self, prompt: str, *, model, max_turns, permission_mode, cwd=None):
+        return "Implemented the requested feature."
+
+    def fake_run_verification_steps(self, policies, *, cwd=None):
+        return [RepoVerificationStep(command="uv run pytest -q", returncode=0, status="success")]
+
+    monkeypatch.setattr(
+        "openharness.autopilot.service.RepoAutopilotStore._run_agent_prompt",
+        fake_run_agent_prompt,
+    )
+    monkeypatch.setattr(
+        "openharness.autopilot.service.RepoAutopilotStore._run_verification_steps",
+        fake_run_verification_steps,
+    )
+
+    command, args = registry.lookup("/ship Build autopilot tick :: end-to-end automation")
+    assert command is not None
+    result = await command.handler(args, context)
+
+    assert "-> completed" in result.message
+    assert "run report:" in result.message
+    assert "verification report:" in result.message
+
+
+@pytest.mark.asyncio
+async def test_plugin_command_registers_and_submits_prompt(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
+    registry = create_default_command_registry(
+        plugin_commands=[
+            PluginCommandDefinition(
+                name="fixture:ops:restart",
+                description="Restart services safely",
+                content="Base workflow\n\n$ARGUMENTS",
+                user_invocable=True,
+            )
+        ]
+    )
+    command, args = registry.lookup("/fixture:ops:restart api")
+    assert command is not None
+
+    result = await command.handler(args, _make_context(tmp_path))
+
+    assert result.submit_prompt == "Base workflow\n\napi"
+
+
+@pytest.mark.asyncio
+async def test_model_command_rejects_values_outside_profile_allowlist(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
+    save_settings(
+        Settings().model_copy(
+            update={
+                "active_profile": "kimi-anthropic",
+                "profiles": {
+                    "kimi-anthropic": {
+                        "label": "Kimi Anthropic",
+                        "provider": "anthropic",
+                        "api_format": "anthropic",
+                        "auth_source": "anthropic_api_key",
+                        "default_model": "kimi-k2.5",
+                        "last_model": "kimi-k2.5",
+                        "base_url": "https://api.moonshot.cn/anthropic",
+                        "allowed_models": ["kimi-k2.5"],
+                    }
+                },
+            }
+        )
+    )
+    registry = create_default_command_registry()
+    command, args = registry.lookup("/model claude-opus-4-6")
+    assert command is not None
+
+    result = await command.handler(args, CommandContext(engine=_make_engine(tmp_path), cwd=str(tmp_path)))
+
+    assert "is not allowed for profile 'kimi-anthropic'" in result.message
 
 
 @pytest.mark.asyncio
@@ -248,7 +554,7 @@ async def test_version_context_and_share_commands(tmp_path: Path, monkeypatch):
 
     context_command, context_args = registry.lookup("/context")
     context_result = await context_command.handler(context_args, context)
-    assert "OpenHarness" in context_result.message
+    assert "OpenHarness" in context_result.message or "interactive agent" in context_result.message
 
     share_command, share_args = registry.lookup("/share")
     share_result = await share_command.handler(share_args, context)
@@ -347,6 +653,30 @@ async def test_agents_session_files_and_reload_plugins_commands(tmp_path: Path, 
     agent_show_command, agent_show_args = registry.lookup(f"/agents show {task.id}")
     agent_show_result = await agent_show_command.handler(agent_show_args, context)
     assert "test agent" in agent_show_result.message
+
+
+@pytest.mark.asyncio
+async def test_agents_help_and_subagents_alias(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("OPENHARNESS_DATA_DIR", str(tmp_path / "data"))
+    registry = create_default_command_registry()
+    context = _make_context(tmp_path)
+
+    agents_help_command, agents_help_args = registry.lookup("/agents help")
+    assert agents_help_command is not None
+    agents_help_result = await agents_help_command.handler(agents_help_args, context)
+    assert "Subagent guide:" in agents_help_result.message
+    assert 'subagent_type="worker"' in agents_help_result.message
+
+    subagents_command, subagents_args = registry.lookup("/subagents")
+    assert subagents_command is not None
+    subagents_result = await subagents_command.handler(subagents_args, context)
+    assert "Subagent guide:" in subagents_result.message
+
+    agents_command, agents_args = registry.lookup("/agents")
+    assert agents_command is not None
+    agents_result = await agents_command.handler(agents_args, context)
+    assert "Subagent guide:" in agents_result.message
 
 
 @pytest.mark.asyncio

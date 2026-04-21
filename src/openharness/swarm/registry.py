@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import logging
 import os
-import platform
 import shutil
 from typing import TYPE_CHECKING, Any
 
+from openharness.platforms import get_platform, get_platform_capabilities
 from openharness.swarm.spawn_utils import is_tmux_available
 from openharness.swarm.types import BackendDetectionResult, BackendType, TeammateExecutor
 
@@ -60,14 +60,14 @@ def _is_it2_cli_available() -> bool:
 
 def _get_tmux_install_instructions() -> str:
     """Return platform-specific tmux installation instructions."""
-    system = platform.system().lower()
-    if system == "darwin":
+    system = get_platform()
+    if system == "macos":
         return (
             "To use agent swarms, install tmux:\n"
             "  brew install tmux\n"
             "Then start a tmux session with: tmux new-session -s claude"
         )
-    elif system == "linux":
+    elif system in {"linux", "wsl"}:
         return (
             "To use agent swarms, install tmux:\n"
             "  sudo apt install tmux    # Ubuntu/Debian\n"
@@ -379,10 +379,12 @@ class BackendRegistry:
     def _register_defaults(self) -> None:
         """Register built-in backends that are unconditionally available."""
         from openharness.swarm.subprocess_backend import SubprocessBackend
-        from openharness.swarm.in_process import InProcessBackend
 
         self._backends["subprocess"] = SubprocessBackend()
-        self._backends["in_process"] = InProcessBackend()
+        if get_platform_capabilities().supports_swarm_mailbox:
+            from openharness.swarm.in_process import InProcessBackend
+
+            self._backends["in_process"] = InProcessBackend()
 
         # Tmux backend registration is deferred until implementation exists.
         # If a TmuxBackend is available it can be registered via register_backend().

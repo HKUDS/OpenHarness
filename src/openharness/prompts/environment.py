@@ -9,6 +9,7 @@ import os
 import platform
 import shutil
 import subprocess
+import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -26,6 +27,8 @@ class EnvironmentInfo:
     home_dir: str
     date: str
     python_version: str
+    python_executable: str
+    virtual_env: str | None
     is_git_repo: bool
     git_branch: str | None = None
     hostname: str = ""
@@ -73,6 +76,7 @@ def detect_git_info(cwd: str) -> tuple[bool, str | None]:
             text=True,
             cwd=cwd,
             timeout=5,
+            stdin=subprocess.DEVNULL,
         )
         is_git = result.returncode == 0 and result.stdout.strip() == "true"
     except (FileNotFoundError, subprocess.TimeoutExpired):
@@ -88,6 +92,7 @@ def detect_git_info(cwd: str) -> tuple[bool, str | None]:
             text=True,
             cwd=cwd,
             timeout=5,
+            stdin=subprocess.DEVNULL,
         )
         branch = result.stdout.strip() if result.returncode == 0 else None
     except (FileNotFoundError, subprocess.TimeoutExpired):
@@ -100,6 +105,14 @@ def get_environment_info(cwd: str | None = None) -> EnvironmentInfo:
     """Gather all environment information into an EnvironmentInfo snapshot."""
     if cwd is None:
         cwd = os.getcwd()
+
+    python_executable = str(Path(sys.executable).resolve())
+    virtual_env = os.environ.get("VIRTUAL_ENV")
+    if not virtual_env:
+        executable_path = Path(python_executable)
+        candidate = executable_path.parent.parent
+        if executable_path.parent.name in {"bin", "Scripts"} and (candidate / "pyvenv.cfg").exists():
+            virtual_env = str(candidate)
 
     os_name, os_version = detect_os()
     shell = detect_shell()
@@ -114,6 +127,8 @@ def get_environment_info(cwd: str | None = None) -> EnvironmentInfo:
         home_dir=str(Path.home()),
         date=datetime.now(tz=timezone.utc).strftime("%Y-%m-%d"),
         python_version=platform.python_version(),
+        python_executable=python_executable,
+        virtual_env=virtual_env,
         is_git_repo=is_git,
         git_branch=branch,
         hostname=platform.node(),

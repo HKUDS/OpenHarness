@@ -3,9 +3,10 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "openharness"
-version = "0.1.1"
+name = "openharness-ai"
+version = "0.1.7"
 description = "Open-source Python port of Claude Code - an AI-powered CLI coding assistant"
+readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
 authors = [
@@ -14,6 +15,7 @@ authors = [
 
 dependencies = [
     "anthropic>=0.40.0",
+    "openai>=1.0.0",
     "rich>=13.0.0",
     "prompt-toolkit>=3.0.0",
     "textual>=0.80.0",
@@ -24,7 +26,13 @@ dependencies = [
     "mcp>=1.0.0",
     "pyperclip>=1.9.0",
     "pyyaml>=6.0",
+    "questionary>=2.0.1",
     "watchfiles>=0.20.0",
+    "croniter>=2.0.0",
+    "slack-sdk>=3.0.0",
+    "python-telegram-bot>=21.0.0",
+    "discord.py>=2.0.0",
+    "lark-oapi>=1.5.0",
 ]
 
 [project.optional-dependencies]
@@ -40,9 +48,29 @@ dev = [
 [project.scripts]
 openharness = "openharness.cli:app"
 oh = "openharness.cli:app"
+openh = "openharness.cli:app"
+ohmo = "ohmo.cli:app"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/openharness"]
+packages = ["src/openharness", "ohmo"]
+
+[tool.hatch.build]
+exclude = [
+    "/.git",
+    "/.venv",
+    "/.openharness-venv",
+    "/.openharness",
+    "/.pytest_cache",
+    "/.mypy_cache",
+    "/.ruff_cache",
+    "/build",
+    "/dist",
+]
+
+[tool.hatch.build.targets.wheel.force-include]
+"frontend/terminal/package.json" = "openharness/_frontend/package.json"
+"frontend/terminal/tsconfig.json" = "openharness/_frontend/tsconfig.json"
+"frontend/terminal/src" = "openharness/_frontend/src"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -3,17 +3,24 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 
 from openharness.config.settings import Settings
 from openharness.hooks.loader import load_hook_registry
 from openharness.plugins import load_plugins
+from openharness.plugins.loader import get_user_plugins_dir
 from openharness.skills import load_skill_registry
 
 
 def _write_plugin(root: Path) -> None:
     plugin_dir = root / "example-plugin"
-    (plugin_dir / "skills").mkdir(parents=True)
+    deploy_dir = plugin_dir / "skills" / "deploy"
+    deploy_dir.mkdir(parents=True)
+    command_dir = plugin_dir / "commands" / "ops" / "restart"
+    command_dir.mkdir(parents=True)
+    agents_dir = plugin_dir / "agents" / "review"
+    agents_dir.mkdir(parents=True)
     (plugin_dir / "plugin.json").write_text(
         json.dumps(
             {
@@ -24,8 +31,22 @@ def _write_plugin(root: Path) -> None:
         ),
         encoding="utf-8",
     )
-    (plugin_dir / "skills" / "deploy.md").write_text(
+    (deploy_dir / "SKILL.md").write_text(
         "# Deploy\nDeploy with care\n",
+        encoding="utf-8",
+    )
+    (command_dir / "SKILL.md").write_text(
+        "---\n"
+        "description: Restart services safely\n"
+        "---\n\n"
+        "# Restart\n\nRun the restart workflow.\n",
+        encoding="utf-8",
+    )
+    (agents_dir / "reviewer.md").write_text(
+        "---\n"
+        "description: Review code changes\n"
+        "---\n\n"
+        "# Reviewer\n\nReview the proposed changes.\n",
         encoding="utf-8",
     )
     (plugin_dir / "hooks.json").write_text(
@@ -57,12 +78,15 @@ def test_load_plugins_from_project_dir(tmp_path: Path, monkeypatch):
     plugins_root.mkdir(parents=True)
     _write_plugin(plugins_root)
 
-    plugins = load_plugins(Settings(), project)
+    settings = Settings(allow_project_plugins=True)
+    plugins = load_plugins(settings, project)
 
     assert len(plugins) == 1
     plugin = plugins[0]
     assert plugin.manifest.name == "example"
     assert plugin.skills[0].name == "Deploy"
+    assert {command.name for command in plugin.commands} == {"example:ops:restart"}
+    assert {agent.name for agent in plugin.agents} == {"example:review:reviewer"}
     assert "session_start" in plugin.hooks
     assert "demo" in plugin.mcp_servers
 
@@ -74,9 +98,53 @@ def test_plugin_skills_and_hooks_are_merged(tmp_path: Path, monkeypatch):
     plugins_root.mkdir(parents=True)
     _write_plugin(plugins_root)
 
-    skills = load_skill_registry(project).list_skills()
+    settings = Settings(allow_project_plugins=True)
+    skills = load_skill_registry(project, settings=settings).list_skills()
     assert any(skill.name == "Deploy" and skill.source == "plugin" for skill in skills)
 
-    plugins = load_plugins(Settings(), project)
-    hooks = load_hook_registry(Settings(), plugins)
+    plugins = load_plugins(settings, project)
+    hooks = load_hook_registry(settings, plugins)
     assert "session_start" in hooks.summary()
+
+
+def test_project_plugins_are_disabled_by_default(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
+    project = tmp_path / "repo"
+    plugins_root = project / ".openharness" / "plugins"
+    plugins_root.mkdir(parents=True)
+    _write_plugin(plugins_root)
+
+    plugins = load_plugins(Settings(), project)
+
+    assert plugins == []
+
+
+def test_project_plugins_disabled_by_default_warns_operator(tmp_path: Path, monkeypatch, caplog):
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
+    project = tmp_path / "repo"
+    plugins_root = project / ".openharness" / "plugins"
+    plugins_root.mkdir(parents=True)
+    _write_plugin(plugins_root)
+
+    with caplog.at_level(logging.WARNING):
+        plugins = load_plugins(Settings(), project)
+
+    assert plugins == []
+    assert "project-local plugins" in caplog.text
+    assert "allow_project_plugins=true" in caplog.text
+
+
+def test_user_plugins_still_load_when_project_plugins_are_disabled(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
+    project = tmp_path / "repo"
+    project_plugins_root = project / ".openharness" / "plugins"
+    project_plugins_root.mkdir(parents=True)
+    _write_plugin(project_plugins_root)
+
+    user_plugins_root = get_user_plugins_dir()
+    _write_plugin(user_plugins_root)
+
+    plugins = load_plugins(Settings(), project)
+
+    assert len(plugins) == 1
+    assert plugins[0].manifest.name == "example"

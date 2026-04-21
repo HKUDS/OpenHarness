@@ -3,12 +3,25 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from pathlib import Path
 
 import pytest
 
+from openharness.tasks.manager import get_task_manager
 from openharness.tools import create_default_tool_registry
 from openharness.tools.base import ToolExecutionContext
+
+
+async def _wait_for_terminal_task(task_id: str, *, timeout_seconds: float = 2.0) -> None:
+    deadline = asyncio.get_running_loop().time() + timeout_seconds
+    manager = get_task_manager()
+    while asyncio.get_running_loop().time() < deadline:
+        task = manager.get_task(task_id)
+        if task is not None and task.status in {"completed", "failed", "killed"}:
+            return
+        await asyncio.sleep(0.05)
+    raise AssertionError(f"Task {task_id} did not reach a terminal status in time")
 
 
 @pytest.mark.asyncio
@@ -102,7 +115,9 @@ async def test_skill_and_config_flow_across_registry(tmp_path: Path, monkeypatch
     monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
     skills_dir = tmp_path / "config" / "skills"
     skills_dir.mkdir(parents=True)
-    (skills_dir / "pytest.md").write_text(
+    pytest_dir = skills_dir / "pytest"
+    pytest_dir.mkdir()
+    (pytest_dir / "SKILL.md").write_text(
         "# Pytest\nPytest fixtures help reuse setup.\n",
         encoding="utf-8",
     )
@@ -144,7 +159,9 @@ async def test_agent_send_message_flow_restarts_completed_agent(tmp_path: Path, 
         ),
         context,
     )
-    task_id = create_result.output.split()[-1]
+    match = re.search(r"task_id=(\S+?)[,)]", create_result.output)
+    assert match, create_result.output
+    task_id = match.group(1)
 
     for _ in range(80):
         output = await task_output.execute(task_output.input_model(task_id=task_id), context)
@@ -171,6 +188,7 @@ async def test_agent_send_message_flow_restarts_completed_agent(tmp_path: Path, 
 
     assert "AGENT_ECHO:ready" in output.output
     assert "AGENT_ECHO:agent ping" in output.output
+    await _wait_for_terminal_task(task_id)
 
 
 @pytest.mark.asyncio
@@ -223,7 +241,7 @@ async def test_notebook_and_cron_flow_across_registry(tmp_path: Path, monkeypatc
     assert "flow ok" in (tmp_path / "nb" / "demo.ipynb").read_text(encoding="utf-8")
 
     await cron_create.execute(
-        cron_create.input_model(name="flow", schedule="daily", command="printf 'FLOW_CRON_OK'"),
+        cron_create.input_model(name="flow", schedule="0 0 * * *", command="printf 'FLOW_CRON_OK'"),
         context,
     )
     list_result = await cron_list.execute(cron_list.input_model(), context)

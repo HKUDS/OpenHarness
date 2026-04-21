@@ -8,6 +8,8 @@ Run: python tests/test_hooks_skills_plugins_real.py
 
 from __future__ import annotations
 
+import pytest
+
 import asyncio
 import json
 import os
@@ -18,10 +20,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
+from openharness.config.settings import Settings
+
 API_KEY = os.environ.get("ANTHROPIC_API_KEY", "sk-Ue1kdhq9prvNwuwySlzRtWVD7ek0iJJaHyPdKDa3ecKLwYuG")
 BASE_URL = os.environ.get("ANTHROPIC_BASE_URL", "https://api.moonshot.cn/anthropic")
 MODEL = os.environ.get("ANTHROPIC_MODEL", "kimi-k2.5")
 WORKSPACE = Path("/home/tangjiabin/AutoAgent")
+DEFAULT_MAX_TURNS = Settings().max_turns
 
 RESULTS: dict[str, tuple[bool, float]] = {}
 
@@ -33,11 +38,15 @@ def collect(events):
     )
     r = {"text": "", "tools": [], "tool_errors": [], "turns": 0}
     for ev in events:
-        if isinstance(ev, AssistantTextDelta): r["text"] += ev.text
-        elif isinstance(ev, ToolExecutionStarted): r["tools"].append(ev.tool_name)
+        if isinstance(ev, AssistantTextDelta):
+            r["text"] += ev.text
+        elif isinstance(ev, ToolExecutionStarted):
+            r["tools"].append(ev.tool_name)
         elif isinstance(ev, ToolExecutionCompleted):
-            if ev.is_error: r["tool_errors"].append({"tool": ev.tool_name, "err": ev.output[:200]})
-        elif isinstance(ev, AssistantTurnComplete): r["turns"] += 1
+            if ev.is_error:
+                r["tool_errors"].append({"tool": ev.tool_name, "err": ev.output[:200]})
+        elif isinstance(ev, AssistantTurnComplete):
+            r["turns"] += 1
     return r
 
 
@@ -48,6 +57,7 @@ def collect(events):
 # and switches to glob/grep instead. This tests that hooks actually
 # change model behavior in the loop.
 # ====================================================================
+@pytest.mark.skipif(not Path("/home/tangjiabin/AutoAgent").exists(), reason="Needs real API + AutoAgent")
 async def task_hook_blocks_model_adapts():
     print("=" * 70)
     print("  Task 1: Hook blocks bash → model must adapt to glob/grep")
@@ -56,7 +66,6 @@ async def task_hook_blocks_model_adapts():
     from openharness.api.client import AnthropicApiClient
     from openharness.config.settings import PermissionSettings
     from openharness.engine.query_engine import QueryEngine
-    from openharness.engine.stream_events import AssistantTextDelta, AssistantTurnComplete, ToolExecutionStarted, ToolExecutionCompleted
     from openharness.permissions.checker import PermissionChecker
     from openharness.permissions.modes import PermissionMode
     from openharness.tools.base import ToolRegistry
@@ -131,6 +140,7 @@ async def task_hook_blocks_model_adapts():
 # content drives what the model does next. This tests the full
 # skill tool → load → return content → model acts on it loop.
 # ====================================================================
+@pytest.mark.skipif(not Path("/home/tangjiabin/AutoAgent").exists(), reason="Needs real API + AutoAgent")
 async def task_model_invokes_skill_tool():
     print("\n" + "=" * 70)
     print("  Task 2: Model invokes skill tool, then follows skill instructions")
@@ -153,7 +163,9 @@ async def task_model_invokes_skill_tool():
         # Create a skill file that gives specific instructions
         skills_dir = Path(tmpdir) / "skills"
         skills_dir.mkdir()
-        (skills_dir / "code-review.md").write_text("""---
+        code_review_dir = skills_dir / "code-review"
+        code_review_dir.mkdir()
+        (code_review_dir / "SKILL.md").write_text("""---
 name: code-review
 description: Step-by-step code review checklist
 ---
@@ -221,6 +233,7 @@ When performing a code review, follow these exact steps:
 # A plugin is loaded with a custom skill. The model uses the skill
 # tool to access the plugin's skill content, then acts on it.
 # ====================================================================
+@pytest.mark.skipif(not Path("/home/tangjiabin/AutoAgent").exists(), reason="Needs real API + AutoAgent")
 async def task_plugin_skill_in_agent_loop():
     print("\n" + "=" * 70)
     print("  Task 3: Plugin-provided skill used through skill tool in agent loop")
@@ -250,8 +263,9 @@ async def task_plugin_skill_in_agent_loop():
             "skills_dir": "skills",
         }))
         plugin_skills = plugin_dir / "skills"
-        plugin_skills.mkdir()
-        (plugin_skills / "scan-secrets.md").write_text("""---
+        scan_secrets_dir = plugin_skills / "scan-secrets"
+        scan_secrets_dir.mkdir(parents=True)
+        (scan_secrets_dir / "SKILL.md").write_text("""---
 name: scan-secrets
 description: Scan for hardcoded secrets and credentials
 ---
@@ -323,6 +337,7 @@ To scan for hardcoded secrets:
 # certain paths), skill provides a refactoring checklist, model follows
 # it, encounters hook block on protected path, adapts.
 # ====================================================================
+@pytest.mark.skipif(not Path("/home/tangjiabin/AutoAgent").exists(), reason="Needs real API + AutoAgent")
 async def task_hook_gates_writes_skill_guides():
     print("\n" + "=" * 70)
     print("  Task 4: Hook gates file writes + skill guides refactoring workflow")
@@ -351,7 +366,9 @@ async def task_hook_gates_writes_skill_guides():
         # Create skill
         skills_dir = Path(tmpdir) / "skills"
         skills_dir.mkdir()
-        (skills_dir / "refactor-guide.md").write_text("""---
+        refactor_dir = skills_dir / "refactor-guide"
+        refactor_dir.mkdir()
+        (refactor_dir / "SKILL.md").write_text("""---
 name: refactor-guide
 description: Guide for safe refactoring
 ---
@@ -393,14 +410,14 @@ def process_v2(data):
         hook_reg = HookRegistry()
         hook_reg.register(HookEvent.PRE_TOOL_USE, CommandHookDefinition(
             type="command",
-            command=f'echo "$TOOL_INPUT" | grep -q "config.py" && exit 1 || exit 0',
+            command='echo "$TOOL_INPUT" | grep -q "config.py" && exit 1 || exit 0',
             matcher="write_file",
             block_on_failure=True,
             timeout_seconds=5,
         ))
         hook_reg.register(HookEvent.PRE_TOOL_USE, CommandHookDefinition(
             type="command",
-            command=f'echo "$TOOL_INPUT" | grep -q "config.py" && exit 1 || exit 0',
+            command='echo "$TOOL_INPUT" | grep -q "config.py" && exit 1 || exit 0',
             matcher="edit_file",
             block_on_failure=True,
             timeout_seconds=5,
@@ -452,10 +469,9 @@ def process_v2(data):
             content = refactored.read_text()
             print(f"  Refactored file: {len(content)} chars")
             # Should have merged the two identical functions
-            has_single_func = content.count("def process") >= 1
+            print(f"  Functions found: {content.count('def process')}")
         else:
-            has_single_func = False
-            print(f"  Refactored file: NOT CREATED")
+            print("  Refactored file: NOT CREATED")
 
         # Config should be untouched
         config_safe = (work_dir / "config.py").read_text() == 'SECRET = "do-not-touch"\n'
@@ -473,6 +489,7 @@ def process_v2(data):
 # 2 in-process teammates, each loads a different skill and follows it.
 # Tests: skill tool in teammate context + concurrent skill access.
 # ====================================================================
+@pytest.mark.skipif(not Path("/home/tangjiabin/AutoAgent").exists(), reason="Needs real API + AutoAgent")
 async def task_swarm_teammates_use_skills():
     print("\n" + "=" * 70)
     print("  Task 5: 2 concurrent teammates each invoke different skills")
@@ -498,13 +515,17 @@ async def task_swarm_teammates_use_skills():
         skills_dir = Path(tmpdir) / "skills"
         skills_dir.mkdir()
 
-        (skills_dir / "count-classes.md").write_text("""---
+        count_classes_dir = skills_dir / "count-classes"
+        count_classes_dir.mkdir()
+        (count_classes_dir / "SKILL.md").write_text("""---
 name: count-classes
 description: Count classes in Python files
 ---
 Use grep to search for 'class ' definitions. Count them. Write result to /tmp/class_count.txt.
 """)
-        (skills_dir / "find-imports.md").write_text("""---
+        find_imports_dir = skills_dir / "find-imports"
+        find_imports_dir.mkdir()
+        (find_imports_dir / "SKILL.md").write_text("""---
 name: find-imports
 description: Find all import statements
 ---
@@ -523,7 +544,7 @@ Use grep to search for '^import ' and '^from .* import'. Count unique packages. 
             ctx = QueryContext(
                 api_client=api, tool_registry=reg,
                 permission_checker=PermissionChecker(PermissionSettings(mode=PermissionMode.FULL_AUTO)),
-                cwd=WORKSPACE, model=MODEL, max_tokens=1024, max_turns=20,
+                cwd=WORKSPACE, model=MODEL, max_tokens=1024, max_turns=DEFAULT_MAX_TURNS,
                 system_prompt="You are a worker. First invoke the skill tool to get instructions, then follow them.",
             )
             config = TeammateSpawnConfig(
@@ -599,7 +620,8 @@ async def main():
         except Exception as e:
             RESULTS[name] = (False, time.time() - t0)
             print(f"\n  EXCEPTION: {e}")
-            import traceback; traceback.print_exc()
+            import traceback
+            traceback.print_exc()
 
     print(f"\n{'='*70}")
     print("  FINAL RESULTS — Hooks/Skills/Plugins in Real Agent Loops")

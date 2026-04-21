@@ -22,18 +22,17 @@ Paths:
 from __future__ import annotations
 
 import asyncio
-import fcntl
 import json
 import os
 import random
 import string
 import time
 import uuid
-from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterator, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
+from openharness.swarm.lockfile import exclusive_file_lock
 from openharness.swarm.mailbox import (
     MailboxMessage,
     TeammateMailbox,
@@ -76,15 +75,15 @@ def _get_teammate_color() -> str | None:
 
 _READ_ONLY_TOOLS: frozenset[str] = frozenset(
     {
-        "Read",
-        "Glob",
-        "Grep",
-        "WebFetch",
-        "WebSearch",
-        "TaskGet",
-        "TaskList",
-        "TaskOutput",
-        "CronList",
+        "read_file",
+        "glob",
+        "grep",
+        "web_fetch",
+        "web_search",
+        "task_get",
+        "task_list",
+        "task_output",
+        "cron_list",
     }
 )
 
@@ -92,24 +91,6 @@ _READ_ONLY_TOOLS: frozenset[str] = frozenset(
 def _is_read_only(tool_name: str) -> bool:
     """Return True for tools that are considered safe/read-only."""
     return tool_name in _READ_ONLY_TOOLS
-
-
-# ---------------------------------------------------------------------------
-# File locking helper
-# ---------------------------------------------------------------------------
-
-
-@contextmanager
-def _file_lock(lock_path: Path) -> Iterator[None]:
-    """Acquire an exclusive POSIX file lock on *lock_path*."""
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-    lock_path.touch(exist_ok=True)
-    with open(lock_path, "r") as lock_file:
-        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
-        try:
-            yield
-        finally:
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
 
 
 # ---------------------------------------------------------------------------
@@ -417,11 +398,11 @@ def _sync_write_permission_request(
     _ensure_permission_dirs(request.team_name)
     pending_path = _pending_request_path(request.team_name, request.id)
     lock_path = _get_pending_dir(request.team_name) / ".lock"
+    tmp_path = pending_path.with_suffix(".json.tmp")
 
-    with _file_lock(lock_path):
-        pending_path.write_text(
-            json.dumps(request.to_dict(), indent=2), encoding="utf-8"
-        )
+    with exclusive_file_lock(lock_path):
+        tmp_path.write_text(json.dumps(request.to_dict(), indent=2), encoding="utf-8")
+        os.replace(tmp_path, pending_path)
     return request
 
 
@@ -518,8 +499,9 @@ def _sync_resolve_permission(
     pending_path = _pending_request_path(team, request_id)
     resolved_path = _resolved_request_path(team, request_id)
     lock_path = _get_pending_dir(team) / ".lock"
+    tmp_path = resolved_path.with_suffix(".json.tmp")
 
-    with _file_lock(lock_path):
+    with exclusive_file_lock(lock_path):
         if not pending_path.exists():
             return False
 
@@ -549,9 +531,10 @@ def _sync_resolve_permission(
             created_at=request.created_at,
         )
 
-        resolved_path.write_text(
+        tmp_path.write_text(
             json.dumps(resolved_request.to_dict(), indent=2), encoding="utf-8"
         )
+        os.replace(tmp_path, resolved_path)
         try:
             pending_path.unlink()
         except OSError:

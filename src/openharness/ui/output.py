@@ -10,6 +10,7 @@ from rich.syntax import Syntax
 from openharness.engine.stream_events import (
     AssistantTextDelta,
     AssistantTurnComplete,
+    CompactProgressEvent,
     StreamEvent,
     ToolExecutionCompleted,
     ToolExecutionStarted,
@@ -68,6 +69,41 @@ class OutputRenderer:
                     self.console.print(Markdown(self._assistant_buffer.strip()))
                 self._assistant_line_open = False
                 self._assistant_buffer = ""
+            return
+
+        if isinstance(event, CompactProgressEvent):
+            self._stop_spinner()
+            if event.message:
+                label = event.message
+            elif event.phase == "hooks_start":
+                label = (
+                    "Preparing retry compaction..."
+                    if event.trigger == "reactive"
+                    else "Preparing conversation compaction..."
+                )
+            elif event.phase == "session_memory_start":
+                label = "Condensing earlier conversation..."
+            elif event.phase == "session_memory_end":
+                label = "Conversation condensed."
+            elif event.phase == "context_collapse_start":
+                label = "Collapsing oversized context..."
+            elif event.phase == "context_collapse_end":
+                label = "Context collapse complete."
+            elif event.phase == "compact_start":
+                label = (
+                    "Context is too large. Compacting and retrying..."
+                    if event.trigger == "reactive"
+                    else "Compacting conversation memory..."
+                )
+            elif event.phase == "compact_retry":
+                label = "Retrying compaction..."
+            elif event.phase == "compact_end":
+                label = "Compaction complete."
+            elif event.phase == "compact_failed":
+                label = "Compaction failed."
+            else:
+                label = "Compacting..."
+            self.console.print(f"[yellow]\u2139 {label}[/yellow]")
             return
 
         if isinstance(event, ToolExecutionStarted):

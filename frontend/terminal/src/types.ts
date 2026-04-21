@@ -4,7 +4,7 @@ export type FrontendConfig = {
 };
 
 export type TranscriptItem = {
-	role: 'system' | 'user' | 'assistant' | 'tool' | 'tool_result' | 'log';
+	role: 'system' | 'user' | 'assistant' | 'tool' | 'tool_result' | 'log' | 'status';
 	text: string;
 	tool_name?: string;
 	tool_input?: Record<string, unknown>;
@@ -43,6 +43,25 @@ export type SelectOptionPayload = {
 	value: string;
 	label: string;
 	description?: string;
+	active?: boolean;
+};
+
+export type TodoItemSnapshot = {
+	text: string;
+	checked: boolean;
+};
+
+export type SwarmTeammateSnapshot = {
+	name: string;
+	status: 'running' | 'idle' | 'done' | 'error';
+	duration?: number;
+	task?: string;
+};
+
+export type SwarmNotificationSnapshot = {
+	from: string;
+	message: string;
+	timestamp: number;
 };
 
 export type BackendEvent = {
@@ -59,4 +78,15 @@ export type BackendEvent = {
 	tool_name?: string | null;
 	output?: string | null;
 	is_error?: boolean | null;
+	compact_phase?: string | null;
+	compact_trigger?: string | null;
+	attempt?: number | null;
+	compact_checkpoint?: string | null;
+	compact_metadata?: Record<string, unknown> | null;
+	// New event payloads
+	todo_items?: TodoItemSnapshot[] | null;
+	todo_markdown?: string | null;
+	plan_mode?: string | null;
+	swarm_teammates?: SwarmTeammateSnapshot[] | null;
+	swarm_notifications?: SwarmNotificationSnapshot[] | null;
 };

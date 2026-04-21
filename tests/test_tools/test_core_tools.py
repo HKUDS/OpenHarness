@@ -71,6 +71,12 @@ async def test_glob_and_grep(tmp_path: Path):
     )
     assert "b.py:1:def beta():" in grep_result.output
 
+    file_root_result = await GrepTool().execute(
+        GrepToolInput(pattern=r"def\s+alpha", root="a.py"),
+        context,
+    )
+    assert "a.py:1:def alpha():" in file_root_result.output
+
 
 @pytest.mark.asyncio
 async def test_bash_tool_runs_command(tmp_path: Path):
@@ -105,7 +111,9 @@ async def test_skill_todo_and_config_tools(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
     skills_dir = tmp_path / "config" / "skills"
     skills_dir.mkdir(parents=True)
-    (skills_dir / "pytest.md").write_text("# Pytest\nHelpful pytest notes.\n", encoding="utf-8")
+    pytest_dir = skills_dir / "pytest"
+    pytest_dir.mkdir()
+    (pytest_dir / "SKILL.md").write_text("# Pytest\nHelpful pytest notes.\n", encoding="utf-8")
 
     class StubEngine:
         def __init__(self):
@@ -161,6 +169,30 @@ async def test_skill_todo_and_config_tools(tmp_path: Path, monkeypatch):
         ToolExecutionContext(cwd=tmp_path),
     )
     assert config_result.output == "Updated theme"
+
+
+@pytest.mark.asyncio
+async def test_todo_write_upsert(tmp_path: Path):
+    tool = TodoWriteTool()
+    ctx = ToolExecutionContext(cwd=tmp_path)
+
+    await tool.execute(TodoWriteToolInput(item="task A"), ctx)
+    await tool.execute(TodoWriteToolInput(item="task B"), ctx)
+
+    # Marking done should update in-place, not append a duplicate
+    result = await tool.execute(TodoWriteToolInput(item="task A", checked=True), ctx)
+    assert result.is_error is False
+
+    content = (tmp_path / "TODO.md").read_text(encoding="utf-8")
+    assert content.count("task A") == 1
+    assert "- [x] task A" in content
+    assert "- [ ] task A" not in content
+    assert "- [ ] task B" in content
+
+    # Calling again with same state is a no-op
+    noop = await tool.execute(TodoWriteToolInput(item="task A", checked=True), ctx)
+    assert "No change" in noop.output
+    assert (tmp_path / "TODO.md").read_text(encoding="utf-8").count("task A") == 1
 
 
 @pytest.mark.asyncio
@@ -261,7 +293,7 @@ async def test_cron_and_remote_trigger_tools(tmp_path: Path, monkeypatch):
     context = ToolExecutionContext(cwd=tmp_path)
 
     create_result = await CronCreateTool().execute(
-        CronCreateToolInput(name="nightly", schedule="daily", command="printf 'CRON_OK'"),
+        CronCreateToolInput(name="nightly", schedule="0 0 * * *", command="printf 'CRON_OK'"),
         context,
     )
     assert create_result.is_error is False

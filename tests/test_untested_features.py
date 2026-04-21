@@ -9,16 +9,19 @@ or the hardcoded key below.
 
 from __future__ import annotations
 
+import pytest
+
 import asyncio
 import json
 import os
-import shutil
 import sys
 import tempfile
 import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+
+from openharness.config.settings import Settings
 
 API_KEY = os.environ.get(
     "ANTHROPIC_API_KEY",
@@ -27,6 +30,8 @@ API_KEY = os.environ.get(
 BASE_URL = os.environ.get("ANTHROPIC_BASE_URL", "https://api.moonshot.cn/anthropic")
 MODEL = os.environ.get("ANTHROPIC_MODEL", "kimi-k2.5")
 WORKSPACE = Path("/home/tangjiabin/AutoAgent")
+_SKIP_REAL_API = not WORKSPACE.exists() or not API_KEY
+DEFAULT_MAX_TURNS = Settings().max_turns
 
 RESULTS: dict[str, bool] = {}
 
@@ -67,12 +72,16 @@ def collect(events):
     )
     r = {"text": "", "tools": [], "tool_results": [], "turns": 0, "in_tok": 0, "out_tok": 0}
     for ev in events:
-        if isinstance(ev, AssistantTextDelta): r["text"] += ev.text
-        elif isinstance(ev, ToolExecutionStarted): r["tools"].append(ev.tool_name)
+        if isinstance(ev, AssistantTextDelta):
+            r["text"] += ev.text
+        elif isinstance(ev, ToolExecutionStarted):
+            r["tools"].append(ev.tool_name)
         elif isinstance(ev, ToolExecutionCompleted):
             r["tool_results"].append({"tool": ev.tool_name, "ok": not ev.is_error, "out": ev.output[:300]})
         elif isinstance(ev, AssistantTurnComplete):
-            r["turns"] += 1; r["in_tok"] += ev.usage.input_tokens; r["out_tok"] += ev.usage.output_tokens
+            r["turns"] += 1
+            r["in_tok"] += ev.usage.input_tokens
+            r["out_tok"] += ev.usage.output_tokens
     return r
 
 
@@ -85,7 +94,8 @@ async def run_test(name, coro):
     except Exception as e:
         RESULTS[name] = False
         print(f"  >>> EXCEPTION: {e}")
-        import traceback; traceback.print_exc()
+        import traceback
+        traceback.print_exc()
 
 
 # ====================================================================
@@ -169,13 +179,14 @@ async def test_hooks_post_tool_use():
 # ====================================================================
 # 3. Hooks integrated into agent loop — hook blocks a dangerous command
 # ====================================================================
+@pytest.mark.skipif(_SKIP_REAL_API, reason="Needs real API + AutoAgent")
 async def test_hooks_in_agent_loop():
     """Hook that blocks 'rm' commands integrated into real agent loop."""
     from openharness.api.client import AnthropicApiClient
     from openharness.config.settings import PermissionSettings
     from openharness.engine.query import QueryContext, run_query
     from openharness.engine.messages import ConversationMessage
-    from openharness.engine.stream_events import AssistantTextDelta, AssistantTurnComplete, ToolExecutionStarted, ToolExecutionCompleted
+    from openharness.engine.stream_events import AssistantTextDelta, ToolExecutionStarted, ToolExecutionCompleted
     from openharness.permissions.checker import PermissionChecker
     from openharness.permissions.modes import PermissionMode
     from openharness.tools.base import ToolRegistry
@@ -203,7 +214,7 @@ async def test_hooks_in_agent_loop():
 
     ctx = QueryContext(
         api_client=api, tool_registry=reg, permission_checker=checker,
-        cwd=WORKSPACE, model=MODEL, max_tokens=1024, max_turns=4,
+        cwd=WORKSPACE, model=MODEL, max_tokens=1024, max_turns=DEFAULT_MAX_TURNS,
         system_prompt="You are a helpful assistant. Use bash to execute commands.",
         hook_executor=hook_executor,
     )
@@ -211,8 +222,10 @@ async def test_hooks_in_agent_loop():
 
     text, tools, blocked = "", [], False
     async for event, usage in run_query(ctx, messages):
-        if isinstance(event, AssistantTextDelta): text += event.text
-        elif isinstance(event, ToolExecutionStarted): tools.append(event.tool_name)
+        if isinstance(event, AssistantTextDelta):
+            text += event.text
+        elif isinstance(event, ToolExecutionStarted):
+            tools.append(event.tool_name)
         elif isinstance(event, ToolExecutionCompleted):
             if event.is_error and "hook" in event.output.lower():
                 blocked = True
@@ -228,19 +241,22 @@ async def test_hooks_in_agent_loop():
 # ====================================================================
 async def test_skills_load():
     """Create skill files, load them, verify registry."""
-    from openharness.skills.types import SkillDefinition
     from openharness.skills.registry import SkillRegistry
     from openharness.skills.loader import load_user_skills
 
     with tempfile.TemporaryDirectory() as tmpdir:
         # Create skill files
-        (Path(tmpdir) / "commit.md").write_text("""---
+        commit_dir = Path(tmpdir) / "commit"
+        commit_dir.mkdir()
+        (commit_dir / "SKILL.md").write_text("""---
 name: commit
 description: Create a git commit with a good message
 ---
 Read the git diff, then create a commit with a descriptive message.
 """)
-        (Path(tmpdir) / "review-pr.md").write_text("""---
+        review_dir = Path(tmpdir) / "review-pr"
+        review_dir.mkdir()
+        (review_dir / "SKILL.md").write_text("""---
 name: review-pr
 description: Review a pull request for issues
 ---
@@ -281,7 +297,6 @@ Fetch the PR diff, review for bugs, style issues, and security problems.
 async def test_plugins_load():
     """Create a plugin directory, load it, verify manifest and skills."""
     from openharness.plugins.loader import load_plugin
-    from openharness.plugins.schemas import PluginManifest
 
     with tempfile.TemporaryDirectory() as tmpdir:
         plugin_dir = Path(tmpdir) / "my-plugin"
@@ -300,7 +315,9 @@ async def test_plugins_load():
         # skills
         skills_dir = plugin_dir / "skills"
         skills_dir.mkdir()
-        (skills_dir / "deploy.md").write_text("""---
+        deploy_dir = skills_dir / "deploy"
+        deploy_dir.mkdir()
+        (deploy_dir / "SKILL.md").write_text("""---
 name: deploy
 description: Deploy the application
 ---
@@ -407,7 +424,7 @@ async def test_session_storage():
         print(f"  Loaded: model={loaded.get('model')}, messages={len(loaded.get('messages', []))}")
 
         # Load by ID
-        by_id = load_session_by_id(tmpdir, "test-session-123") if "load_session_by_id" in dir() else None
+
 
         # Export markdown
         md_path = export_session_markdown(cwd=tmpdir, messages=messages)
@@ -428,9 +445,9 @@ async def test_session_storage():
 # ====================================================================
 async def test_config_settings():
     """Test settings loading, env var overrides, and path functions."""
-    from openharness.config.settings import Settings, load_settings, PermissionSettings
+    from openharness.config.settings import Settings, load_settings
     from openharness.config.paths import (
-        get_config_dir, get_sessions_dir, get_tasks_dir, get_logs_dir,
+        get_config_dir, get_sessions_dir, get_tasks_dir,
     )
 
     # Default settings
@@ -523,6 +540,7 @@ async def test_commands_registry():
 # ====================================================================
 # 10. Web fetch: real URL fetch in agent loop
 # ====================================================================
+@pytest.mark.skipif(_SKIP_REAL_API, reason="Needs real API + AutoAgent")
 async def test_web_fetch_real():
     """Agent fetches a real URL and summarizes it."""
     from openharness.tools.web_fetch_tool import WebFetchTool
@@ -544,6 +562,7 @@ async def test_web_fetch_real():
 # ====================================================================
 # 11. Worktree: real git worktree create/list/remove
 # ====================================================================
+@pytest.mark.skipif(_SKIP_REAL_API, reason="Needs local environment")
 async def test_worktree_real_git():
     """Create a real git worktree, list it, remove it."""
     from openharness.swarm.worktree import WorktreeManager
@@ -627,6 +646,7 @@ async def test_config_paths():
 # ====================================================================
 # 14. Combined: hooks + skills + agent loop on AutoAgent
 # ====================================================================
+@pytest.mark.skipif(_SKIP_REAL_API, reason="Needs real API + AutoAgent")
 async def test_combined_hooks_skills_agent():
     """Combined test: load skills, register hooks, run agent on AutoAgent."""
     from openharness.skills.registry import SkillRegistry
@@ -639,7 +659,7 @@ async def test_combined_hooks_skills_agent():
     from openharness.config.settings import PermissionSettings
     from openharness.engine.query import QueryContext, run_query
     from openharness.engine.messages import ConversationMessage
-    from openharness.engine.stream_events import AssistantTextDelta, AssistantTurnComplete, ToolExecutionStarted
+    from openharness.engine.stream_events import AssistantTextDelta, ToolExecutionStarted
     from openharness.permissions.checker import PermissionChecker
     from openharness.permissions.modes import PermissionMode
     from openharness.tools.base import ToolRegistry
@@ -672,7 +692,7 @@ async def test_combined_hooks_skills_agent():
 
     ctx = QueryContext(
         api_client=api, tool_registry=reg, permission_checker=checker,
-        cwd=WORKSPACE, model=MODEL, max_tokens=2048, max_turns=8,
+        cwd=WORKSPACE, model=MODEL, max_tokens=2048, max_turns=DEFAULT_MAX_TURNS,
         system_prompt="You are a code analyst. Be concise. Use tools to answer questions.",
         hook_executor=hook_exec,
     )
@@ -683,8 +703,10 @@ async def test_combined_hooks_skills_agent():
 
     text, tools = "", []
     async for event, usage in run_query(ctx, messages):
-        if isinstance(event, AssistantTextDelta): text += event.text
-        elif isinstance(event, ToolExecutionStarted): tools.append(event.tool_name)
+        if isinstance(event, AssistantTextDelta):
+            text += event.text
+        elif isinstance(event, ToolExecutionStarted):
+            tools.append(event.tool_name)
 
     print(f"  Tools used: {tools}")
     print(f"  Response: {text[:200]}")
@@ -696,6 +718,7 @@ async def test_combined_hooks_skills_agent():
 # ====================================================================
 # 15. Multi-agent + worktree + team: full swarm on AutoAgent
 # ====================================================================
+@pytest.mark.skipif(_SKIP_REAL_API, reason="Needs real API + AutoAgent")
 async def test_full_swarm_autoagent():
     """Spawn 2 in-process teammates working on AutoAgent with team management."""
     from openharness.swarm.in_process import start_in_process_teammate, TeammateAbortController
@@ -711,7 +734,6 @@ async def test_full_swarm_autoagent():
     from openharness.tools.glob_tool import GlobTool
     from openharness.tools.grep_tool import GrepTool
     from openharness.swarm.team_lifecycle import TeamLifecycleManager, TeamMember
-    from openharness.swarm.mailbox import TeammateMailbox, create_user_message
     import openharness.swarm.mailbox as mb
     import openharness.swarm.team_lifecycle as tl
 
@@ -739,7 +761,7 @@ async def test_full_swarm_autoagent():
                 checker = PermissionChecker(PermissionSettings(mode=PermissionMode.FULL_AUTO))
                 ctx = QueryContext(
                     api_client=api, tool_registry=reg, permission_checker=checker,
-                    cwd=WORKSPACE, model=MODEL, max_tokens=1024, max_turns=6,
+                    cwd=WORKSPACE, model=MODEL, max_tokens=1024, max_turns=DEFAULT_MAX_TURNS,
                     system_prompt="You are a research worker. Use tools. Be concise.",
                 )
                 config = TeammateSpawnConfig(

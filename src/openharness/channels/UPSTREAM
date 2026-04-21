@@ -1,0 +1,6 @@
+repo: https://github.com/nanobot-ai/nanobot
+commit: 473ae5ef18394ab839a3364eee66836ef9776902
+synced: 2026-04-05T00:00:00Z
+paths:
+  nanobot/bus/     -> src/openharness/channels/bus/
+  nanobot/channels/ -> src/openharness/channels/impl/

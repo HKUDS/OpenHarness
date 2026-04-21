@@ -8,8 +8,9 @@ Run: python tests/test_real_large_tasks.py
 
 from __future__ import annotations
 
+import pytest
+
 import asyncio
-import json
 import os
 import sys
 import tempfile
@@ -18,10 +19,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
+from openharness.config.settings import Settings
+
 API_KEY = os.environ.get("ANTHROPIC_API_KEY", "sk-Ue1kdhq9prvNwuwySlzRtWVD7ek0iJJaHyPdKDa3ecKLwYuG")
 BASE_URL = os.environ.get("ANTHROPIC_BASE_URL", "https://api.moonshot.cn/anthropic")
 MODEL = os.environ.get("ANTHROPIC_MODEL", "kimi-k2.5")
 WORKSPACE = Path("/home/tangjiabin/AutoAgent")
+DEFAULT_MAX_TURNS = Settings().max_turns
 
 RESULTS: dict[str, tuple[bool, float]] = {}
 
@@ -30,7 +34,7 @@ RESULTS: dict[str, tuple[bool, float]] = {}
 # Shared infrastructure
 # ====================================================================
 
-def make_engine(system_prompt, cwd=None, hook_executor=None, max_tokens=4096):
+def make_engine(system_prompt, cwd=None, hook_executor=None, max_tokens=4096, max_turns=DEFAULT_MAX_TURNS):
     from openharness.api.client import AnthropicApiClient
     from openharness.config.settings import PermissionSettings
     from openharness.engine.query_engine import QueryEngine
@@ -54,7 +58,7 @@ def make_engine(system_prompt, cwd=None, hook_executor=None, max_tokens=4096):
     return QueryEngine(
         api_client=api, tool_registry=reg, permission_checker=checker,
         cwd=Path(cwd or WORKSPACE), model=MODEL, system_prompt=system_prompt,
-        max_tokens=max_tokens, hook_executor=hook_executor,
+        max_tokens=max_tokens, max_turns=max_turns, hook_executor=hook_executor,
     )
 
 
@@ -65,12 +69,16 @@ def collect(events):
     )
     r = {"text": "", "tools": [], "tool_outputs": [], "turns": 0, "in_tok": 0, "out_tok": 0}
     for ev in events:
-        if isinstance(ev, AssistantTextDelta): r["text"] += ev.text
-        elif isinstance(ev, ToolExecutionStarted): r["tools"].append(ev.tool_name)
+        if isinstance(ev, AssistantTextDelta):
+            r["text"] += ev.text
+        elif isinstance(ev, ToolExecutionStarted):
+            r["tools"].append(ev.tool_name)
         elif isinstance(ev, ToolExecutionCompleted):
             r["tool_outputs"].append({"tool": ev.tool_name, "ok": not ev.is_error, "out": ev.output[:200]})
         elif isinstance(ev, AssistantTurnComplete):
-            r["turns"] += 1; r["in_tok"] += ev.usage.input_tokens; r["out_tok"] += ev.usage.output_tokens
+            r["turns"] += 1
+            r["in_tok"] += ev.usage.input_tokens
+            r["out_tok"] += ev.usage.output_tokens
     return r
 
 
@@ -81,6 +89,7 @@ def collect(events):
 #           web_fetch (fetch OWASP reference), multi-turn agent loop,
 #           file read/grep on unfamiliar codebase
 # ====================================================================
+@pytest.mark.skipif(not Path("/home/tangjiabin/AutoAgent").exists(), reason="Needs real API + AutoAgent")
 async def task_security_audit_with_hooks():
     """Full security audit: agent reads code, fetches OWASP checklist, reports issues.
     Hooks log every tool use. Permission denies dangerous commands."""
@@ -90,9 +99,6 @@ async def task_security_audit_with_hooks():
     from openharness.hooks.schemas import CommandHookDefinition
     from openharness.hooks.executor import HookExecutor, HookExecutionContext
     from openharness.api.client import AnthropicApiClient
-    from openharness.config.settings import PermissionSettings
-    from openharness.permissions.checker import PermissionChecker
-    from openharness.permissions.modes import PermissionMode
 
     api = AnthropicApiClient(api_key=API_KEY, base_url=BASE_URL)
 
@@ -135,7 +141,7 @@ async def task_security_audit_with_hooks():
 
     # Check hook log
     hook_log = log_file.read_text() if log_file.exists() else ""
-    hook_entries = [l for l in hook_log.strip().split("\n") if l.strip()]
+    hook_entries = [entry for entry in hook_log.strip().split("\n") if entry.strip()]
     print(f"  Hook log: {len(hook_entries)} entries")
     if hook_entries:
         print(f"    First: {hook_entries[0]}")
@@ -159,6 +165,7 @@ async def task_security_audit_with_hooks():
 #           team lifecycle, in-process teammates (2 concurrent),
 #           mailbox communication, agent definitions
 # ====================================================================
+@pytest.mark.skipif(not Path("/home/tangjiabin/AutoAgent").exists(), reason="Needs real API + AutoAgent")
 async def task_coordinator_code_review():
     """Coordinator delegates code review to 2 worker agents, synthesizes results."""
 
@@ -169,7 +176,6 @@ async def task_coordinator_code_review():
     from openharness.swarm.in_process import start_in_process_teammate, TeammateAbortController
     from openharness.swarm.types import TeammateSpawnConfig
     from openharness.swarm.team_lifecycle import TeamLifecycleManager, TeamMember
-    from openharness.swarm.mailbox import TeammateMailbox, create_idle_notification
     from openharness.engine.query import QueryContext
     from openharness.api.client import AnthropicApiClient
     from openharness.config.settings import PermissionSettings
@@ -197,7 +203,7 @@ async def task_coordinator_code_review():
             mgr.create_team("review-team", "Code review team for AutoAgent")
 
             # Phase 1: Spawn 2 worker agents with different review focuses
-            worker_results = {}
+
 
             async def run_reviewer(name, prompt):
                 reg = ToolRegistry()
@@ -213,7 +219,7 @@ async def task_coordinator_code_review():
 
                 ctx = QueryContext(
                     api_client=api, tool_registry=reg, permission_checker=checker,
-                    cwd=WORKSPACE, model=MODEL, max_tokens=2048, max_turns=8,
+                    cwd=WORKSPACE, model=MODEL, max_tokens=2048, max_turns=DEFAULT_MAX_TURNS,
                     system_prompt=sys_prompt,
                 )
                 config = TeammateSpawnConfig(
@@ -287,6 +293,7 @@ async def task_coordinator_code_review():
 #           session storage (save/export), multi-turn conversation,
 #           config settings, agent definitions (Plan agent prompt)
 # ====================================================================
+@pytest.mark.skipif(not Path("/home/tangjiabin/AutoAgent").exists(), reason="Needs real API + AutoAgent")
 async def task_migration_plan_with_memory():
     """Agent analyzes AutoAgent, saves findings to memory, creates migration plan,
     saves session for later resume."""
@@ -296,7 +303,6 @@ async def task_migration_plan_with_memory():
     from openharness.skills.types import SkillDefinition
     from openharness.memory.manager import add_memory_entry, list_memory_files, remove_memory_entry
     from openharness.services.session_storage import save_session_snapshot, export_session_markdown
-    from openharness.api.usage import UsageSnapshot
     import openharness.memory.paths as mp
     import openharness.memory.manager as mm
 
@@ -408,6 +414,7 @@ async def task_migration_plan_with_memory():
 #           file write/edit, bash (run tests), multi-turn,
 #           agent works in worktree copy, changes don't affect original
 # ====================================================================
+@pytest.mark.skipif(not Path("/home/tangjiabin/AutoAgent").exists(), reason="Needs real API + AutoAgent")
 async def task_bugfix_in_worktree():
     """Agent creates a worktree, makes a fix in isolation, verifies it, cleans up."""
 
@@ -506,6 +513,7 @@ if __name__ == "__main__":
 #           in-process teammates, permission sync (request/resolve),
 #           team lifecycle, mailbox, agent definitions, auto-compact
 # ====================================================================
+@pytest.mark.skipif(not Path("/home/tangjiabin/AutoAgent").exists(), reason="Needs real API + AutoAgent")
 async def task_full_pipeline():
     """Simulate the full research→plan→implement→verify pipeline with coordinator."""
 
@@ -552,7 +560,7 @@ async def task_full_pipeline():
                 ctx = QueryContext(
                     api_client=api, tool_registry=reg,
                     permission_checker=PermissionChecker(PermissionSettings(mode=PermissionMode.FULL_AUTO)),
-                    cwd=WORKSPACE, model=MODEL, max_tokens=1024, max_turns=6,
+                    cwd=WORKSPACE, model=MODEL, max_tokens=1024, max_turns=DEFAULT_MAX_TURNS,
                     system_prompt="You are a research worker. Investigate and report findings. Be concise.",
                 )
                 config = TeammateSpawnConfig(
@@ -653,11 +661,12 @@ async def task_full_pipeline():
 # Features: session save/load, multi-turn (3 turns), file edit,
 #           config settings, cost tracking
 # ====================================================================
+@pytest.mark.skipif(not Path("/home/tangjiabin/AutoAgent").exists(), reason="Needs real API + AutoAgent")
 async def task_refactor_with_session():
     """Refactor code across 3 turns, save session, verify it can be loaded."""
 
     from openharness.services.session_storage import (
-        save_session_snapshot, load_session_snapshot, list_session_snapshots,
+        save_session_snapshot, load_session_snapshot,
     )
 
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -772,14 +781,14 @@ async def main():
         except Exception as e:
             RESULTS[name] = (False, time.time() - t0)
             print(f"\n  >>> EXCEPTION: {e}")
-            import traceback; traceback.print_exc()
+            import traceback
+            traceback.print_exc()
 
     print(f"\n{'='*70}")
     print("  FINAL RESULTS — Real Large Tasks")
     print(f"{'='*70}")
     passed = sum(1 for ok, _ in RESULTS.values() if ok)
     for name, (ok, elapsed) in RESULTS.items():
-        features = name.split("(")[1].rstrip(")") if "(" in name else ""
         print(f"  {'PASS' if ok else 'FAIL'}  {name}  [{elapsed:.1f}s]")
     print(f"\n  {passed}/{len(RESULTS)} tasks passed")
 

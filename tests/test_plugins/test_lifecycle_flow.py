@@ -19,7 +19,8 @@ from openharness.tools.base import ToolExecutionContext
 
 def _write_plugin(source_root: Path, server_script: Path) -> Path:
     plugin_dir = source_root / "fixture-plugin"
-    (plugin_dir / "skills").mkdir(parents=True)
+    fixture_skill_dir = plugin_dir / "skills" / "fixture"
+    fixture_skill_dir.mkdir(parents=True)
     (plugin_dir / "plugin.json").write_text(
         json.dumps(
             {
@@ -30,7 +31,7 @@ def _write_plugin(source_root: Path, server_script: Path) -> Path:
         ),
         encoding="utf-8",
     )
-    (plugin_dir / "skills" / "fixture.md").write_text(
+    (fixture_skill_dir / "SKILL.md").write_text(
         "# FixtureSkill\nFixture skill content for plugin flow.\n",
         encoding="utf-8",
     )

@@ -25,13 +25,13 @@ from openharness.swarm.permission_sync import (
 
 @pytest.mark.parametrize(
     "tool_name",
-    ["Read", "Glob", "Grep", "WebFetch", "WebSearch", "TaskGet", "TaskList", "CronList"],
+    ["read_file", "glob", "grep", "web_fetch", "web_search", "task_get", "task_list", "cron_list"],
 )
 def test_is_read_only_true_for_safe_tools(tool_name):
     assert _is_read_only(tool_name) is True
 
 
-@pytest.mark.parametrize("tool_name", ["Bash", "Edit", "Write", "TaskCreate"])
+@pytest.mark.parametrize("tool_name", ["bash", "edit_file", "write_file", "task_create"])
 def test_is_read_only_false_for_write_tools(tool_name):
     assert _is_read_only(tool_name) is False
 
@@ -120,7 +120,7 @@ async def test_send_permission_response_writes_to_worker(tmp_path, monkeypatch):
 
 
 async def test_handle_read_only_tool_auto_approved():
-    req = create_permission_request("Read", "tu-1", {"file_path": "/tmp/f.py"})
+    req = create_permission_request("read_file", "tu-1", {"file_path": "/tmp/f.py"})
     checker = MagicMock()
     resp = await handle_permission_request(req, checker)
     assert resp.allowed is True
