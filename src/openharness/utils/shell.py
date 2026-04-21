@@ -53,7 +53,7 @@ async def create_shell_subprocess(
     cwd: str | Path,
     settings: Settings | None = None,
     prefer_pty: bool = False,
-    stdin: int | None = None,
+    stdin: int | None = asyncio.subprocess.DEVNULL,
     stdout: int | None = None,
     stderr: int | None = None,
     env: Mapping[str, str] | None = None,
