@@ -8,6 +8,8 @@ The format is based on Keep a Changelog, and this project currently tracks chang
 
 ### Added
 
+- `/quit` command alias for `/exit` in the TUI slash command registry.
+- Tab completion hint added to the CommandPicker footer in the React TUI.
 - `oh --dry-run` safe preview mode for inspecting resolved runtime settings, auth state, prompt assembly, commands, skills, tools, and configured MCP servers without executing the model or tools.
 - Built-in `minimax` provider profile so `oh setup` offers MiniMax as a first-class provider choice, with `MINIMAX_API_KEY` auth source, `MiniMax-M2.7` as the default model, and `MiniMax-M2.7-highspeed` in the model picker.
 - Docker as an alternative sandbox backend (`sandbox.backend = "docker"`) for stronger execution isolation with configurable resource limits, network isolation, and automatic image management.
@@ -25,6 +27,8 @@ The format is based on Keep a Changelog, and this project currently tracks chang
 
 ### Fixed
 
+- React TUI Tab completion for slash commands now resets the cursor to end-of-input after selecting a command. Previously, completing a command via Tab left the cursor at position 0, making further edits confusing.
+- Tab completion no longer appends a trailing space after the completed command.
 - React TUI prompt input now treats the raw DEL byte (`0x7f`) as backward delete while preserving true forward-delete escape sequences, fixing backspace failures seen in some macOS terminal environments.
 - `todo_write` tool now updates an existing unchecked item in-place when `checked=True` instead of appending a duplicate `[x]` line.
 

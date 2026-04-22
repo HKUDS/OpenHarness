@@ -164,6 +164,7 @@ export function PromptInput({
 	toolName,
 	suppressSubmit,
 	statusLabel,
+	inputKey,
 }: {
 	busy: boolean;
 	input: string;
@@ -172,6 +173,7 @@ export function PromptInput({
 	toolName?: string;
 	suppressSubmit?: boolean;
 	statusLabel?: string;
+	inputKey?: number;
 }): React.JSX.Element {
 	const {theme} = useTheme();
 	const promptPrefix = busy ? '… ' : '> ';
@@ -186,6 +188,7 @@ export function PromptInput({
 				</Box>
 			) : null}
 			<MultilineTextInput
+				key={inputKey}
 				value={input}
 				onChange={setInput}
 				onSubmit={suppressSubmit || busy ? noop : onSubmit}

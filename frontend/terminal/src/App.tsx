@@ -61,6 +61,7 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 	const {exit} = useApp();
 	const {theme, setThemeName} = useTheme();
 	const [input, setInput] = useState('');
+	const [completionKey, setCompletionKey] = useState(0);
 	const [modalInput, setModalInput] = useState('');
 	const [history, setHistory] = useState<string[]>([]);
 	const [historyIndex, setHistoryIndex] = useState(-1);
@@ -297,7 +298,8 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 			if (key.tab) {
 				const selected = commandHints[pickerIndex];
 				if (selected) {
-					setInput(selected + ' ');
+					setInput(selected);
+					setCompletionKey((k) => k + 1);
 				}
 				return;
 			}
@@ -448,6 +450,7 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 					toolName={session.busy ? currentToolName : undefined}
 					statusLabel={session.busy ? (session.busyLabel ?? (currentToolName ? `Running ${currentToolName}...` : 'Running agent loop...')) : undefined}
 					suppressSubmit={showPicker}
+					inputKey={completionKey}
 				/>
 			)}
 

@@ -1811,6 +1811,7 @@ def create_default_command_registry(
 
     registry.register(SlashCommand("help", "Show available commands", _help_handler))
     registry.register(SlashCommand("exit", "Exit OpenHarness", _exit_handler))
+    registry.register(SlashCommand("quit", "Exit OpenHarness", _exit_handler))
     registry.register(SlashCommand("clear", "Clear conversation history", _clear_handler))
     registry.register(SlashCommand("version", "Show the installed OpenHarness version", _version_handler))
     registry.register(SlashCommand("status", "Show session status", _status_handler))

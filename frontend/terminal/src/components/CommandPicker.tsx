@@ -27,7 +27,7 @@ function CommandPickerInner({
 					</Box>
 				);
 			})}
-			<Text dimColor> {'\u2191\u2193'} navigate{'  '}{'\u23CE'} select{'  '}esc dismiss</Text>
+			<Text dimColor> {'\u2191\u2193'} navigate{'  '}{'\u23CE'} select{'  '}tab complete{'  '}esc dismiss</Text>
 		</Box>
 	);
 }
