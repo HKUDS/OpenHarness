@@ -1,5 +1,5 @@
-import React, {useEffect, useState} from 'react';
-import {Box, Text, useInput} from 'ink';
+import React, {useEffect, useRef, useState} from 'react';
+import {Box, Text, useInput, useStdin} from 'ink';
 import chalk from 'chalk';
 
 import {useTheme} from '../theme/ThemeContext.js';
@@ -23,10 +23,27 @@ function MultilineTextInput({
 	promptColor: string;
 }): React.JSX.Element {
 	const [cursorOffset, setCursorOffset] = useState(value.length);
+	const {internal_eventEmitter} = useStdin();
+	const lastSequenceRef = useRef('');
 
 	useEffect(() => {
 		setCursorOffset((previous) => Math.min(previous, value.length));
 	}, [value]);
+
+	useEffect(() => {
+		if (!focus) {
+			return;
+		}
+
+		const handleRawInput = (chunk: string | Buffer): void => {
+			lastSequenceRef.current = Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk);
+		};
+
+		internal_eventEmitter.on('input', handleRawInput);
+		return () => {
+			internal_eventEmitter.removeListener('input', handleRawInput);
+		};
+	}, [focus, internal_eventEmitter]);
 
 	useInput(
 		(input, key) => {
@@ -70,6 +87,19 @@ function MultilineTextInput({
 			}
 
 			if (key.delete) {
+				// Ink reports the common DEL byte (`0x7f`) as `delete`, even though
+				// many terminals emit it for the Backspace key. Use the raw sequence
+				// to distinguish that case from a true forward-delete escape sequence.
+				if (lastSequenceRef.current === '\x7f' || lastSequenceRef.current === '\x1b\x7f') {
+					if (cursorOffset === 0) {
+						return;
+					}
+					const nextValue = value.slice(0, cursorOffset - 1) + value.slice(cursorOffset);
+					setCursorOffset(cursorOffset - 1);
+					onChange(nextValue);
+					return;
+				}
+
 				if (cursorOffset >= value.length) {
 					return;
 				}
