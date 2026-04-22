@@ -70,10 +70,19 @@ function MultilineTextInput({
 			}
 
 			if (key.delete) {
-				if (cursorOffset >= value.length) {
+				// macOS Backspace sends 0x7F which Ink parses as 'delete'.
+				// Treat it as backward delete when cursor is at the end.
+				if (cursorOffset === 0) {
 					return;
 				}
-				const nextValue = value.slice(0, cursorOffset) + value.slice(cursorOffset + 1);
+				if (cursorOffset < value.length) {
+					const nextValue = value.slice(0, cursorOffset) + value.slice(cursorOffset + 1);
+					onChange(nextValue);
+					return;
+				}
+				// Cursor at end — backward delete
+				const nextValue = value.slice(0, cursorOffset - 1) + value.slice(cursorOffset);
+				setCursorOffset(cursorOffset - 1);
 				onChange(nextValue);
 				return;
 			}
