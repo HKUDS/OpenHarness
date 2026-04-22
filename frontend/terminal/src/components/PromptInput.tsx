@@ -25,10 +25,28 @@ function MultilineTextInput({
 	const [cursorOffset, setCursorOffset] = useState(value.length);
 	const {internal_eventEmitter} = useStdin();
 	const lastSequenceRef = useRef('');
+	// Tracks the last value this component produced via onChange. If the
+	// incoming `value` prop diverges from this, the change came from outside
+	// (tab completion, history recall, programmatic clear) and we should
+	// move the cursor to the end — otherwise the cursor stays wherever the
+	// user had it, which puts subsequent keystrokes in the middle of the
+	// newly-completed text. See HKUDS/OpenHarness#183.
+	const lastInternalValueRef = useRef<string>(value);
 
 	useEffect(() => {
-		setCursorOffset((previous) => Math.min(previous, value.length));
+		if (value === lastInternalValueRef.current) {
+			// Self-authored update; cursor was already positioned by the
+			// handler that called onChange.
+			return;
+		}
+		lastInternalValueRef.current = value;
+		setCursorOffset(value.length);
 	}, [value]);
+
+	const commitValue = (nextValue: string): void => {
+		lastInternalValueRef.current = nextValue;
+		onChange(nextValue);
+	};
 
 	useEffect(() => {
 		if (!focus) {
@@ -59,7 +77,7 @@ function MultilineTextInput({
 				if (key.shift) {
 					const nextValue = value.slice(0, cursorOffset) + '\n' + value.slice(cursorOffset);
 					setCursorOffset(cursorOffset + 1);
-					onChange(nextValue);
+					commitValue(nextValue);
 					return;
 				}
 				onSubmit?.(value);
@@ -82,7 +100,7 @@ function MultilineTextInput({
 				}
 				const nextValue = value.slice(0, cursorOffset - 1) + value.slice(cursorOffset);
 				setCursorOffset(cursorOffset - 1);
-				onChange(nextValue);
+				commitValue(nextValue);
 				return;
 			}
 
@@ -96,7 +114,7 @@ function MultilineTextInput({
 					}
 					const nextValue = value.slice(0, cursorOffset - 1) + value.slice(cursorOffset);
 					setCursorOffset(cursorOffset - 1);
-					onChange(nextValue);
+					commitValue(nextValue);
 					return;
 				}
 
@@ -104,7 +122,7 @@ function MultilineTextInput({
 					return;
 				}
 				const nextValue = value.slice(0, cursorOffset) + value.slice(cursorOffset + 1);
-				onChange(nextValue);
+				commitValue(nextValue);
 				return;
 			}
 
@@ -114,7 +132,7 @@ function MultilineTextInput({
 
 			const nextValue = value.slice(0, cursorOffset) + input + value.slice(cursorOffset);
 			setCursorOffset(cursorOffset + input.length);
-			onChange(nextValue);
+			commitValue(nextValue);
 		},
 		{isActive: focus},
 	);

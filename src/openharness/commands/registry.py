@@ -104,17 +104,26 @@ class SlashCommand:
     handler: CommandHandler
     remote_invocable: bool = True
     remote_admin_opt_in: bool = False
+    aliases: tuple[str, ...] = ()
 
 
 class CommandRegistry:
     """Map slash commands to handlers."""
 
     def __init__(self) -> None:
+        # Primary commands keyed by canonical name, plus aliases pointing at
+        # the same SlashCommand instance. We keep a separate set of canonical
+        # names so help/listing output doesn't duplicate aliased entries.
         self._commands: dict[str, SlashCommand] = {}
+        self._canonical_names: list[str] = []
 
     def register(self, command: SlashCommand) -> None:
-        """Register a command."""
+        """Register a command, plus any aliases pointing at the same handler."""
+        if command.name not in self._commands:
+            self._canonical_names.append(command.name)
         self._commands[command.name] = command
+        for alias in command.aliases:
+            self._commands[alias] = command
 
     def lookup(self, raw_input: str) -> tuple[SlashCommand, str] | None:
         """Parse a slash command and return its handler plus raw args."""
@@ -129,13 +138,14 @@ class CommandRegistry:
     def help_text(self) -> str:
         """Return a formatted summary of all registered commands."""
         lines = ["Available commands:"]
-        for command in sorted(self._commands.values(), key=lambda item: item.name):
+        commands = [self._commands[name] for name in self._canonical_names]
+        for command in sorted(commands, key=lambda item: item.name):
             lines.append(f"/{command.name:<12} {command.description}")
         return "\n".join(lines)
 
     def list_commands(self) -> list[SlashCommand]:
-        """Return commands in registration order."""
-        return list(self._commands.values())
+        """Return canonical commands in registration order (aliases omitted)."""
+        return [self._commands[name] for name in self._canonical_names]
 
 
 def _run_git_command(cwd: str, *args: str) -> tuple[bool, str]:
@@ -1810,7 +1820,9 @@ def create_default_command_registry(
         )
 
     registry.register(SlashCommand("help", "Show available commands", _help_handler))
-    registry.register(SlashCommand("exit", "Exit OpenHarness", _exit_handler))
+    registry.register(
+        SlashCommand("exit", "Exit OpenHarness", _exit_handler, aliases=("quit",))
+    )
     registry.register(SlashCommand("clear", "Clear conversation history", _clear_handler))
     registry.register(SlashCommand("version", "Show the installed OpenHarness version", _version_handler))
     registry.register(SlashCommand("status", "Show session status", _status_handler))
