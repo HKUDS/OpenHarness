@@ -77,8 +77,23 @@ def test_autopilot_scan_claude_code_candidates(tmp_path: Path) -> None:
 
 def test_default_verification_policy_uses_repeatable_local_tsc_command() -> None:
     commands = _DEFAULT_VERIFICATION_POLICY["commands"]
-    assert any("./node_modules/.bin/tsc --noEmit" in command for command in commands)
-    assert any("npm ci --no-audit --no-fund" in command for command in commands)
+
+    def _command_text(entry: object) -> str:
+        if isinstance(entry, dict):
+            return str(entry.get("command", ""))
+        return str(entry)
+
+    texts = [_command_text(entry) for entry in commands]
+    assert any("./node_modules/.bin/tsc --noEmit" in text for text in texts)
+    assert any("npm ci --no-audit --no-fund" in text for text in texts)
+    # The tsc step relies on `cd ... && ...` and must opt in to shell=true so
+    # the metacharacters are allowed through the verification runner.
+    tsc_entry = next(
+        entry
+        for entry in commands
+        if isinstance(entry, dict) and "tsc --noEmit" in str(entry.get("command", ""))
+    )
+    assert tsc_entry["shell"] is True
 
 
 def test_autopilot_ci_rollup_treats_missing_checks_as_pending(tmp_path: Path) -> None:

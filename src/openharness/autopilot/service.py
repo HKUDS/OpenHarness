@@ -5,9 +5,11 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import shlex
 import subprocess
 import tempfile
 import time
+from dataclasses import dataclass
 from hashlib import sha1
 from html import escape
 from pathlib import Path
@@ -94,11 +96,14 @@ _DEFAULT_VERIFICATION_POLICY = {
     "commands": [
         "uv run pytest -q",
         "uv run ruff check src tests scripts",
-        (
-            "cd frontend/terminal && "
-            "([ -x ./node_modules/.bin/tsc ] || npm ci --no-audit --no-fund) && "
-            "./node_modules/.bin/tsc --noEmit"
-        ),
+        {
+            "command": (
+                "cd frontend/terminal && "
+                "([ -x ./node_modules/.bin/tsc ] || npm ci --no-audit --no-fund) && "
+                "./node_modules/.bin/tsc --noEmit"
+            ),
+            "shell": True,
+        },
     ],
     "require_tests_before_merge": True,
 }
@@ -126,6 +131,69 @@ def _json_default(value: object) -> object:
     if isinstance(value, Path):
         return str(value)
     return str(value)
+
+
+_SHELL_METACHARS = frozenset(";&|`$<>\n\r")
+
+
+@dataclass(frozen=True)
+class _VerificationCommand:
+    """Parsed verification-policy entry.
+
+    When ``shell`` is false, ``argv`` is executed with ``shell=False``.
+    When ``shell`` is true, ``raw`` is handed to the shell (explicit opt-in).
+    ``error`` signals a policy entry that must not be executed; callers emit
+    an error step so the verification gate fails loudly.
+    """
+
+    raw: str
+    argv: tuple[str, ...]
+    shell: bool
+    error: str | None = None
+
+
+def _parse_verification_entry(entry: object) -> _VerificationCommand:
+    if isinstance(entry, dict):
+        raw = str(entry.get("command", "")).strip()
+        if not raw:
+            return _VerificationCommand(raw=str(entry), argv=(), shell=False, error="empty command")
+        if bool(entry.get("shell", False)):
+            return _VerificationCommand(raw=raw, argv=(), shell=True)
+        # fall through and validate as an argv-form command
+    elif isinstance(entry, str):
+        raw = entry.strip()
+        if not raw:
+            return _VerificationCommand(raw=entry, argv=(), shell=False, error="empty command")
+    else:
+        return _VerificationCommand(
+            raw=str(entry),
+            argv=(),
+            shell=False,
+            error="entry must be a string or a mapping with a 'command' key",
+        )
+
+    if any(ch in _SHELL_METACHARS for ch in raw):
+        return _VerificationCommand(
+            raw=raw,
+            argv=(),
+            shell=False,
+            error=(
+                "command contains shell metacharacters; use the mapping form "
+                "{command: '...', shell: true} in verification_policy.yaml to opt in"
+            ),
+        )
+    try:
+        argv = shlex.split(raw)
+    except ValueError as exc:
+        return _VerificationCommand(
+            raw=raw,
+            argv=(),
+            shell=False,
+            error=f"could not tokenize command: {exc}",
+        )
+    if not argv:
+        return _VerificationCommand(raw=raw, argv=(), shell=False, error="empty command")
+    return _VerificationCommand(raw=raw, argv=tuple(argv), shell=False)
 
 
 def _looks_available(command: str, cwd: Path) -> bool:
@@ -2011,19 +2079,37 @@ class RepoAutopilotStore:
             await close_runtime(bundle)
         return "".join(collected).strip()
 
-    def _verification_commands(self, policies: dict[str, Any]) -> list[str]:
+    def _verification_commands(self, policies: dict[str, Any]) -> list[_VerificationCommand]:
         configured = policies.get("verification", {}).get("commands", [])
-        commands = [str(item).strip() for item in configured if str(item).strip()]
-        return [command for command in commands if _looks_available(command, self._cwd)]
+        parsed = [_parse_verification_entry(entry) for entry in configured]
+        selected: list[_VerificationCommand] = []
+        for cmd in parsed:
+            if cmd.error is not None:
+                selected.append(cmd)
+                continue
+            if _looks_available(cmd.raw, self._cwd):
+                selected.append(cmd)
+        return selected
 
     def _run_verification_steps(self, policies: dict[str, Any], *, cwd: Path | None = None) -> list[RepoVerificationStep]:
         steps: list[RepoVerificationStep] = []
-        for command in self._verification_commands(policies):
+        for cmd in self._verification_commands(policies):
+            if cmd.error is not None:
+                steps.append(
+                    RepoVerificationStep(
+                        command=cmd.raw,
+                        returncode=-1,
+                        status="error",
+                        stderr=f"verification policy error: {cmd.error}",
+                    )
+                )
+                continue
+            target: str | list[str] = cmd.raw if cmd.shell else list(cmd.argv)
             try:
                 completed = subprocess.run(
-                    command,
+                    target,
                     cwd=cwd or self._cwd,
-                    shell=True,
+                    shell=cmd.shell,
                     text=True,
                     capture_output=True,
                     check=False,
@@ -2031,17 +2117,26 @@ class RepoAutopilotStore:
                 )
                 steps.append(
                     RepoVerificationStep(
-                        command=command,
+                        command=cmd.raw,
                         returncode=completed.returncode,
                         status="success" if completed.returncode == 0 else "failed",
                         stdout=(completed.stdout or "")[-4000:],
                         stderr=(completed.stderr or "")[-4000:],
                     )
                 )
+            except FileNotFoundError as exc:
+                steps.append(
+                    RepoVerificationStep(
+                        command=cmd.raw,
+                        returncode=-1,
+                        status="error",
+                        stderr=f"executable not found: {exc}",
+                    )
+                )
             except subprocess.TimeoutExpired as exc:
                 steps.append(
                     RepoVerificationStep(
-                        command=command,
+                        command=cmd.raw,
                         returncode=-1,
                         status="error",
                         stdout=_safe_text(getattr(exc, "stdout", ""))[-4000:],
@@ -2051,7 +2146,7 @@ class RepoAutopilotStore:
             except Exception as exc:  # pragma: no cover - defensive
                 steps.append(
                     RepoVerificationStep(
-                        command=command,
+                        command=cmd.raw,
                         returncode=-1,
                         status="error",
                         stderr=str(exc),
