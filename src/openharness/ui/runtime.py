@@ -212,6 +212,11 @@ async def build_runtime(
     mcp_manager = McpClientManager(load_mcp_server_configs(settings, plugins))
     await mcp_manager.connect_all()
     tool_registry = create_default_tool_registry(mcp_manager)
+    # Register plugin-provided tools
+    for plugin in plugins:
+        if plugin.enabled and plugin.tools:
+            for tool in plugin.tools:
+                tool_registry.register(tool)
     provider = detect_provider(settings)
     bridge_manager = get_bridge_manager()
     app_state = AppStateStore(

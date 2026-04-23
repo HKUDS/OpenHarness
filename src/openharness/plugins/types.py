@@ -42,6 +42,7 @@ class LoadedPlugin:
     skills: list[SkillDefinition] = field(default_factory=list)
     commands: list[PluginCommandDefinition] = field(default_factory=list)
     agents: list[AgentDefinition] = field(default_factory=list)
+    tools: list = field(default_factory=list)
     hooks: dict[str, list] = field(default_factory=dict)
     mcp_servers: dict[str, McpServerConfig] = field(default_factory=dict)
 
