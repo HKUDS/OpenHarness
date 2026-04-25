@@ -138,7 +138,7 @@ def load_plugin(path: Path, enabled_plugins: dict[str, bool]) -> LoadedPlugin | 
     skills = _load_plugin_skills(path / manifest.skills_dir)
     commands = _load_plugin_commands(path, manifest)
     agents = _load_plugin_agents(path, manifest)
-    tools = _load_plugin_tools(path, manifest)
+    tools = _load_plugin_tools(path, manifest) if enabled else []
     hooks = _load_plugin_hooks(path / manifest.hooks_file)
     hooks_dir_file = path / "hooks" / "hooks.json"
     if not hooks and hooks_dir_file.exists():
