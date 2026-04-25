@@ -31,6 +31,7 @@ dependencies = [
     "requests>=2.33.1",
     "websockets<15.0",
     "fastapi[standard]>=0.135.3",
+    "lark-oapi>=1.5.5",
 ]
 
 [project.optional-dependencies]
