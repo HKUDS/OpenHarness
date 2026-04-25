@@ -38,9 +38,9 @@ def load_skill_registry(cwd: str | Path | None = None) -> SkillRegistry:
 
 
 def load_user_skills() -> list[SkillDefinition]:
-    """Load markdown skills from the user config directory."""
+    """Load markdown skills from the user config directory. 从用户配置目录加载 Markdown 技能。"""
     skills: list[SkillDefinition] = []
-    for path in sorted(get_user_skills_dir().glob("*.md")):
+    for path in sorted(get_user_skills_dir().rglob("SKILL.md")):        # 递归查找 skills 目录下的 SKILL.md 文件
         content = path.read_text(encoding="utf-8")
         name, description = _parse_skill_markdown(path.stem, content)
         skills.append(
@@ -79,7 +79,7 @@ def _parse_skill_markdown(default_name: str, content: str) -> tuple[str, str]:
                             description = val
                 break
 
-    # Fallback: extract from headings and first paragraph
+    # Fallback: extract from headings and first paragraph 备用方案：从标题和第一段中提取内容
     if not description:
         for line in lines:
             stripped = line.strip()

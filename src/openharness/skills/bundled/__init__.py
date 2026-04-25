@@ -10,7 +10,7 @@ _CONTENT_DIR = Path(__file__).parent / "content"
 
 
 def get_bundled_skills() -> list[SkillDefinition]:
-    """Load all bundled skills from the content/ directory."""
+    """Load all bundled skills from the content/ directory. 从“content/”目录中加载所有捆绑的技能。"""
     skills: list[SkillDefinition] = []
     if not _CONTENT_DIR.exists():
         return skills
@@ -31,8 +31,9 @@ def get_bundled_skills() -> list[SkillDefinition]:
 
 def _parse_frontmatter(default_name: str, content: str) -> tuple[str, str]:
     """Extract name and description from a skill markdown file.
-
+    从技能的 Markdown 文件中提取名称和 description。
     Supports YAML frontmatter (``---`` delimited) and falls back to heading/paragraph parsing.
+    支持 YAML 前置标记（以“---”分隔）格式，并在无法识别时转而采用标题/段落解析方式。
     """
     name = default_name
     description = ""
