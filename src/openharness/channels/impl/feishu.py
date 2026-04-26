@@ -15,6 +15,7 @@ from openharness.channels.bus.queue import MessageBus
 from openharness.channels.impl.base import BaseChannel
 from openharness.channels.impl.base import resolve_channel_media_dir
 from openharness.config.schema import FeishuConfig
+from openharness.utils.helpers import safe_filename
 
 import importlib.util
 import logging
@@ -749,10 +750,20 @@ class FeishuChannel(BaseChannel):
                     filename = f"{file_key[:16]}{ext}"
 
         if data and filename:
-            file_path = media_dir / filename
+            safe_name = safe_filename(filename)
+            if not safe_name:
+                logger.warning("Rejected %s download with unsafe filename %r", msg_type, filename)
+                return None, f"[{msg_type}: download failed]"
+
+            media_root = media_dir.resolve()
+            file_path = (media_root / safe_name).resolve()
+            if not file_path.is_relative_to(media_root):
+                logger.warning("Rejected %s download outside media directory: %r", msg_type, filename)
+                return None, f"[{msg_type}: download failed]"
+
             file_path.write_bytes(data)
             logger.debug("Downloaded %s to %s", msg_type, file_path)
-            return str(file_path), f"[{msg_type}: {filename}]"
+            return str(file_path), f"[{msg_type}: {safe_name}]"
 
         return None, f"[{msg_type}: download failed]"
 
