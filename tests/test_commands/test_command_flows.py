@@ -151,3 +151,22 @@ async def test_plugin_command_lifecycle_flow(tmp_path: Path, monkeypatch):
     uninstall_command, uninstall_args = registry.lookup("/plugin uninstall fixture-plugin")
     uninstall_result = await uninstall_command.handler(uninstall_args, context)
     assert "Uninstalled plugin" in uninstall_result.message
+
+
+@pytest.mark.asyncio
+async def test_plugin_command_rejects_traversal_uninstall_without_deleting_sibling(
+    tmp_path: Path, monkeypatch
+):
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
+    registry = create_default_command_registry()
+    context = _build_context(tmp_path)
+    victim = tmp_path / "victim"
+    victim.mkdir()
+    (victim / "marker.txt").write_text("keep", encoding="utf-8")
+
+    uninstall_command, uninstall_args = registry.lookup("/plugin uninstall ../../victim")
+    uninstall_result = await uninstall_command.handler(uninstall_args, context)
+
+    assert "Invalid plugin name" in uninstall_result.message
+    assert victim.exists()
+    assert (victim / "marker.txt").read_text(encoding="utf-8") == "keep"

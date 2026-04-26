@@ -870,7 +870,10 @@ def plugin_uninstall(
     """Uninstall a plugin."""
     from openharness.plugins.installer import uninstall_plugin
 
-    uninstall_plugin(name)
+    try:
+        uninstall_plugin(name)
+    except ValueError as exc:
+        raise typer.BadParameter("invalid plugin name") from exc
     print(f"Uninstalled plugin: {name}")
 
 

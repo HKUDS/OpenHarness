@@ -1051,7 +1051,11 @@ def create_default_command_registry(
             path = install_plugin_from_path(tokens[1])
             return CommandResult(message=f"Installed plugin to {path}")
         if tokens[0] == "uninstall" and len(tokens) == 2:
-            if uninstall_plugin(tokens[1]):
+            try:
+                removed = uninstall_plugin(tokens[1])
+            except ValueError:
+                return CommandResult(message=f"Invalid plugin name '{tokens[1]}'")
+            if removed:
                 return CommandResult(message=f"Uninstalled plugin '{tokens[1]}'")
             return CommandResult(message=f"Plugin '{tokens[1]}' not found")
         plugins = load_plugins(settings, context.cwd, extra_roots=context.extra_plugin_roots)
