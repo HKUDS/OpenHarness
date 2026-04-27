@@ -1,231 +1,382 @@
-import React, {useEffect, useRef, useState} from 'react';
+import React, {useEffect, useMemo, useRef, useState} from 'react';
 import {Box, Text, useInput, useStdin} from 'ink';
-import chalk from 'chalk';
 
+import {computeCaretCellPosition, CursorAnchorBox, useDeclaredCursor} from '../ink-runtime/index.js';
+import {useHorizontalRule, useTerminalColumns} from '../hooks/useHorizontalRule.js';
 import {useTheme} from '../theme/ThemeContext.js';
 import {Spinner} from './Spinner.js';
+import {
+  insertAtOffset,
+  moveOffsetByGrapheme,
+  offsetToDisplayIndex,
+  removeBackwardGraphemes,
+  removeForwardGraphemes,
+} from './textOffset.js';
 
 const noop = (): void => {};
 const BACKSPACE_CONTROL_PATTERN = /^[\b\u007f]+$/;
+const INPUT_ANCHOR_ID = 'prompt-input-anchor';
+const RESERVED_COLUMNS = 2;
+
+type RenderSegment = {
+  text: string;
+};
+
+type RenderedInputLine = {
+  key: string;
+  prefix: string;
+  segments: RenderSegment[];
+};
+
+type InputRenderState = {
+  lines: RenderedInputLine[];
+  cursorLine: number;
+  cursorColumn: number;
+};
 
 export function getBackspaceDeleteCount(sequence: string): number {
-	if (!sequence || !BACKSPACE_CONTROL_PATTERN.test(sequence)) {
-		return 1;
-	}
+  if (!sequence || !BACKSPACE_CONTROL_PATTERN.test(sequence)) {
+    return 1;
+  }
 
-	return [...sequence].length;
+  return [...sequence].length;
+}
+
+function isBackspaceDeleteSequence(sequence: string): boolean {
+  return sequence === '\x7f'
+    || sequence === '\x1b\x7f'
+    || BACKSPACE_CONTROL_PATTERN.test(sequence);
+}
+
+function buildInputRenderState(
+  value: string,
+  cursorOffset: number,
+  promptPrefix: string,
+  terminalColumns: number,
+): InputRenderState {
+  const indent = ' '.repeat(promptPrefix.length);
+  const safeCursorOffset = Math.max(0, Math.min(value.length, cursorOffset));
+  const beforeCaret = value.slice(0, safeCursorOffset);
+  const beforeCaretLines = beforeCaret.split('\n');
+  const renderedLines = value.split('\n').map((line, index): RenderedInputLine => ({
+    key: `${index}:${line}`,
+    prefix: index === 0 ? promptPrefix : indent,
+    segments: line ? [{text: line}] : [],
+  }));
+
+  const renderedBeforeCaret = beforeCaretLines
+    .map((line, index) => `${index === 0 ? promptPrefix : indent}${line}`)
+    .join('\n');
+  const promptAreaColumns = Math.max(1, terminalColumns - RESERVED_COLUMNS);
+  const caretCell = computeCaretCellPosition(
+    renderedBeforeCaret,
+    renderedBeforeCaret.length,
+    promptAreaColumns,
+  );
+
+  return {
+    lines: renderedLines,
+    cursorLine: caretCell.line,
+    cursorColumn: caretCell.column,
+  };
 }
 
 function MultilineTextInput({
-	value,
-	onChange,
-	onSubmit,
-	focus = true,
-	promptPrefix,
-	promptColor,
+  value,
+  onChange,
+  onSubmit,
+  focus = true,
+  promptPrefix,
+  promptColor,
 }: {
-	value: string;
-	onChange: (value: string) => void;
-	onSubmit?: (value: string) => void;
-	focus?: boolean;
-	promptPrefix: string;
-	promptColor: string;
+  value: string;
+  onChange: (value: string) => void;
+  onSubmit?: (value: string) => void;
+  focus?: boolean;
+  promptPrefix: string;
+  promptColor: string;
 }): React.JSX.Element {
-	const [cursorOffset, setCursorOffset] = useState(value.length);
-	const {internal_eventEmitter} = useStdin();
-	const lastSequenceRef = useRef('');
-	// Tracks the last value this component produced via onChange. If the
-	// incoming `value` prop diverges from this, the change came from outside
-	// (tab completion, history recall, programmatic clear) and we should
-	// move the cursor to the end — otherwise the cursor stays wherever the
-	// user had it, which puts subsequent keystrokes in the middle of the
-	// newly-completed text. See HKUDS/OpenHarness#183.
-	const lastInternalValueRef = useRef<string>(value);
+  const [cursorOffset, setCursorOffset] = useState(value.length);
+  const {internal_eventEmitter} = useStdin();
+  const lastSequenceRef = useRef('');
+  const valueRef = useRef(value);
+  const cursorOffsetRef = useRef(value.length);
+  const terminalColumns = useTerminalColumns();
 
-	useEffect(() => {
-		if (value === lastInternalValueRef.current) {
-			// Self-authored update; cursor was already positioned by the
-			// handler that called onChange.
-			return;
-		}
-		lastInternalValueRef.current = value;
-		setCursorOffset(value.length);
-	}, [value]);
+  // Keep track of self-authored value updates so external updates (completion,
+  // history, clear) can still reset the cursor to the end.
+  const lastInternalValueRef = useRef<string>(value);
 
-	const commitValue = (nextValue: string): void => {
-		lastInternalValueRef.current = nextValue;
-		onChange(nextValue);
-	};
+  useEffect(() => {
+    valueRef.current = value;
+  }, [value]);
 
-	useEffect(() => {
-		if (!focus) {
-			return;
-		}
+  useEffect(() => {
+    cursorOffsetRef.current = cursorOffset;
+  }, [cursorOffset]);
 
-		const handleRawInput = (chunk: string | Buffer): void => {
-			lastSequenceRef.current = Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk);
-		};
+  useEffect(() => {
+    if (value === lastInternalValueRef.current) {
+      return;
+    }
 
-		internal_eventEmitter.on('input', handleRawInput);
-		return () => {
-			internal_eventEmitter.removeListener('input', handleRawInput);
-		};
-	}, [focus, internal_eventEmitter]);
+    lastInternalValueRef.current = value;
+    cursorOffsetRef.current = value.length;
+    setCursorOffset(() => value.length);
+  }, [value]);
 
-	useInput(
-		(input, key) => {
-			if (!focus) {
-				return;
-			}
+  useEffect(() => {
+    if (!focus) {
+      return;
+    }
 
-			if (key.upArrow || key.downArrow || key.tab || (key.shift && key.tab) || key.escape || (key.ctrl && input === 'c')) {
-				return;
-			}
+    const handleRawInput = (chunk: string | Buffer): void => {
+      const sequence = Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk);
+      lastSequenceRef.current = sequence;
+    };
 
-			if (key.return) {
-				if (key.shift) {
-					const nextValue = value.slice(0, cursorOffset) + '\n' + value.slice(cursorOffset);
-					setCursorOffset(cursorOffset + 1);
-					commitValue(nextValue);
-					return;
-				}
-				onSubmit?.(value);
-				return;
-			}
+    internal_eventEmitter.on('input', handleRawInput);
+    return () => {
+      internal_eventEmitter.removeListener('input', handleRawInput);
+    };
+  }, [focus, internal_eventEmitter]);
 
-			if (key.leftArrow) {
-				setCursorOffset((previous) => Math.max(0, previous - 1));
-				return;
-			}
+  const commitValue = (nextValue: string): void => {
+    valueRef.current = nextValue;
+    lastInternalValueRef.current = nextValue;
+    onChange(nextValue);
+  };
 
-			if (key.rightArrow) {
-				setCursorOffset((previous) => Math.min(value.length, previous + 1));
-				return;
-			}
+  const applyCursorMutation = (
+    mutate: (state: {currentValue: string; currentOffset: number}) => {nextValue?: string; nextOffset: number},
+  ): void => {
+    const currentValue = valueRef.current;
+    const currentOffset = cursorOffsetRef.current;
+    const result = mutate({currentValue, currentOffset});
+    const nextValueLength = (result.nextValue ?? currentValue).length;
+    const nextOffset = Math.max(0, Math.min(nextValueLength, result.nextOffset));
 
-			if (key.backspace) {
-				if (cursorOffset === 0) {
-					return;
-				}
-				const deleteCount = Math.min(cursorOffset, getBackspaceDeleteCount(lastSequenceRef.current || input));
-				const nextValue = value.slice(0, cursorOffset - deleteCount) + value.slice(cursorOffset);
-				setCursorOffset(cursorOffset - deleteCount);
-				commitValue(nextValue);
-				return;
-			}
+    cursorOffsetRef.current = nextOffset;
+    setCursorOffset(() => nextOffset);
 
-			if (key.delete) {
-				// Ink reports the common DEL byte (`0x7f`) as `delete`, even though
-				// many terminals emit it for the Backspace key. Use the raw sequence
-				// to distinguish that case from a true forward-delete escape sequence.
-				if (
-					lastSequenceRef.current === '\x7f' ||
-					lastSequenceRef.current === '\x1b\x7f' ||
-					BACKSPACE_CONTROL_PATTERN.test(lastSequenceRef.current)
-				) {
-					if (cursorOffset === 0) {
-						return;
-					}
-					const deleteCount = Math.min(cursorOffset, getBackspaceDeleteCount(lastSequenceRef.current));
-					const nextValue = value.slice(0, cursorOffset - deleteCount) + value.slice(cursorOffset);
-					setCursorOffset(cursorOffset - deleteCount);
-					commitValue(nextValue);
-					return;
-				}
+    if (typeof result.nextValue === 'string' && result.nextValue !== currentValue) {
+      commitValue(result.nextValue);
+    }
+  };
 
-				if (cursorOffset >= value.length) {
-					return;
-				}
-				const nextValue = value.slice(0, cursorOffset) + value.slice(cursorOffset + 1);
-				commitValue(nextValue);
-				return;
-			}
+  useInput(
+    (input, key) => {
+      if (!focus) {
+        return;
+      }
+      const rawSequence = lastSequenceRef.current;
+      lastSequenceRef.current = '';
 
-			if (!input) {
-				return;
-			}
+      const isStandaloneEscape = key.escape
+        && !key.leftArrow
+        && !key.rightArrow
+        && !key.upArrow
+        && !key.downArrow
+        && !key.delete
+        && !key.backspace
+        && !key.return
+        && !key.tab;
 
-			const nextValue = value.slice(0, cursorOffset) + input + value.slice(cursorOffset);
-			setCursorOffset(cursorOffset + input.length);
-			commitValue(nextValue);
-		},
-		{isActive: focus},
-	);
+      if (
+        key.upArrow
+        || key.downArrow
+        || key.tab
+        || (key.shift && key.tab)
+        || isStandaloneEscape
+        || (key.ctrl && input === 'c')
+      ) {
+        return;
+      }
 
-	let renderedValue = value;
-	if (focus) {
-		if (value.length === 0) {
-			renderedValue = chalk.inverse(' ');
-		} else {
-			renderedValue = '';
-			let index = 0;
-			for (const char of value) {
-				if (index === cursorOffset) {
-					renderedValue += chalk.inverse(char === '\n' ? ' ' : char);
-				} else {
-					renderedValue += char;
-				}
-				index += 1;
-			}
-			if (cursorOffset === value.length) {
-				renderedValue += chalk.inverse(' ');
-			}
-		}
-	}
+      if (key.return) {
+        if (key.shift) {
+          applyCursorMutation(({currentValue, currentOffset}) => {
+            const insertion = insertAtOffset(currentValue, currentOffset, '\n');
+            return {
+              nextValue: insertion.nextValue,
+              nextOffset: insertion.nextOffset,
+            };
+          });
+          return;
+        }
 
-	const lines = renderedValue.split('\n');
-	const indent = ' '.repeat(promptPrefix.length);
-	return (
-		<Box flexDirection="column">
-			{lines.map((line, index) => (
-				<Box key={`${index}:${line}`}>
-					<Text color={promptColor} bold>
-						{index === 0 ? promptPrefix : indent}
-					</Text>
-					<Text>{line.length > 0 ? line : ' '}</Text>
-				</Box>
-			))}
-		</Box>
-	);
+        onSubmit?.(valueRef.current);
+        return;
+      }
+
+      if (key.leftArrow) {
+        applyCursorMutation(({currentValue, currentOffset}) => ({
+          nextOffset: moveOffsetByGrapheme(currentValue, currentOffset, -1),
+        }));
+        return;
+      }
+
+      if (key.rightArrow) {
+        applyCursorMutation(({currentValue, currentOffset}) => ({
+          nextOffset: moveOffsetByGrapheme(currentValue, currentOffset, 1),
+        }));
+        return;
+      }
+
+      const isBareBackspaceSequence = !key.backspace
+        && !key.delete
+        && BACKSPACE_CONTROL_PATTERN.test(rawSequence || input);
+
+      if (key.backspace || isBareBackspaceSequence) {
+        if (cursorOffsetRef.current === 0) {
+          return;
+        }
+
+        applyCursorMutation(({currentValue, currentOffset}) => {
+          const currentDisplayIndex = offsetToDisplayIndex(currentValue, currentOffset);
+          const deleteCount = Math.min(currentDisplayIndex, getBackspaceDeleteCount(rawSequence || input));
+          const deletion = removeBackwardGraphemes(currentValue, currentOffset, deleteCount);
+          return deletion.changed
+            ? {nextValue: deletion.nextValue, nextOffset: deletion.nextOffset}
+            : {nextOffset: deletion.nextOffset};
+        });
+        return;
+      }
+
+      if (key.delete) {
+        const treatAsBackspace = isBackspaceDeleteSequence(rawSequence);
+
+        if (treatAsBackspace) {
+          if (cursorOffsetRef.current === 0) {
+            if (valueRef.current.length > 0) {
+              applyCursorMutation(({currentValue, currentOffset}) => {
+                const deletion = removeForwardGraphemes(currentValue, currentOffset, 1);
+                return deletion.changed
+                  ? {nextValue: deletion.nextValue, nextOffset: deletion.nextOffset}
+                  : {nextOffset: deletion.nextOffset};
+              });
+            }
+            return;
+          }
+
+          applyCursorMutation(({currentValue, currentOffset}) => {
+            const currentDisplayIndex = offsetToDisplayIndex(currentValue, currentOffset);
+            const deleteCount = Math.min(currentDisplayIndex, getBackspaceDeleteCount(rawSequence));
+            const deletion = removeBackwardGraphemes(currentValue, currentOffset, deleteCount);
+            return deletion.changed
+              ? {nextValue: deletion.nextValue, nextOffset: deletion.nextOffset}
+              : {nextOffset: deletion.nextOffset};
+          });
+          return;
+        }
+
+        if (cursorOffsetRef.current >= valueRef.current.length) {
+          return;
+        }
+
+        applyCursorMutation(({currentValue, currentOffset}) => {
+          const deletion = removeForwardGraphemes(currentValue, currentOffset, 1);
+          return deletion.changed
+            ? {nextValue: deletion.nextValue, nextOffset: deletion.nextOffset}
+            : {nextOffset: deletion.nextOffset};
+        });
+        return;
+      }
+
+      if (!input) {
+        return;
+      }
+
+      applyCursorMutation(({currentValue, currentOffset}) => {
+        const insertion = insertAtOffset(currentValue, currentOffset, input);
+        return {
+          nextValue: insertion.nextValue,
+          nextOffset: insertion.nextOffset,
+        };
+      });
+    },
+    {isActive: focus},
+  );
+
+  const renderCursorOffset = Math.max(0, Math.min(value.length, cursorOffsetRef.current));
+  const renderState = useMemo(
+    () => buildInputRenderState(value, renderCursorOffset, promptPrefix, terminalColumns),
+    [value, renderCursorOffset, promptPrefix, terminalColumns],
+  );
+
+  useDeclaredCursor(
+    focus
+      ? {
+        anchorId: INPUT_ANCHOR_ID,
+        relativeX: renderState.cursorColumn,
+        relativeY: renderState.cursorLine,
+        active: true,
+      }
+      : null,
+  );
+
+  return (
+    <CursorAnchorBox flexDirection="column" anchorId={INPUT_ANCHOR_ID}>
+      {renderState.lines.map((line) => (
+        <Box key={line.key}>
+          <Text color={promptColor} bold>
+            {line.prefix}
+          </Text>
+          {line.segments.length === 0 ? (
+            <Text> </Text>
+          ) : (
+            line.segments.map((segment, index) => (
+              <Text key={`${index}:${segment.text}`}>
+                {segment.text}
+              </Text>
+            ))
+          )}
+        </Box>
+      ))}
+    </CursorAnchorBox>
+  );
 }
 
 export function PromptInput({
-	busy,
-	input,
-	setInput,
-	onSubmit,
-	toolName,
-	suppressSubmit,
-	statusLabel,
+  busy,
+  input,
+  setInput,
+  onSubmit,
+  toolName,
+  suppressSubmit,
+  statusLabel,
 }: {
-	busy: boolean;
-	input: string;
-	setInput: (value: string) => void;
-	onSubmit: (value: string) => void;
-	toolName?: string;
-	suppressSubmit?: boolean;
-	statusLabel?: string;
+  busy: boolean;
+  input: string;
+  setInput: (value: string) => void;
+  onSubmit: (value: string) => void;
+  toolName?: string;
+  suppressSubmit?: boolean;
+  statusLabel?: string;
 }): React.JSX.Element {
-	const {theme} = useTheme();
-	const promptPrefix = busy ? '… ' : '> ';
+  const {theme} = useTheme();
+  const horizontalRule = useHorizontalRule();
+  const promptPrefix = busy ? '… ' : '❯ ';
 
-	return (
-		<Box flexDirection="column">
-			{busy ? (
-				<Box flexDirection="column" marginBottom={0}>
-					<Box>
-						<Spinner label={statusLabel ?? (toolName ? `Running ${toolName}...` : 'Running...')} />
-					</Box>
-				</Box>
-			) : null}
-			<MultilineTextInput
-				value={input}
-				onChange={setInput}
-				onSubmit={suppressSubmit || busy ? noop : onSubmit}
-				focus={!busy}
-				promptPrefix={promptPrefix}
-				promptColor={theme.colors.primary}
-			/>
-		</Box>
-	);
+  return (
+    <Box flexDirection="column">
+      <Text color={theme.colors.muted}>{horizontalRule}</Text>
+      {busy ? (
+        <Box flexDirection="column" marginBottom={0}>
+          <Box>
+            <Spinner label={statusLabel ?? (toolName ? `Running ${toolName}...` : 'Running...')} />
+          </Box>
+        </Box>
+      ) : null}
+      <MultilineTextInput
+        value={input}
+        onChange={setInput}
+        onSubmit={suppressSubmit || busy ? noop : onSubmit}
+        focus={!busy}
+        promptPrefix={promptPrefix}
+        promptColor={theme.colors.secondary}
+      />
+      <Text color={theme.colors.muted}>{horizontalRule}</Text>
+    </Box>
+  );
 }

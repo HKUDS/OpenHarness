@@ -1,10 +1,9 @@
 import React, {useEffect, useState} from 'react';
 import {Box, Text} from 'ink';
 
-import {useTheme} from '../theme/ThemeContext.js';
 import type {TaskSnapshot} from '../types.js';
 
-const SEP = ' \u2502 ';
+const SEP = ' · ';
 
 const WRITE_TOOLS = new Set([
 	'Write', 'Edit', 'MultiEdit', 'NotebookEdit',
@@ -63,7 +62,6 @@ function StatusBarInner({
 	tasks: TaskSnapshot[];
 	activeToolName?: string;
 }): React.JSX.Element {
-	const {theme} = useTheme();
 	const model = String(status.model ?? 'unknown');
 	const mode = String(status.permission_mode ?? 'default');
 	const taskCount = tasks.length;
@@ -74,32 +72,13 @@ function StatusBarInner({
 
 	return (
 		<Box flexDirection="column">
-			<Text dimColor>{'─'.repeat(60)}</Text>
-			<Box flexDirection="row" alignItems="center">
-				<Text>
-					<Text color={theme.colors.primary} dimColor>model: {model}</Text>
-					<Text dimColor>{SEP}</Text>
-					{inputTokens > 0 || outputTokens > 0 ? (
-						<>
-							<Text dimColor>tokens: {formatNum(inputTokens)}{'\u2193'} {formatNum(outputTokens)}{'\u2191'}</Text>
-							<Text dimColor>{SEP}</Text>
-						</>
-					) : null}
-					{!isPlanMode ? (
-						<Text dimColor>mode: {mode}</Text>
-					) : null}
-					{taskCount > 0 ? (
-						<>
-							<Text dimColor>{SEP}</Text>
-							<Text dimColor>tasks: {taskCount}</Text>
-						</>
-					) : null}
-					{mcpCount > 0 ? (
-						<>
-							<Text dimColor>{SEP}</Text>
-							<Text dimColor>mcp: {mcpCount}</Text>
-						</>
-					) : null}
+			<Box flexDirection="row" alignItems="center" justifyContent="space-between">
+				<Text dimColor>
+					model: {model}
+					{inputTokens > 0 || outputTokens > 0 ? `${SEP}tokens: ${formatNum(inputTokens)}↓ ${formatNum(outputTokens)}↑` : ''}
+					{!isPlanMode ? `${SEP}mode: ${mode}` : ''}
+					{taskCount > 0 ? `${SEP}tasks: ${taskCount}` : ''}
+					{mcpCount > 0 ? `${SEP}mcp: ${mcpCount}` : ''}
 				</Text>
 				{isPlanMode ? (
 					<PlanModeIndicator mode={mode} activeToolName={activeToolName} />

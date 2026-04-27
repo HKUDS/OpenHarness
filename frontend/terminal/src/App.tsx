@@ -110,6 +110,8 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 
 	const showPicker = commandHints.length > 0 && !session.busy && !session.modal && !selectModal;
 	const outputStyle = String(session.status.output_style ?? 'default');
+	const effortLabel = String(deferredStatus.effort ?? 'medium');
+	const modeLabel = String(deferredStatus.permission_mode ?? 'Default');
 
 	useEffect(() => {
 		setPickerIndex(0);
@@ -396,6 +398,9 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 					assistantBuffer={deferredAssistantBuffer}
 					showWelcome={session.ready && outputStyle !== 'codex'}
 					outputStyle={outputStyle}
+					model={String(deferredStatus.model ?? '')}
+					provider={String(deferredStatus.provider ?? '')}
+					cwd={String(deferredStatus.cwd ?? '')}
 				/>
 			</Box>
 
@@ -418,11 +423,6 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 				/>
 			) : null}
 
-			{/* Command picker */}
-			{showPicker ? (
-				<CommandPicker hints={commandHints} selectedIndex={pickerIndex} />
-			) : null}
-
 			{/* Todo panel */}
 			{session.ready && deferredTodoMarkdown ? (
 				<TodoPanel markdown={deferredTodoMarkdown} />
@@ -436,6 +436,21 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 			{/* Status bar (only after backend is ready) */}
 			{session.ready ? (
 				<StatusBar status={deferredStatus} tasks={deferredTasks} activeToolName={session.busy ? currentToolName : undefined} />
+			) : null}
+
+			{/* Keyboard hints (only after backend is ready) */}
+			{session.ready && !session.modal && !selectModal ? (
+				<Box justifyContent="space-between">
+					<Text dimColor>
+						? for shortcuts
+					</Text>
+					<Text dimColor>
+						<Text color={theme.colors.muted}>●</Text>{' '}
+						{effortLabel}{' '}·{' '}
+						<Text color={theme.colors.primary}>/effort</Text>{'  '}
+						<Text dimColor>{modeLabel}</Text>
+					</Text>
+				</Box>
 			) : null}
 
 			{/* Input — show loading indicator until backend is ready */}
@@ -455,17 +470,9 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 				/>
 			)}
 
-			{/* Keyboard hints (only after backend is ready) */}
-			{session.ready && !session.modal && !selectModal ? (
-				<Box>
-					<Text dimColor>
-						<Text color={theme.colors.primary}>shift+enter</Text> newline{'  '}
-						<Text color={theme.colors.primary}>enter</Text> send{'  '}
-						<Text color={theme.colors.primary}>/</Text> commands{'  '}
-						<Text color={theme.colors.primary}>{'\u2191\u2193'}</Text> history{'  '}
-						<Text color={theme.colors.primary}>ctrl+c</Text> exit
-					</Text>
-				</Box>
+			{/* Command picker */}
+			{session.ready && !session.modal && !selectModal && showPicker ? (
+				<CommandPicker hints={commandHints} selectedIndex={pickerIndex} />
 			) : null}
 		</Box>
 	);

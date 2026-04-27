@@ -1,6 +1,8 @@
 import React from 'react';
 import {Box, Text} from 'ink';
 
+import {useTheme} from '../theme/ThemeContext.js';
+
 function CommandPickerInner({
 	hints,
 	selectedIndex,
@@ -8,26 +10,25 @@ function CommandPickerInner({
 	hints: string[];
 	selectedIndex: number;
 }): React.JSX.Element | null {
+	const {theme} = useTheme();
+
 	if (hints.length === 0) {
 		return null;
 	}
 
 	return (
-		<Box flexDirection="column" borderStyle="round" borderColor="cyan" paddingX={1} marginBottom={0}>
-			<Text dimColor bold> Commands</Text>
+		<Box flexDirection="column" marginBottom={0}>
 			{hints.map((hint, i) => {
 				const isSelected = i === selectedIndex;
 				return (
 					<Box key={hint}>
-						<Text color={isSelected ? 'cyan' : undefined} bold={isSelected}>
-							{isSelected ? '\u276F ' : '  '}
+						<Text color={isSelected ? theme.colors.secondary : theme.colors.muted} bold={isSelected}>
+							{isSelected ? '\u276f ' : '  '}
 							{hint}
 						</Text>
-						{isSelected ? <Text dimColor> [enter]</Text> : null}
 					</Box>
 				);
 			})}
-			<Text dimColor> {'\u2191\u2193'} navigate{'  '}{'\u23CE'} select{'  '}esc dismiss</Text>
 		</Box>
 	);
 }

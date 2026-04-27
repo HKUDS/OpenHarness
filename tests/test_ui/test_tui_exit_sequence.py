@@ -47,3 +47,17 @@ def test_tui_exit_handler_registered_for_all_signals() -> None:
             f"The TUI exit cleanup must be registered for '{signal}'. "
             f"Check {_frontend_index()}."
         )
+
+
+def test_tui_uses_alternate_screen_lifecycle_sequences() -> None:
+    """Startup should enter alt-screen and teardown should leave it."""
+    source = _frontend_index().read_text(encoding="utf-8")
+
+    assert "\\x1B[?1049h" in source, (
+        "The React TUI should enter alternate screen on startup. "
+        f"Check {_frontend_index()}."
+    )
+    assert "\\x1B[?1049l" in source, (
+        "The React TUI should leave alternate screen during teardown. "
+        f"Check {_frontend_index()}."
+    )

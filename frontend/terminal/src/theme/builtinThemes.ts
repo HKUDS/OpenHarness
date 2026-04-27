@@ -26,16 +26,41 @@ export type ThemeConfig = {
 export const defaultTheme: ThemeConfig = {
 	name: 'default',
 	colors: {
-		primary: 'cyan',
-		secondary: 'white',
-		accent: 'cyan',
-		foreground: 'white',
-		background: 'black',
-		muted: 'gray',
-		success: 'green',
-		warning: 'yellow',
-		error: 'red',
-		info: 'blue',
+		primary: '#e88358',
+		secondary: '#b5bcff',
+		accent: '#e88358',
+		foreground: '#e6e7eb',
+		background: '#0f1020',
+		muted: '#8e9099',
+		success: '#e88358',
+		warning: '#f2c078',
+		error: '#f57878',
+		info: '#a7adff',
+	},
+	icons: {
+		spinner: ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'],
+		tool: '  ⏵ ',
+		assistant: '⏺ ',
+		user: '> ',
+		system: 'ℹ ',
+		success: '✓ ',
+		error: '✗ ',
+	},
+};
+
+export const claudeTheme: ThemeConfig = {
+	name: 'claude',
+	colors: {
+		primary: '#e88358',
+		secondary: '#b5bcff',
+		accent: '#e88358',
+		foreground: '#e6e7eb',
+		background: '#0f1020',
+		muted: '#8e9099',
+		success: '#e88358',
+		warning: '#f2c078',
+		error: '#f57878',
+		info: '#a7adff',
 	},
 	icons: {
 		spinner: ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'],
@@ -150,6 +175,7 @@ export const solarizedTheme: ThemeConfig = {
 
 export const BUILTIN_THEMES: Record<string, ThemeConfig> = {
 	default: defaultTheme,
+	claude: claudeTheme,
 	dark: darkTheme,
 	minimal: minimalTheme,
 	cyberpunk: cyberpunkTheme,
