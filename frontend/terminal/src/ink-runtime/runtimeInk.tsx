@@ -43,6 +43,24 @@ type RuntimeState = {
 
 const CURSOR_HOME = '\u001b[H';
 const CLEAR_TO_SCREEN_END = '\u001b[J';
+const CLEAR_LINE = '\u001b[2K';
+const CURSOR_BAR = '\u001b[6 q';
+const CURSOR_DEFAULT = '\u001b[0 q';
+
+function renderAbsoluteFrame(frame: string): string {
+  const normalized = frame.endsWith('\n') ? frame.slice(0, -1) : frame;
+  const lines = normalized.length > 0 ? normalized.split('\n') : [''];
+
+  let output = CURSOR_BAR;
+
+  for (let index = 0; index < lines.length; index += 1) {
+    output += `\u001b[${index + 1};1H${CLEAR_LINE}${lines[index]}`;
+  }
+
+  output += `\u001b[${lines.length + 1};1H${CLEAR_TO_SCREEN_END}`;
+
+  return output;
+}
 
 export function flushAndParkFrame(options: {
   stdout: NodeJS.WriteStream;
@@ -95,7 +113,7 @@ export function flushAndParkFrame(options: {
   }
 
   if (absoluteScreen) {
-    stdout.write(CURSOR_HOME + fullStaticOutput + output + CLEAR_TO_SCREEN_END);
+    stdout.write(renderAbsoluteFrame(fullStaticOutput + output));
     lastOutput = output;
     parkCursor();
 
@@ -270,7 +288,7 @@ export default class RuntimeInk {
 
     if (this.shouldUseAbsoluteScreen()) {
       this.options.stdout.write(
-        CURSOR_HOME + data + this.fullStaticOutput + this.lastOutput + CLEAR_TO_SCREEN_END,
+        renderAbsoluteFrame(data + this.fullStaticOutput + this.lastOutput),
       );
       this.parkCursor();
       return;
@@ -302,7 +320,7 @@ export default class RuntimeInk {
     if (this.shouldUseAbsoluteScreen()) {
       this.options.stderr.write(data);
       this.options.stdout.write(
-        CURSOR_HOME + this.fullStaticOutput + this.lastOutput + CLEAR_TO_SCREEN_END,
+        renderAbsoluteFrame(this.fullStaticOutput + this.lastOutput),
       );
       this.parkCursor();
       return;
@@ -330,6 +348,10 @@ export default class RuntimeInk {
 
     if (typeof this.unsubscribeResize === 'function') {
       this.unsubscribeResize();
+    }
+
+    if (this.options.stdout.isTTY) {
+      this.options.stdout.write(CURSOR_DEFAULT);
     }
 
     if (isInCi) {

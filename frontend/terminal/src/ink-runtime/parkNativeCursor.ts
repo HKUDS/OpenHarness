@@ -2,6 +2,8 @@ import type {AnchorRect, DeclaredCursor} from './cursorTypes.js';
 
 const DISABLE_NATIVE_CURSOR_PARK = process.env.OPENHARNESS_DISABLE_NATIVE_CURSOR_PARK === '1';
 const DEBUG_NATIVE_CURSOR_PARK = process.env.OPENHARNESS_DEBUG_NATIVE_CURSOR_PARK === '1';
+const SHOW_CURSOR = '\u001b[?25h';
+const STEADY_BAR_CURSOR = '\u001b[6 q';
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
@@ -65,5 +67,5 @@ export function parkNativeCursor(options: {
   }
 
   // Keep the native terminal cursor visible and park it at the input caret.
-  stdout.write(`\u001b[?25h\u001b[${absoluteY + 1};${absoluteX + 1}H`);
+  stdout.write(`${SHOW_CURSOR}${STEADY_BAR_CURSOR}\u001b[${absoluteY + 1};${absoluteX + 1}H`);
 }
