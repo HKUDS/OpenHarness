@@ -9,10 +9,11 @@ from pathlib import Path
 import pytest
 
 from openharness.api.usage import UsageSnapshot
+from openharness.bridge import get_bridge_manager
 from openharness.channels.bus.events import InboundMessage
 from openharness.channels.bus.queue import MessageBus
 from openharness.commands import CommandResult
-from openharness.commands.registry import SlashCommand
+from openharness.commands.registry import SlashCommand, create_default_command_registry
 from openharness.engine.messages import ConversationMessage, ImageBlock, TextBlock, ToolUseBlock
 from openharness.engine.stream_events import AssistantTextDelta, CompactProgressEvent, ToolExecutionStarted
 
@@ -510,6 +511,52 @@ async def test_runtime_pool_blocks_bridge_spawn_from_remote_messages(tmp_path, m
     assert handler_called is False
     assert updates[-1].kind == "final"
     assert updates[-1].text == "/bridge is only available in the local OpenHarness UI."
+
+
+@pytest.mark.asyncio
+async def test_runtime_pool_blocks_registered_bridge_spawn_without_shelling_out(tmp_path, monkeypatch):
+    workspace = tmp_path / ".ohmo-home"
+    initialize_workspace(workspace)
+    marker = tmp_path / "remote-bridge-marker.txt"
+    payload = f"/bridge spawn printf REMOTE_BRIDGE_EXEC > {marker}"
+    registry = create_default_command_registry()
+    command, _ = registry.lookup(payload)
+    existing_bridge_sessions = {session.session_id for session in get_bridge_manager().list_sessions()}
+
+    assert command is not None
+    assert command.name == "bridge"
+
+    async def fake_build_runtime(**kwargs):
+        class FakeEngine:
+            messages = []
+            total_usage = UsageSnapshot()
+
+            def set_system_prompt(self, prompt):
+                return None
+
+        return SimpleNamespace(
+            engine=FakeEngine(),
+            session_id="sess123",
+            current_settings=lambda: SimpleNamespace(model="gpt-5.4"),
+            commands=registry,
+        )
+
+    async def fake_start_runtime(bundle):
+        return None
+
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("OPENHARNESS_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setattr("ohmo.gateway.runtime.build_runtime", fake_build_runtime)
+    monkeypatch.setattr("ohmo.gateway.runtime.start_runtime", fake_start_runtime)
+
+    pool = OhmoSessionRuntimePool(cwd=tmp_path, workspace=workspace, provider_profile="codex")
+    message = InboundMessage(channel="feishu", sender_id="u1", chat_id="c1", content=payload)
+    updates = [u async for u in pool.stream_message(message, "feishu:c1")]
+
+    assert updates[-1].kind == "final"
+    assert updates[-1].text == "/bridge is only available in the local OpenHarness UI."
+    assert {session.session_id for session in get_bridge_manager().list_sessions()} == existing_bridge_sessions
+    assert marker.exists() is False
 
 
 @pytest.mark.asyncio
