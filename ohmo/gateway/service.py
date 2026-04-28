@@ -13,6 +13,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+if sys.platform == "win32":
+    import ctypes
+
 from openharness.channels.bus.events import OutboundMessage
 from openharness.channels.bus.queue import MessageBus
 from openharness.channels.impl.manager import ChannelManager
@@ -205,7 +208,22 @@ def start_gateway_process(cwd: str | Path | None = None, workspace: str | Path |
     if existing_pythonpath:
         pythonpath_entries.append(existing_pythonpath)
     env["PYTHONPATH"] = os.pathsep.join(pythonpath_entries)
+
+    popen_kwargs: dict = {
+        "cwd": service._cwd,
+        "stdout": None,
+        "stderr": None,
+        "env": env,
+    }
+    if sys.platform == "win32":
+        popen_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS  # type: ignore[attr-defined]
+        popen_kwargs["stdin"] = subprocess.DEVNULL
+    else:
+        popen_kwargs["start_new_session"] = True
+
     with service.log_file.open("a", encoding="utf-8") as log_file:
+        popen_kwargs["stdout"] = log_file
+        popen_kwargs["stderr"] = log_file
         process = subprocess.Popen(
             [
                 sys.executable,
@@ -218,55 +236,91 @@ def start_gateway_process(cwd: str | Path | None = None, workspace: str | Path |
                 "--workspace",
                 str(get_workspace_root(workspace)),
             ],
-            cwd=service._cwd,
-            stdout=log_file,
-            stderr=log_file,
-            start_new_session=True,
-            env=env,
+            **popen_kwargs,
         )
     return process.pid
 
 
 def _pid_is_running(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-    except OSError:
-        return False
-    return True
+    if sys.platform == "win32":
+        kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+        handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+        if not handle:
+            return False
+        try:
+            exit_code = ctypes.c_ulong()
+            if kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
+                return exit_code.value == 259  # STILL_ACTIVE
+            return False
+        finally:
+            kernel32.CloseHandle(handle)
+    else:
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            return False
+        return True
 
 
 def _iter_workspace_gateway_pids(workspace: str | Path | None = None) -> list[int]:
     root = str(get_workspace_root(workspace))
-    try:
-        result = subprocess.run(
-            ["ps", "-eo", "pid=,args="],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-    except Exception:
-        return []
-
-    current_pid = os.getpid()
-    pids: list[int] = []
-    for line in result.stdout.splitlines():
-        line = line.strip()
-        if not line:
-            continue
+    if sys.platform == "win32":
         try:
-            pid_text, args = line.split(None, 1)
-            pid = int(pid_text)
-        except ValueError:
-            continue
-        if pid == current_pid:
-            continue
-        if "-m ohmo gateway run" not in args:
-            continue
-        if f"--workspace {root}" not in args:
-            continue
-        if _pid_is_running(pid):
-            pids.append(pid)
-    return pids
+            result = subprocess.run(
+                ["wmic", "process", "where",
+                 f"commandline like '%-m ohmo gateway run%' and commandline like '%--workspace {root}%'",
+                 "get", "processid"],
+                capture_output=True, text=True, check=True,
+            )
+        except Exception:
+            return []
+        current_pid = os.getpid()
+        pids: list[int] = []
+        for line in result.stdout.splitlines():
+            line = line.strip()
+            if not line or line.lower() == "processid":
+                continue
+            try:
+                pid = int(line)
+            except ValueError:
+                continue
+            if pid == current_pid:
+                continue
+            if _pid_is_running(pid):
+                pids.append(pid)
+        return pids
+    else:
+        try:
+            result = subprocess.run(
+                ["ps", "-eo", "pid=,args="],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+        except Exception:
+            return []
+
+        current_pid = os.getpid()
+        pids = []
+        for line in result.stdout.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                pid_text, args = line.split(None, 1)
+                pid = int(pid_text)
+            except ValueError:
+                continue
+            if pid == current_pid:
+                continue
+            if "-m ohmo gateway run" not in args:
+                continue
+            if f"--workspace {root}" not in args:
+                continue
+            if _pid_is_running(pid):
+                pids.append(pid)
+        return pids
 
 
 def stop_gateway_process(cwd: str | Path | None = None, workspace: str | Path | None = None) -> bool:
@@ -286,9 +340,18 @@ def stop_gateway_process(cwd: str | Path | None = None, workspace: str | Path | 
     if not unique_pids:
         service.pid_file.unlink(missing_ok=True)
         return False
-    for pid in unique_pids:
-        with contextlib.suppress(ProcessLookupError):
-            os.kill(pid, signal.SIGTERM)
+    if sys.platform == "win32":
+        for pid in unique_pids:
+            with contextlib.suppress(Exception):
+                subprocess.run(
+                    ["taskkill", "/F", "/T", "/PID", str(pid)],
+                    capture_output=True,
+                    check=False,
+                )
+    else:
+        for pid in unique_pids:
+            with contextlib.suppress(ProcessLookupError):
+                os.kill(pid, signal.SIGTERM)
     service.pid_file.unlink(missing_ok=True)
     service.write_state(running=False)
     return True
