@@ -251,12 +251,12 @@ async def run_print_mode(
                     events_list.append(obj)
             elif isinstance(event, ToolExecutionStarted):
                 if output_format == "stream-json":
-                    obj = {"type": "tool_started", "tool_name": event.tool_name, "tool_input": event.tool_input}
+                    obj = {"type": "tool_started", "tool_name": event.tool_name, "tool_input": event.tool_input, "tool_call_id": event.tool_call_id}
                     print(json.dumps(obj), flush=True)
                     events_list.append(obj)
             elif isinstance(event, ToolExecutionCompleted):
                 if output_format == "stream-json":
-                    obj = {"type": "tool_completed", "tool_name": event.tool_name, "output": event.output, "is_error": event.is_error}
+                    obj = {"type": "tool_completed", "tool_name": event.tool_name, "output": event.output, "is_error": event.is_error, "tool_call_id": event.tool_call_id}
                     print(json.dumps(obj), flush=True)
                     events_list.append(obj)
             elif isinstance(event, ErrorEvent):

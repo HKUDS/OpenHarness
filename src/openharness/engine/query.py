@@ -31,6 +31,7 @@ from openharness.engine.stream_events import (
 )
 from openharness.hooks import HookEvent, HookExecutor
 from openharness.permissions.checker import PermissionChecker
+from openharness.skills.runtime import ActiveSkillContext, build_effective_system_prompt, filter_tool_registry
 from openharness.tools.base import ToolExecutionContext
 from openharness.tools.base import ToolRegistry
 
@@ -95,6 +96,7 @@ class QueryContext:
     max_turns: int | None = 200
     hook_executor: HookExecutor | None = None
     tool_metadata: dict[str, object] | None = None
+    active_skill: ActiveSkillContext | None = None
 
 
 def _append_capped_unique(bucket: list[Any], value: Any, *, limit: int) -> None:
@@ -525,14 +527,23 @@ async def run_query(
         final_message: ConversationMessage | None = None
         usage = UsageSnapshot()
 
+        # Skill overrides for this turn
+        active_skill = context.active_skill
+        model = active_skill.model_override if active_skill is not None and active_skill.model_override else context.model
+        system_prompt = build_effective_system_prompt(context.system_prompt, active_skill)
+        tool_registry = filter_tool_registry(
+            context.tool_registry,
+            active_skill.allowed_tools if active_skill is not None else None,
+        )
+
         try:
             async for event in context.api_client.stream_message(
                 ApiMessageRequest(
-                    model=context.model,
+                    model=model,
                     messages=messages,
-                    system_prompt=context.system_prompt,
+                    system_prompt=system_prompt,
                     max_tokens=context.max_tokens,
-                    tools=context.tool_registry.to_api_schema(),
+                    tools=tool_registry.to_api_schema(),
                 )
             ):
                 if isinstance(event, ApiTextDeltaEvent):
@@ -606,18 +617,19 @@ async def run_query(
         if len(tool_calls) == 1:
             # Single tool: sequential (stream events immediately)
             tc = tool_calls[0]
-            yield ToolExecutionStarted(tool_name=tc.name, tool_input=tc.input), None
+            yield ToolExecutionStarted(tool_name=tc.name, tool_input=tc.input, tool_call_id=tc.id), None
             result = await _execute_tool_call(context, tc.name, tc.id, tc.input)
             yield ToolExecutionCompleted(
                 tool_name=tc.name,
                 output=result.content,
+                tool_call_id=tc.id,
                 is_error=result.is_error,
             ), None
             tool_results = [result]
         else:
             # Multiple tools: execute concurrently, emit events after
             for tc in tool_calls:
-                yield ToolExecutionStarted(tool_name=tc.name, tool_input=tc.input), None
+                yield ToolExecutionStarted(tool_name=tc.name, tool_input=tc.input, tool_call_id=tc.id), None
 
             async def _run(tc):
                 return await _execute_tool_call(context, tc.name, tc.id, tc.input)
@@ -649,6 +661,7 @@ async def run_query(
                 yield ToolExecutionCompleted(
                     tool_name=tc.name,
                     output=result.content,
+                    tool_call_id=tc.id,
                     is_error=result.is_error,
                 ), None
 

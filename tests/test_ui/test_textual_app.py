@@ -112,7 +112,7 @@ async def test_textual_app_handles_ask_user_tool(tmp_path, monkeypatch):
         await pilot.press("enter")
         await pilot.pause()
 
-    assert any("tool-result> ask_user_question: green" in line for line in app.transcript_lines)
+    assert any("tool-result> ask_user_question" in line and ": green" in line for line in app.transcript_lines)
     assert any("assistant> chosen green" in line for line in app.transcript_lines)
 
 

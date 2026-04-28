@@ -30,6 +30,7 @@ class ToolExecutionStarted:
 
     tool_name: str
     tool_input: dict[str, Any]
+    tool_call_id: str
 
 
 @dataclass(frozen=True)
@@ -38,6 +39,7 @@ class ToolExecutionCompleted:
 
     tool_name: str
     output: str
+    tool_call_id: str
     is_error: bool = False
 
 
