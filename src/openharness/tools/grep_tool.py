@@ -101,7 +101,10 @@ def _python_grep_files(
 ) -> str:
     # Python fallback (kept for portability).
     flags = 0 if case_sensitive else re.IGNORECASE
-    compiled = re.compile(pattern, flags)
+    try:
+        compiled = re.compile(pattern, flags)
+    except re.error as exc:
+        return f"(invalid regex pattern '{pattern}': {exc})"
     collected: list[str] = []
 
     for path in paths:
