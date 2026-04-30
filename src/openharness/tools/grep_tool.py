@@ -104,7 +104,7 @@ def _python_grep_files(
     try:
         compiled = re.compile(pattern, flags)
     except re.error as exc:
-        return f"(invalid regex pattern: {exc})"
+        return f"(invalid regex pattern '{pattern}': {exc})"
     collected: list[str] = []
 
     for path in paths:
