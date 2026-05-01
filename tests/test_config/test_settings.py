@@ -670,3 +670,67 @@ class TestQwenProvider:
         assert materialized.model == "qwen-plus"
         assert materialized.provider == "dashscope"
         assert materialized.api_format == "openai"
+
+
+class TestModelScopeProvider:
+    """Tests for ModelScope provider profile and auth integration."""
+
+    def test_modelscope_in_default_provider_profiles(self):
+        from openharness.config.settings import default_provider_profiles
+
+        profiles = default_provider_profiles()
+        assert "modelscope" in profiles
+        profile = profiles["modelscope"]
+        assert profile.provider == "modelscope"
+        assert profile.api_format == "openai"
+        assert profile.auth_source == "modelscope_api_key"
+        assert profile.default_model == "deepseek-ai/DeepSeek-V4-Flash"
+        assert profile.base_url == "https://api-inference.modelscope.cn/v1"
+
+    def test_auth_source_provider_name_modelscope(self):
+        from openharness.config.settings import auth_source_provider_name
+
+        assert auth_source_provider_name("modelscope_api_key") == "modelscope"
+
+    def test_default_auth_source_for_modelscope_provider(self):
+        from openharness.config.settings import default_auth_source_for_provider
+
+        assert default_auth_source_for_provider("modelscope") == "modelscope_api_key"
+
+    def test_resolve_auth_reads_modelscope_api_key_env(self, monkeypatch):
+        monkeypatch.setenv("MODELSCOPE_API_KEY", "modelscope-test-key")
+        settings = Settings(
+            active_profile="modelscope",
+            profiles={
+                "modelscope": ProviderProfile(
+                    label="ModelScope",
+                    provider="modelscope",
+                    api_format="openai",
+                    auth_source="modelscope_api_key",
+                    default_model="deepseek-ai/DeepSeek-V4-Flash",
+                    base_url="https://api-inference.modelscope.cn/v1",
+                )
+            },
+        )
+        resolved = settings.resolve_auth()
+        assert resolved.value == "modelscope-test-key"
+        assert "MODELSCOPE_API_KEY" in resolved.source
+
+    def test_modelscope_profile_materializes_default_model(self):
+        settings = Settings(
+            active_profile="modelscope",
+            profiles={
+                "modelscope": ProviderProfile(
+                    label="ModelScope",
+                    provider="modelscope",
+                    api_format="openai",
+                    auth_source="modelscope_api_key",
+                    default_model="deepseek-ai/DeepSeek-V4-Flash",
+                    base_url="https://api-inference.modelscope.cn/v1",
+                )
+            },
+        )
+        materialized = settings.materialize_active_profile()
+        assert materialized.model == "deepseek-ai/DeepSeek-V4-Flash"
+        assert materialized.provider == "modelscope"
+        assert materialized.api_format == "openai"

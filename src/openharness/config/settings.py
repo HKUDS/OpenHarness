@@ -248,6 +248,14 @@ def default_provider_profiles() -> dict[str, ProviderProfile]:
             default_model="qwen-plus",
             base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
         ),
+        "modelscope": ProviderProfile(
+            label="ModelScope",
+            provider="modelscope",
+            api_format="openai",
+            auth_source="modelscope_api_key",
+            default_model="deepseek-ai/DeepSeek-V4-Flash",
+            base_url="https://api-inference.modelscope.cn/v1",
+        ),
     }
 
 
@@ -336,6 +344,7 @@ def auth_source_provider_name(auth_source: str) -> str:
         "moonshot_api_key": "moonshot",
         "gemini_api_key": "gemini",
         "minimax_api_key": "minimax",
+        "modelscope_api_key": "modelscope",
     }
     return mapping.get(auth_source, auth_source)
 
@@ -377,6 +386,8 @@ def default_auth_source_for_provider(provider: str, api_format: str | None = Non
         return "gemini_api_key"
     if provider == "minimax":
         return "minimax_api_key"
+    if provider == "modelscope":
+        return "modelscope_api_key"
     if provider == "openai" or api_format == "openai":
         return "openai_api_key"
     return "anthropic_api_key"
@@ -695,6 +706,7 @@ class Settings(BaseModel):
             "dashscope_api_key": "DASHSCOPE_API_KEY",
             "moonshot_api_key": "MOONSHOT_API_KEY",
             "minimax_api_key": "MINIMAX_API_KEY",
+            "modelscope_api_key": "MODELSCOPE_API_KEY",
         }.get(auth_source)
         if env_var:
             env_value = os.environ.get(env_var, "")
