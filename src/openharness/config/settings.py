@@ -456,6 +456,32 @@ def _profile_from_flat_settings(settings: "Settings") -> tuple[str, ProviderProf
     return name, profile
 
 
+class VisionModelConfig(BaseModel):
+    """Configuration for the vision model used by the image_to_text tool.
+
+    When the active model does not support multimodal input, the agent loop
+    automatically falls back to this vision model to describe images.
+    """
+
+    model: str = ""
+    api_key: str = ""
+    base_url: str = ""
+
+    @classmethod
+    def from_env(cls) -> "VisionModelConfig":
+        """Load vision model config from environment variables."""
+        return cls(
+            model=os.environ.get("OPENHARNESS_VISION_MODEL", "").strip(),
+            api_key=os.environ.get("OPENHARNESS_VISION_API_KEY", "").strip(),
+            base_url=os.environ.get("OPENHARNESS_VISION_BASE_URL", "").strip(),
+        )
+
+    @property
+    def is_configured(self) -> bool:
+        """Return True when both model and api_key are set."""
+        return bool(self.model and self.api_key)
+
+
 class Settings(BaseModel):
     """Main settings model for OpenHarness."""
 
@@ -492,6 +518,9 @@ class Settings(BaseModel):
     effort: str = "medium"
     passes: int = 1
     verbose: bool = False
+
+    # Vision model (image-to-text fallback)
+    vision: VisionModelConfig = Field(default_factory=VisionModelConfig)
 
     def merged_profiles(self) -> dict[str, ProviderProfile]:
         """Return the saved profiles merged over the built-in catalog."""
