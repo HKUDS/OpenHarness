@@ -464,7 +464,6 @@ def _record_tool_carryover(
         _remember_work_log(context.tool_metadata, entry="Exited plan mode")
 
 
-<<<<<<< HEAD
 def _tool_artifact_dir() -> Path:
     artifact_dir = get_data_dir() / "tool_artifacts"
     artifact_dir.mkdir(parents=True, exist_ok=True)
