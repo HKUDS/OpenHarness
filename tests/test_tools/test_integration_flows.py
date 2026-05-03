@@ -40,13 +40,13 @@ async def test_search_edit_flow_across_registry(tmp_path: Path):
         context,
     )
     glob_result = await glob.execute(glob.input_model(pattern="**/*.py"), context)
-    assert "src/demo.py" in glob_result.output
+    assert "src/demo.py" in glob_result.output.replace("\\", "/")
 
     grep_result = await grep.execute(
         grep.input_model(pattern="beta", file_glob="**/*.py"),
         context,
     )
-    assert "src/demo.py:2:beta" in grep_result.output
+    assert "src/demo.py:2:beta" in grep_result.output.replace("\\", "/")
 
     await edit.execute(
         edit.input_model(path="src/demo.py", old_str="beta", new_str="gamma"),
@@ -290,7 +290,7 @@ async def test_lsp_flow_across_registry(tmp_path: Path):
         lsp.input_model(operation="go_to_definition", file_path="pkg/app.py", symbol="greet"),
         context,
     )
-    assert "pkg/utils.py:1:1" in definition_result.output
+    assert "pkg/utils.py:1:1" in definition_result.output.replace("\\", "/")
 
     hover_result = await lsp.execute(
         lsp.input_model(operation="hover", file_path="pkg/app.py", symbol="greet"),

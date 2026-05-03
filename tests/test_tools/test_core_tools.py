@@ -97,7 +97,7 @@ async def test_glob_tool_accepts_absolute_patterns(tmp_path: Path, monkeypatch):
     )
 
     assert result.is_error is False
-    assert result.output.splitlines() == ["pkg/a.py"]
+    assert result.output.replace("\\", "/").splitlines() == ["pkg/a.py"]
 
 
 @pytest.mark.asyncio
@@ -215,13 +215,13 @@ async def test_lsp_tool(tmp_path: Path):
         LspToolInput(operation="go_to_definition", file_path="pkg/app.py", symbol="greet"),
         context,
     )
-    assert "pkg/utils.py:1:1" in definition.output
+    assert "pkg/utils.py:1:1" in definition.output.replace("\\", "/")
 
     references = await LspTool().execute(
         LspToolInput(operation="find_references", file_path="pkg/app.py", symbol="greet"),
         context,
     )
-    assert "pkg/app.py:1:from pkg.utils import greet" in references.output
+    assert "pkg/app.py:1:from pkg.utils import greet" in references.output.replace("\\", "/")
 
     hover = await LspTool().execute(
         LspToolInput(operation="hover", file_path="pkg/app.py", symbol="greet"),

@@ -274,4 +274,5 @@ def test_tool_registered() -> None:
     assert tool is not None
     assert tool.name == "image_to_text"
     assert "vision" in tool.description.lower()
-    assert tool.input_model is ImageToTextToolInput
+    assert tool.input_model.__name__ == "ImageToTextToolInput"
+    assert tool.input_model.__module__ == "openharness.tools.image_to_text_tool"

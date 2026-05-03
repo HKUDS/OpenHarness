@@ -732,6 +732,9 @@ async def test_version_context_and_share_commands(tmp_path: Path, monkeypatch):
 async def test_auth_feedback_and_project_context_commands(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
     monkeypatch.setenv("OPENHARNESS_DATA_DIR", str(tmp_path / "data"))
+    # Prevent env var leakage from overriding the configured api_key
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     registry = create_default_command_registry()
     context = _make_context(tmp_path)
 
@@ -790,7 +793,7 @@ async def test_agents_session_files_and_reload_plugins_commands(tmp_path: Path, 
 
     files_command, files_args = registry.lookup("/files app.py")
     files_result = await files_command.handler(files_args, context)
-    assert "src/app.py" in files_result.message
+    assert "src/app.py" in files_result.message.replace("\\", "/")
 
     files_dirs_command, files_dirs_args = registry.lookup("/files dirs")
     files_dirs_result = await files_dirs_command.handler(files_dirs_args, context)

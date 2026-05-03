@@ -95,6 +95,9 @@ def test_select_from_menu_uses_questionary_when_tty(monkeypatch):
 def test_setup_flow_creates_kimi_profile_with_profile_scoped_key(tmp_path: Path, monkeypatch):
     runner = CliRunner()
     monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path))
+    # Prevent env var leakage from overriding the configured api_key
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
 
     selections = iter(["claude-api", "kimi-anthropic"])
     prompts = iter(
