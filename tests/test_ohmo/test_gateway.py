@@ -16,7 +16,7 @@ from openharness.commands import CommandResult
 from openharness.commands.registry import SlashCommand, create_default_command_registry
 from openharness.config.settings import Settings
 from openharness.engine.messages import ConversationMessage, ImageBlock, TextBlock, ToolUseBlock
-from openharness.engine.stream_events import AssistantTextDelta, CompactProgressEvent, ToolExecutionStarted
+from openharness.engine.stream_events import AssistantTextDelta, CompactProgressEvent, ErrorEvent, ToolExecutionStarted
 from openharness.memory import add_memory_entry as add_project_memory_entry
 from openharness.memory import list_memory_files as list_project_memory_files
 
@@ -786,6 +786,89 @@ async def test_runtime_pool_includes_media_paths_in_prompt(tmp_path, monkeypatch
     assert f"image: example.png (path: {image_path})" in text
     assert f"file: report.txt (path: {report_path})" in text
     assert "text preview: Quarterly summary Revenue up 12%" in text
+
+
+@pytest.mark.asyncio
+async def test_runtime_pool_retries_with_attachment_summary_when_model_rejects_images(tmp_path, monkeypatch):
+    workspace = tmp_path / ".ohmo-home"
+    initialize_workspace(workspace)
+    image_path = tmp_path / "example.png"
+    image_path.write_bytes(
+        b"\x89PNG\r\n\x1a\n"
+        b"\x00\x00\x00\rIHDR"
+        b"\x00\x00\x00\x01\x00\x00\x00\x01\x08\x02\x00\x00\x00"
+        b"\x90wS\xde\x00\x00\x00\nIDATx\x9cc`\x00\x00\x00\x02\x00\x01"
+        b"\xe2!\xbc3\x00\x00\x00\x00IEND\xaeB`\x82"
+    )
+    captured: dict[str, object] = {}
+
+    async def fake_build_runtime(**kwargs):
+        class FakeEngine:
+            def __init__(self):
+                self.messages = []
+                self.total_usage = UsageSnapshot()
+                self.max_turns = 8
+
+            def set_system_prompt(self, prompt):
+                return None
+
+            def load_messages(self, messages):
+                self.messages = list(messages)
+
+            async def submit_message(self, content):
+                self.messages.append(content)
+                yield ErrorEvent(
+                    message=(
+                        "API error: Error code: 404 - {'error': {'message': "
+                        "'No endpoints found that support image input', 'code': 404}}"
+                    )
+                )
+
+            async def continue_pending(self, *, max_turns=None):
+                captured["retry_messages"] = list(self.messages)
+                yield AssistantTextDelta(text="done")
+
+        return SimpleNamespace(
+            engine=FakeEngine(),
+            session_id="sess123",
+            current_settings=lambda: SimpleNamespace(model="openrouter/text-only"),
+            commands=SimpleNamespace(lookup=lambda raw: None),
+        )
+
+    async def fake_start_runtime(bundle):
+        return None
+
+    monkeypatch.setattr("ohmo.gateway.runtime.build_runtime", fake_build_runtime)
+    monkeypatch.setattr("ohmo.gateway.runtime.start_runtime", fake_start_runtime)
+
+    pool = OhmoSessionRuntimePool(cwd=tmp_path, workspace=workspace, provider_profile="openrouter")
+    message = InboundMessage(
+        channel="telegram",
+        sender_id="u1",
+        chat_id="c1",
+        content="帮我看这个图片",
+        media=[str(image_path)],
+    )
+    updates = [u async for u in pool.stream_message(message, "telegram:c1")]
+
+    assert updates[-1].kind == "final"
+    assert updates[-1].text == "done"
+    assert not any(update.kind == "error" for update in updates)
+    assert any(update.metadata.get("_image_fallback") for update in updates)
+    retry_messages = captured["retry_messages"]
+    assert all(
+        not isinstance(block, ImageBlock)
+        for item in retry_messages
+        for block in item.content
+    )
+    text = "".join(
+        block.text
+        for item in retry_messages
+        for block in item.content
+        if isinstance(block, TextBlock)
+    )
+    assert "[Channel attachments]" in text
+    assert f"image: example.png (path: {image_path})" in text
 
 
 def test_runtime_pool_includes_group_speaker_context():

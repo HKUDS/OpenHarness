@@ -83,6 +83,24 @@ async def test_glob_and_grep(tmp_path: Path):
 
 
 @pytest.mark.asyncio
+async def test_glob_tool_accepts_absolute_patterns(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr("openharness.tools.glob_tool.shutil.which", lambda _: None)
+    context = ToolExecutionContext(cwd=tmp_path.parent)
+    nested = tmp_path / "pkg"
+    nested.mkdir()
+    (nested / "a.py").write_text("print('a')\n", encoding="utf-8")
+    (nested / "b.txt").write_text("b\n", encoding="utf-8")
+
+    result = await GlobTool().execute(
+        GlobToolInput(pattern=str(tmp_path / "**" / "*.py")),
+        context,
+    )
+
+    assert result.is_error is False
+    assert result.output.splitlines() == ["pkg/a.py"]
+
+
+@pytest.mark.asyncio
 async def test_bash_tool_runs_command(tmp_path: Path):
     result = await BashTool().execute(
         BashToolInput(command="printf 'hello'"),

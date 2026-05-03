@@ -34,8 +34,8 @@ class GlobTool(BaseTool):
         return True
 
     async def execute(self, arguments: GlobToolInput, context: ToolExecutionContext) -> ToolResult:
-        root = _resolve_path(context.cwd, arguments.root) if arguments.root else context.cwd
-        matches = await _glob(root, arguments.pattern, limit=arguments.limit)
+        root, pattern = _resolve_glob_request(context.cwd, arguments.root, arguments.pattern)
+        matches = await _glob(root, pattern, limit=arguments.limit)
         if not matches:
             return ToolResult(output="(no matches)")
         return ToolResult(output="\n".join(matches))
@@ -46,6 +46,33 @@ def _resolve_path(base: Path, candidate: str | None) -> Path:
     if not path.is_absolute():
         path = base / path
     return path.resolve()
+
+
+def _resolve_glob_request(base: Path, root_arg: str | None, pattern: str) -> tuple[Path, str]:
+    """Return a concrete search root plus a root-relative glob pattern."""
+    if not pattern.strip():
+        return (_resolve_path(base, root_arg) if root_arg else base, pattern)
+
+    candidate = Path(pattern).expanduser()
+    if not candidate.is_absolute():
+        return (_resolve_path(base, root_arg) if root_arg else base, pattern)
+
+    parts = candidate.parts
+    first_glob_index = next(
+        (index for index, part in enumerate(parts) if _has_glob_magic(part)),
+        None,
+    )
+    if first_glob_index is None:
+        return candidate.parent.resolve(), candidate.name
+
+    root_parts = parts[:first_glob_index]
+    root = Path(*root_parts).resolve() if root_parts else Path(candidate.anchor or "/").resolve()
+    relative_pattern = str(Path(*parts[first_glob_index:]))
+    return root, relative_pattern
+
+
+def _has_glob_magic(value: str) -> bool:
+    return any(char in value for char in "*?[")
 
 
 def _looks_like_git_repo(path: Path) -> bool:
@@ -74,6 +101,9 @@ async def _glob(root: Path, pattern: str, *, limit: int) -> list[str]:
     Uses ripgrep's file walker when available (respects .gitignore and can skip
     heavy directories like `.venv/`), with a Python fallback.
     """
+    if not root.exists() or not root.is_dir():
+        return []
+
     rg = shutil.which("rg")
     # `Path.glob("**/*")` will traverse hidden and ignored paths (like `.venv/`)
     # and can be very slow on real workspaces. Prefer `rg --files`.
