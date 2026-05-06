@@ -798,6 +798,18 @@ Useful contributor entry points:
 
 ---
 
+## 🔧 Troubleshooting
+
+### Backspace key not working in macOS Terminal.app
+
+On macOS, the default Terminal.app sends the `DEL` byte (`0x7f`) for the Backspace key, which may not be correctly interpreted by the React TUI in some environments. Symptoms include backspace characters appearing as spaces instead of deleting text.
+
+**Workaround**: Use [iTerm2](https://iterm2.com/) instead of macOS Terminal.app. iTerm2 sends the correct backspace sequence by default. If you must use Terminal.app, you can remap the backspace key in iTerm2's settings: **Settings → Profiles → Keys → Change the Backspace key sends `0x7f`**.
+
+This issue was reported and fixed in [#234](https://github.com/HKUDS/OpenHarness/issues/234). The fix is available in the `main` branch (Unreleased changelog).
+
+---
+
 ## 📄 License
 
 MIT — see [LICENSE](LICENSE).
