@@ -114,3 +114,47 @@ def get_project_issue_file(cwd: str | Path) -> Path:
 def get_project_pr_comments_file(cwd: str | Path) -> Path:
     """Return the per-project PR comments context file."""
     return get_project_config_dir(cwd) / "pr_comments.md"
+
+
+def get_project_autopilot_dir(cwd: str | Path) -> Path:
+    """Return the per-project autopilot state directory."""
+    autopilot_dir = get_project_config_dir(cwd) / "autopilot"
+    autopilot_dir.mkdir(parents=True, exist_ok=True)
+    return autopilot_dir
+
+
+def get_project_autopilot_registry_path(cwd: str | Path) -> Path:
+    """Return the autopilot task registry path."""
+    return get_project_autopilot_dir(cwd) / "registry.json"
+
+
+def get_project_repo_journal_path(cwd: str | Path) -> Path:
+    """Return the append-only repo journal path."""
+    return get_project_autopilot_dir(cwd) / "repo_journal.jsonl"
+
+
+def get_project_active_repo_context_path(cwd: str | Path) -> Path:
+    """Return the synthesized active repo context path."""
+    return get_project_autopilot_dir(cwd) / "active_repo_context.md"
+
+
+def get_project_autopilot_policy_path(cwd: str | Path) -> Path:
+    """Return the autopilot policy path."""
+    return get_project_autopilot_dir(cwd) / "autopilot_policy.yaml"
+
+
+def get_project_verification_policy_path(cwd: str | Path) -> Path:
+    """Return the verification policy path."""
+    return get_project_autopilot_dir(cwd) / "verification_policy.yaml"
+
+
+def get_project_release_policy_path(cwd: str | Path) -> Path:
+    """Return the release policy path."""
+    return get_project_autopilot_dir(cwd) / "release_policy.yaml"
+
+
+def get_project_autopilot_runs_dir(cwd: str | Path) -> Path:
+    """Return the autopilot run artifacts directory."""
+    runs_dir = get_project_autopilot_dir(cwd) / "runs"
+    runs_dir.mkdir(parents=True, exist_ok=True)
+    return runs_dir

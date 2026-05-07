@@ -203,6 +203,10 @@ def get_plugins_dir(workspace: str | Path | None = None) -> Path:
     return get_workspace_root(workspace) / "plugins"
 
 
+def get_groups_dir(workspace: str | Path | None = None) -> Path:
+    return get_workspace_root(workspace) / "groups"
+
+
 def get_memory_index_path(workspace: str | Path | None = None) -> Path:
     return get_memory_dir(workspace) / "MEMORY.md"
 
@@ -238,6 +242,7 @@ def ensure_workspace(workspace: str | Path | None = None) -> Path:
     get_memory_dir(root).mkdir(parents=True, exist_ok=True)
     get_skills_dir(root).mkdir(parents=True, exist_ok=True)
     get_plugins_dir(root).mkdir(parents=True, exist_ok=True)
+    get_groups_dir(root).mkdir(parents=True, exist_ok=True)
     get_sessions_dir(root).mkdir(parents=True, exist_ok=True)
     get_logs_dir(root).mkdir(parents=True, exist_ok=True)
     get_attachments_dir(root).mkdir(parents=True, exist_ok=True)
@@ -307,6 +312,7 @@ def workspace_health(workspace: str | Path | None = None) -> dict[str, bool]:
         "memory_dir": get_memory_dir(root).exists(),
         "skills_dir": get_skills_dir(root).exists(),
         "plugins_dir": get_plugins_dir(root).exists(),
+        "groups_dir": get_groups_dir(root).exists(),
         "memory_index": get_memory_index_path(root).exists(),
         "sessions_dir": get_sessions_dir(root).exists(),
         "gateway_config": get_gateway_config_path(root).exists(),

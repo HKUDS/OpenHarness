@@ -20,6 +20,7 @@ _PERSISTED_TOOL_METADATA_KEYS = (
     "read_file_state",
     "invoked_skills",
     "async_agent_state",
+    "async_agent_tasks",
     "recent_work_log",
     "recent_verified_work",
     "task_focus_state",

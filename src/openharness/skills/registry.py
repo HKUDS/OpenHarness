@@ -13,7 +13,9 @@ class SkillRegistry:
 
     def register(self, skill: SkillDefinition) -> None:
         """Register one skill."""
-        self._skills[skill.name] = skill
+        for key in (skill.name, skill.command_name, skill.display_name, *skill.aliases):
+            if key:
+                self._skills[key] = skill
 
     def get(self, name: str) -> SkillDefinition | None:
         """Return a skill by name."""
@@ -21,4 +23,7 @@ class SkillRegistry:
 
     def list_skills(self) -> list[SkillDefinition]:
         """Return all skills sorted by name."""
-        return sorted(self._skills.values(), key=lambda skill: skill.name)
+        unique: dict[tuple[str, str | None], SkillDefinition] = {}
+        for skill in self._skills.values():
+            unique[(skill.source, skill.path or skill.name)] = skill
+        return sorted(unique.values(), key=lambda skill: skill.command_name or skill.name)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 from openharness.auth.external import describe_external_binding
@@ -123,3 +124,63 @@ def auth_status(settings: Settings) -> str:
     if resolved.source.startswith("external:"):
         return f"configured ({resolved.source.removeprefix('external:')})"
     return "configured"
+
+
+# ---------------------------------------------------------------------------
+# Multimodal (vision) capability detection
+# ---------------------------------------------------------------------------
+
+# Known multimodal model patterns (lowercase, regex).
+# These models can accept image input natively.
+_MULTIMODAL_MODEL_PATTERNS: list[re.Pattern[str]] = [
+    # Anthropic Claude 3+ (all Claude 3 and later support images)
+    re.compile(r"^claude-3(?:\.\d+)?(?:-sonnet|-opus|-haiku)?"),
+    re.compile(r"^claude-(?:sonnet|opus|haiku)-\d"),
+    # OpenAI GPT-4o / o-series
+    re.compile(r"^gpt-4o"),
+    re.compile(r"^o[1349]-"),
+    # Google Gemini
+    re.compile(r"^gemini-(?:pro-)?vision"),
+    re.compile(r"^gemini-2\.\d+"),
+    # Qwen / DashScope VL series
+    re.compile(r"^qwen-vl"),
+    re.compile(r"^qwen2\.5?-vl"),
+    re.compile(r"^qvq-"),
+    # DeepSeek VL
+    re.compile(r"^deepseek-vl"),
+    re.compile(r"^deepseek-vision"),
+    # Open-source multimodal
+    re.compile(r"^llava"),
+    re.compile(r"^cogvlm"),
+    re.compile(r"^internvl"),
+    re.compile(r"^glm-4v"),
+    # Moonshot / Kimi (k2.5 supports images)
+    re.compile(r"^kimi-k2\.5"),
+    # StepFun (阶跃星辰) — Step-2 and Step-1v support images
+    re.compile(r"^step-2"),
+    re.compile(r"^step-1v"),
+    # MiniMax VL
+    re.compile(r"^minimax-vl"),
+    # Zhipu GLM-4V
+    re.compile(r"^glm-4v"),
+    # Mistral Pixtral
+    re.compile(r"^pixtral"),
+    # Groq vision models (llama-3.2-vision, etc.)
+    re.compile(r"vision"),
+    # Generic: model names containing "vl" or "vision" as a word boundary
+    re.compile(r"(?:^|[-\s/])vl(?:$|[-\s])"),
+]
+
+
+def is_model_multimodal(model: str) -> bool:
+    """Return True when the model name indicates multimodal (vision) capability.
+
+    This is a heuristic based on known model naming conventions.  It errs on
+    the side of returning False for unknown models so that the image-to-text
+    fallback tool is used rather than silently failing.
+    """
+    normalized = model.strip().lower()
+    # Strip provider prefix like "anthropic/" or "openai/"
+    if "/" in normalized:
+        normalized = normalized.split("/", 1)[-1]
+    return any(pattern.search(normalized) is not None for pattern in _MULTIMODAL_MODEL_PATTERNS)

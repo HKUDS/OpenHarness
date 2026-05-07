@@ -155,9 +155,9 @@ class ChannelManager:
     def _validate_allow_from(self) -> None:
         for name, ch in self.channels.items():
             if getattr(ch.config, "allow_from", None) == []:
-                raise SystemExit(
-                    f'Error: "{name}" has empty allowFrom (denies all). '
-                    f'Set ["*"] to allow everyone, or add specific user IDs.'
+                logger.warning(
+                    '%s channel has empty allow_from; remote access is denied until an operator explicitly adds allowed identities or chooses ["*"].',
+                    name,
                 )
 
     async def _start_channel(self, name: str, channel: BaseChannel) -> None:

@@ -14,3 +14,11 @@ class SkillDefinition:
     content: str
     source: str
     path: str | None = None
+    base_dir: str | None = None
+    command_name: str | None = None
+    display_name: str | None = None
+    aliases: tuple[str, ...] = ()
+    user_invocable: bool = True
+    disable_model_invocation: bool = False
+    model: str | None = None
+    argument_hint: str | None = None

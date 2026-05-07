@@ -16,6 +16,7 @@ from textual.widgets import Button, Footer, Header, Input, RichLog, Static
 
 from openharness.api.client import SupportsStreamingMessages
 from openharness.config.settings import load_settings, save_settings
+from openharness.coordinator.coordinator_mode import is_coordinator_mode
 from openharness.engine.stream_events import (
     AssistantTextDelta,
     AssistantTurnComplete,
@@ -27,6 +28,7 @@ from openharness.engine.stream_events import (
     ToolExecutionStarted,
 )
 from openharness.tasks import get_task_manager
+from openharness.ui.coordinator_drain import drain_coordinator_async_agents
 from openharness.ui.runtime import build_runtime, close_runtime, handle_line, start_runtime
 
 
@@ -303,6 +305,13 @@ class OpenHarnessTerminalApp(App[None]):
                 render_event=self._render_event,
                 clear_output=self._clear_transcript,
             )
+            if is_coordinator_mode():
+                await drain_coordinator_async_agents(
+                    self._bundle,
+                    prompt_seed=line,
+                    print_system=self._print_system,
+                    render_event=self._render_event,
+                )
             self._refresh_sidebars()
             if not should_continue:
                 self.exit()

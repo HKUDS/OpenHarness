@@ -12,6 +12,7 @@ from openharness.api.client import ApiMessageCompleteEvent
 from openharness.api.usage import UsageSnapshot
 from openharness.engine.stream_events import CompactProgressEvent
 from openharness.engine.messages import ConversationMessage, TextBlock
+from openharness.config.settings import Settings, save_settings
 from openharness.ui.backend_host import BackendHostConfig, ReactBackendHost, run_backend_host
 from openharness.ui.protocol import BackendEvent
 from openharness.ui.runtime import build_runtime, close_runtime, start_runtime
@@ -104,6 +105,78 @@ async def test_read_requests_resolves_permission_response_without_queueing(monke
     queued = await host._request_queue.get()
     assert queued.type == "shutdown"
     assert host._request_queue.empty()
+
+
+@pytest.mark.asyncio
+async def test_read_requests_interrupt_cancels_active_request(monkeypatch):
+    host = ReactBackendHost(BackendHostConfig(api_client=StaticApiClient("unused")))
+
+    async def _long_running():
+        await asyncio.Event().wait()
+
+    task = asyncio.create_task(_long_running())
+    host._active_request_task = task
+
+    class _FakeBuffer:
+        def __init__(self):
+            self._reads = 0
+
+        def readline(self):
+            self._reads += 1
+            if self._reads == 1:
+                return b'{"type":"interrupt"}\n'
+            return b""
+
+    class _FakeStdin:
+        buffer = _FakeBuffer()
+
+    monkeypatch.setattr("openharness.ui.backend_host.sys.stdin", _FakeStdin())
+
+    await host._read_requests()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    queued = await host._request_queue.get()
+    assert queued.type == "shutdown"
+
+
+@pytest.mark.asyncio
+async def test_run_active_request_recovers_from_cancel(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("OPENHARNESS_DATA_DIR", str(tmp_path / "data"))
+
+    host = ReactBackendHost(BackendHostConfig(api_client=StaticApiClient("unused")))
+    host._bundle = await build_runtime(api_client=StaticApiClient("unused"))
+    events = []
+
+    async def _emit(event):
+        events.append(event)
+
+    host._emit = _emit  # type: ignore[method-assign]
+    await start_runtime(host._bundle)
+
+    async def _long_running():
+        await asyncio.Event().wait()
+        return True
+
+    try:
+        runner = asyncio.create_task(host._run_active_request(_long_running()))
+        while host._active_request_task is None:
+            await asyncio.sleep(0)
+        await host._interrupt_active_request()
+        assert await runner is True
+    finally:
+        await close_runtime(host._bundle)
+
+    assert any(
+        event.type == "transcript_item"
+        and event.item
+        and event.item.role == "system"
+        and "Interrupted" in event.item.text
+        for event in events
+    )
+    assert any(event.type == "line_complete" for event in events)
 
 
 @pytest.mark.asyncio
@@ -372,6 +445,54 @@ async def test_backend_host_emits_model_select_request(tmp_path, monkeypatch):
     assert event.modal["command"] == "model"
     assert any(option["value"] == "opus" and option.get("active") for option in event.select_options)
     assert any(option["value"] == "default" for option in event.select_options)
+
+
+@pytest.mark.asyncio
+async def test_backend_host_model_selector_uses_profile_model_allowlist(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("OPENHARNESS_DATA_DIR", str(tmp_path / "data"))
+    save_settings(
+        Settings().model_copy(
+            update={
+                "active_profile": "local-llm",
+                "provider": "openai",
+                "api_format": "openai",
+                "base_url": "http://localhost:8000/v1",
+                "model": "qwen-vl",
+                "profiles": {
+                    "local-llm": {
+                        "label": "Local LLM",
+                        "provider": "openai",
+                        "api_format": "openai",
+                        "auth_source": "openai_api_key",
+                        "default_model": "deepseek-chat",
+                        "last_model": "qwen-vl",
+                        "base_url": "http://localhost:8000/v1",
+                        "allowed_models": ["deepseek-chat", "qwen-vl"],
+                    }
+                },
+            }
+        )
+    )
+
+    host = ReactBackendHost(BackendHostConfig(api_client=StaticApiClient("unused")))
+    host._bundle = await build_runtime(api_client=StaticApiClient("unused"))
+    events = []
+
+    async def _emit(event):
+        events.append(event)
+
+    host._emit = _emit  # type: ignore[method-assign]
+    await start_runtime(host._bundle)
+    try:
+        await host._handle_select_command("model")
+    finally:
+        await close_runtime(host._bundle)
+
+    event = next(item for item in events if item.type == "select_request")
+    assert [option["value"] for option in event.select_options] == ["deepseek-chat", "qwen-vl"]
+    assert any(option["value"] == "qwen-vl" and option.get("active") for option in event.select_options)
 
 
 @pytest.mark.asyncio

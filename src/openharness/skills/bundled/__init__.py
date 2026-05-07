@@ -4,6 +4,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from openharness.skills._frontmatter import (
+    optional_frontmatter_str,
+    parse_bool_frontmatter,
+    parse_skill_frontmatter,
+    parse_skill_metadata,
+)
 from openharness.skills.types import SkillDefinition
 
 _CONTENT_DIR = Path(__file__).parent / "content"
@@ -16,53 +22,54 @@ def get_bundled_skills() -> list[SkillDefinition]:
         return skills
     for path in sorted(_CONTENT_DIR.glob("*.md")):
         content = path.read_text(encoding="utf-8")
-        name, description = _parse_frontmatter(path.stem, content)
+        metadata = _parse_metadata(path.stem, content)
+        display_name = metadata["name"] if metadata["name"] != path.stem else None
         skills.append(
             SkillDefinition(
-                name=name,
-                description=description,
+                name=metadata["name"],
+                description=metadata["description"],
                 content=content,
                 source="bundled",
                 path=str(path),
+                base_dir=str(path.parent),
+                command_name=path.stem,
+                display_name=display_name,
+                user_invocable=metadata["user_invocable"],
+                disable_model_invocation=metadata["disable_model_invocation"],
+                model=metadata["model"],
+                argument_hint=metadata["argument_hint"],
             )
         )
     return skills
 
 
 def _parse_frontmatter(default_name: str, content: str) -> tuple[str, str]:
-    """Extract name and description from a skill markdown file.
+    """Extract name and description from a bundled skill markdown file.
 
-    Supports YAML frontmatter (``---`` delimited) and falls back to heading/paragraph parsing.
+    Delegates to the shared parser so YAML block scalars (``>``, ``|``),
+    quoted values, and other standard YAML constructs are handled the same
+    way as user-installed skills.
     """
-    name = default_name
-    description = ""
-    lines = content.splitlines()
+    return parse_skill_frontmatter(
+        default_name,
+        content,
+        fallback_template="Bundled skill: {name}",
+    )
 
-    # Try YAML frontmatter first
-    if lines and lines[0].strip() == "---":
-        for i, line in enumerate(lines[1:], 1):
-            if line.strip() == "---":
-                for fm_line in lines[1:i]:
-                    fm = fm_line.strip()
-                    if fm.startswith("name:"):
-                        val = fm[5:].strip().strip("'\"")
-                        if val:
-                            name = val
-                    elif fm.startswith("description:"):
-                        val = fm[12:].strip().strip("'\"")
-                        if val:
-                            description = val
-                break
-        if description:
-            return name, description
 
-    # Fallback: heading + first paragraph
-    for line in lines:
-        stripped = line.strip()
-        if stripped.startswith("# "):
-            name = stripped[2:].strip() or default_name
-            continue
-        if stripped and not stripped.startswith("---") and not stripped.startswith("#"):
-            description = stripped[:200]
-            break
-    return name, description or f"Bundled skill: {name}"
+def _parse_metadata(default_name: str, content: str) -> dict:
+    parsed = parse_skill_metadata(default_name, content, fallback_template="Bundled skill: {name}")
+    frontmatter = parsed.get("frontmatter")
+    if not isinstance(frontmatter, dict):
+        frontmatter = {}
+    return {
+        "name": str(parsed["name"]),
+        "description": str(parsed["description"]),
+        "user_invocable": parse_bool_frontmatter(frontmatter.get("user-invocable"), default=True),
+        "disable_model_invocation": parse_bool_frontmatter(
+            frontmatter.get("disable-model-invocation"),
+            default=False,
+        ),
+        "model": optional_frontmatter_str(frontmatter.get("model")),
+        "argument_hint": optional_frontmatter_str(frontmatter.get("argument-hint")),
+    }

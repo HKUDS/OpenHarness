@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
+import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -24,9 +25,11 @@ from openharness.engine.messages import (
     TextBlock,
     ToolResultBlock,
     ToolUseBlock,
+    sanitize_conversation_messages,
 )
 from openharness.engine.stream_events import CompactProgressEvent
 from openharness.hooks import HookEvent, HookExecutor
+from openharness.services.tool_outputs import is_microcompactable_tool_result
 from openharness.services.token_estimation import estimate_tokens
 
 log = logging.getLogger(__name__)
@@ -70,6 +73,7 @@ DEFAULT_GAP_THRESHOLD_MINUTES = 60
 
 # Token estimation padding (conservative)
 TOKEN_ESTIMATION_PADDING = 4 / 3
+_DEFAULT_VISION_IMAGE_TOKEN_ESTIMATE = 3_072
 
 # Default context windows per model family
 _DEFAULT_CONTEXT_WINDOW = 200_000
@@ -112,6 +116,7 @@ class CompactionResult:
 def estimate_message_tokens(messages: list[ConversationMessage]) -> int:
     """Estimate total tokens for a conversation, including the 4/3 padding."""
     total = 0
+    image_token_estimate = _vision_token_budget_per_image()
     for msg in messages:
         for block in msg.content:
             if isinstance(block, TextBlock):
@@ -121,12 +126,50 @@ def estimate_message_tokens(messages: list[ConversationMessage]) -> int:
             elif isinstance(block, ToolUseBlock):
                 total += estimate_tokens(block.name)
                 total += estimate_tokens(str(block.input))
+            elif isinstance(block, ImageBlock):
+                total += image_token_estimate
     return int(total * TOKEN_ESTIMATION_PADDING)
 
 
 def estimate_conversation_tokens(messages: list[ConversationMessage]) -> int:
     """Alias kept for backward compatibility."""
     return estimate_message_tokens(messages)
+
+
+def _vision_token_budget_per_image() -> int:
+    raw = os.environ.get("OPENHARNESS_IMAGE_TOKEN_ESTIMATE", "").strip()
+    if raw:
+        try:
+            return max(64, int(raw))
+        except ValueError:
+            log.warning("Ignoring invalid OPENHARNESS_IMAGE_TOKEN_ESTIMATE=%r", raw)
+    return _DEFAULT_VISION_IMAGE_TOKEN_ESTIMATE
+
+
+def _replace_images_with_compaction_placeholders(
+    messages: list[ConversationMessage],
+) -> list[ConversationMessage]:
+    """Strip image payloads from summarizer-only compact requests."""
+    replaced: list[ConversationMessage] = []
+    for message in messages:
+        next_content: list[ContentBlock] = []
+        changed = False
+        for block in message.content:
+            if isinstance(block, ImageBlock):
+                changed = True
+                label = block.source_path.strip() or "inline"
+                next_content.append(
+                    TextBlock(
+                        text=f"[Image omitted from compaction summarization; source: {label}.]\n"
+                    )
+                )
+            else:
+                next_content.append(block)
+        if changed:
+            replaced.append(message.model_copy(update={"content": next_content}))
+        else:
+            replaced.append(message)
+    return replaced
 
 
 def _sanitize_metadata(value: Any) -> Any:
@@ -209,11 +252,20 @@ def _is_prompt_too_long_error(exc: Exception) -> bool:
         needle in text
         for needle in (
             "prompt too long",
+            "context_length_exceeded",
             "context length",
             "maximum context",
             "context window",
+            "input tokens exceed",
+            "messages resulted in",
+            "reduce the length of the messages",
+            "configured limit",
             "too many tokens",
             "too large for the model",
+            "maximum context length",
+            "exceed_context",
+            "exceeds the available context size",
+            "available context size",
         )
     )
 
@@ -256,8 +308,7 @@ def try_context_collapse(
     if len(messages) <= preserve_recent + 2:
         return None
 
-    older = messages[:-preserve_recent]
-    newer = messages[-preserve_recent:]
+    older, newer = _split_preserving_tool_pairs(messages, preserve_recent=preserve_recent)
     changed = False
     collapsed_older: list[ConversationMessage] = []
     for message in older:
@@ -268,6 +319,17 @@ def try_context_collapse(
                 if collapsed != block.text:
                     changed = True
                 new_blocks.append(TextBlock(text=collapsed))
+            elif isinstance(block, ToolResultBlock):
+                collapsed = _collapse_text(block.content)
+                if collapsed != block.content:
+                    changed = True
+                new_blocks.append(
+                    ToolResultBlock(
+                        tool_use_id=block.tool_use_id,
+                        content=collapsed,
+                        is_error=block.is_error,
+                    )
+                )
             else:
                 new_blocks.append(block)
         collapsed_older.append(ConversationMessage(role=message.role, content=new_blocks))
@@ -404,6 +466,53 @@ def build_post_compact_messages(result: CompactionResult) -> list[ConversationMe
         *attachment_messages,
         *hook_messages,
     ]
+
+
+def _boundary_crosses_tool_pair(previous: ConversationMessage, current: ConversationMessage) -> bool:
+    """Return True when a preserve boundary would split a tool_use/result pair."""
+
+    if previous.role != "assistant" or current.role != "user":
+        return False
+    pending_tool_ids = {block.id for block in previous.content if isinstance(block, ToolUseBlock)}
+    if not pending_tool_ids:
+        return False
+    result_ids = {block.tool_use_id for block in current.content if isinstance(block, ToolResultBlock)}
+    return bool(pending_tool_ids & result_ids)
+
+
+def _split_preserving_tool_pairs(
+    messages: list[ConversationMessage],
+    *,
+    preserve_recent: int,
+) -> tuple[list[ConversationMessage], list[ConversationMessage]]:
+    """Split older/newer segments without cutting through a tool_use/result pair.
+
+    The preserved segment is also sanitized so trailing orphan tool_use blocks
+    never survive the compaction boundary.
+    """
+
+    if len(messages) <= preserve_recent:
+        return [], sanitize_conversation_messages(list(messages))
+
+    split_index = max(0, len(messages) - preserve_recent)
+    while split_index > 0 and _boundary_crosses_tool_pair(messages[split_index - 1], messages[split_index]):
+        split_index -= 1
+
+    older = list(messages[:split_index])
+    newer = sanitize_conversation_messages(list(messages[split_index:]))
+    return older, newer
+
+
+def _sanitize_compaction_segments(result: CompactionResult) -> None:
+    """Normalize summary+preserved messages into a provider-safe sequence."""
+
+    if not result.summary_messages and not result.messages_to_keep:
+        return
+    combined = [*result.summary_messages, *result.messages_to_keep]
+    sanitized = sanitize_conversation_messages(combined)
+    summary_count = len(result.summary_messages)
+    result.summary_messages = sanitized[:summary_count]
+    result.messages_to_keep = sanitized[summary_count:]
 
 
 def _create_recent_attachments_attachment_if_needed(
@@ -625,6 +734,7 @@ def _build_compact_attachments(
 
 
 def _finalize_compaction_result(result: CompactionResult) -> CompactionResult:
+    _sanitize_compaction_segments(result)
     messages = build_post_compact_messages(result)
     result.compact_metadata.setdefault("post_compact_message_count", len(messages))
     result.compact_metadata.setdefault("post_compact_token_count", estimate_message_tokens(messages))
@@ -674,14 +784,25 @@ def _build_passthrough_compaction_result(
 
 def _collect_compactable_tool_ids(messages: list[ConversationMessage]) -> list[str]:
     """Walk messages and collect tool_use IDs whose results are compactable."""
-    ids: list[str] = []
+    ordered_ids: list[str] = []
+    tool_names: dict[str, str] = {}
+    result_content: dict[str, str] = {}
     for msg in messages:
-        if msg.role != "assistant":
-            continue
         for block in msg.content:
-            if isinstance(block, ToolUseBlock) and block.name in COMPACTABLE_TOOLS:
-                ids.append(block.id)
-    return ids
+            if isinstance(block, ToolUseBlock):
+                ordered_ids.append(block.id)
+                tool_names[block.id] = block.name
+            elif isinstance(block, ToolResultBlock):
+                result_content[block.tool_use_id] = block.content
+    return [
+        tool_id
+        for tool_id in ordered_ids
+        if tool_names.get(tool_id, "") in COMPACTABLE_TOOLS
+        or is_microcompactable_tool_result(
+            tool_names.get(tool_id, ""),
+            result_content.get(tool_id, ""),
+        )
+    ]
 
 
 def microcompact_messages(
@@ -779,8 +900,7 @@ def try_session_memory_compaction(
     """Cheap deterministic compaction for long chats before full LLM compaction."""
     if len(messages) <= preserve_recent + 4:
         return None
-    older = messages[:-preserve_recent]
-    newer = messages[-preserve_recent:]
+    older, newer = _split_preserving_tool_pairs(messages, preserve_recent=preserve_recent)
     summary_message = _build_session_memory_message(older)
     if summary_message is None:
         return None
@@ -1023,8 +1143,7 @@ async def compact_conversation(
     log.info("Compacting conversation: %d messages, ~%d tokens", len(messages), pre_compact_tokens)
 
     # Step 2: split into older (summarize) and newer (preserve)
-    older = messages[:-preserve_recent]
-    newer = messages[-preserve_recent:]
+    older, newer = _split_preserving_tool_pairs(messages, preserve_recent=preserve_recent)
 
     # Step 3: build compact request — send older messages + compact prompt
     compact_prompt = get_compact_prompt(custom_instructions)
@@ -1114,6 +1233,9 @@ async def compact_conversation(
 
     async def _collect_summary(summary_request_messages: list[ConversationMessage]) -> str:
         collected = ""
+        summary_request_messages = _replace_images_with_compaction_placeholders(
+            summary_request_messages
+        )
         stream = api_client.stream_message(
             ApiMessageRequest(
                 model=model,
@@ -1541,19 +1663,18 @@ def compact_messages(
 ) -> list[ConversationMessage]:
     """Replace older conversation history with a synthetic summary (legacy)."""
     if len(messages) <= preserve_recent:
-        return list(messages)
-    older = messages[:-preserve_recent]
-    newer = messages[-preserve_recent:]
+        return sanitize_conversation_messages(list(messages))
+    older, newer = _split_preserving_tool_pairs(messages, preserve_recent=preserve_recent)
     summary = summarize_messages(older)
     if not summary:
         return list(newer)
-    return [
+    return sanitize_conversation_messages([
         ConversationMessage(
             role="user",
             content=[TextBlock(text=f"[conversation summary]\n{summary}")],
         ),
         *newer,
-    ]
+    ])
 
 
 __all__ = [

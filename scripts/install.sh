@@ -186,6 +186,7 @@ step "Installing OpenHarness"
 REPO_URL="https://github.com/HKUDS/OpenHarness.git"
 INSTALL_DIR="$HOME/.openharness-src"
 VENV_DIR="$HOME/.openharness-venv"
+BIN_DIR="$HOME/.local/bin"
 
 # ---------------------------------------------------------------------------
 # Create a virtual environment to avoid PEP 668 externally-managed errors
@@ -277,40 +278,51 @@ mkdir -p "$HOME/.openharness/plugins"
 success "Config directory ready: ~/.openharness/"
 
 # ---------------------------------------------------------------------------
-# Step 8: Verify installation
+# Step 8: Register global commands
+# ---------------------------------------------------------------------------
+step "Registering global commands"
+
+mkdir -p "$BIN_DIR"
+ln -snf "$VENV_DIR/bin/oh" "$BIN_DIR/oh"
+ln -snf "$VENV_DIR/bin/ohmo" "$BIN_DIR/ohmo"
+ln -snf "$VENV_DIR/bin/openharness" "$BIN_DIR/openharness"
+success "Linked oh/ohmo into ${BIN_DIR}"
+
+# ---------------------------------------------------------------------------
+# Step 9: Verify installation
 # ---------------------------------------------------------------------------
 step "Verifying installation"
 
-if command -v oh &>/dev/null && command -v ohmo &>/dev/null; then
-    OH_VERSION=$(oh --version 2>&1 || echo "(version check failed)")
-    OHMO_VERSION=$(ohmo --help >/dev/null 2>&1 && echo "available" || echo "not available")
+if [ -x "$BIN_DIR/oh" ] && [ -x "$BIN_DIR/ohmo" ]; then
+    OH_VERSION=$("$BIN_DIR/oh" --version 2>&1 || echo "(version check failed)")
+    OHMO_VERSION=$("$BIN_DIR/ohmo" --help >/dev/null 2>&1 && echo "available" || echo "not available")
     success "Installation successful!"
     echo ""
     echo -e "  ${BOLD}oh${RESET} is ready: ${GREEN}${OH_VERSION}${RESET}"
     echo -e "  ${BOLD}ohmo${RESET} is ready: ${GREEN}${OHMO_VERSION}${RESET}"
 elif "$PYTHON_CMD" -m openharness --version &>/dev/null 2>&1; then
     OH_VERSION=$("$PYTHON_CMD" -m openharness --version 2>&1)
-    warn "'oh'/'ohmo' not in PATH. Run via: python -m openharness or python -m ohmo"
+    warn "'oh'/'ohmo' command links are not executable yet. Run via: python -m openharness or python -m ohmo"
     echo "  Version: ${OH_VERSION}"
-    echo "  To add them to PATH, ensure ${VENV_DIR}/bin is in PATH:"
-    echo "    export PATH=\"${VENV_DIR}/bin:\$PATH\""
+    echo "  To add them to PATH, ensure ${BIN_DIR} is in PATH:"
+    echo "    export PATH=\"${BIN_DIR}:\$PATH\""
 else
     warn "Could not verify 'oh'/'ohmo' commands. The package may need a PATH update."
     echo "  Try: $PYTHON_CMD -m openharness --version"
-    echo "  Or add ${VENV_DIR}/bin to PATH and restart your shell."
+    echo "  Or add ${BIN_DIR} to PATH and restart your shell."
 fi
 
 # ---------------------------------------------------------------------------
-# Step 9: Add venv activation to shell profile
+# Step 10: Add command directory to shell profile
 # ---------------------------------------------------------------------------
 step "Setting up shell integration"
 
-ACTIVATION_LINE="export PATH=\"$VENV_DIR/bin:\$PATH\""
+ACTIVATION_LINE="export PATH=\"$BIN_DIR:\$PATH\""
 FISH_CONFIG="$HOME/.config/fish/config.fish"
 FISH_BLOCK=$(cat <<EOF
 # OpenHarness
-if not contains -- "$VENV_DIR/bin" \$PATH
-    set -gx PATH "$VENV_DIR/bin" \$PATH
+if not contains -- "$BIN_DIR" \$PATH
+    set -gx PATH "$BIN_DIR" \$PATH
 end
 EOF
 )
@@ -322,7 +334,7 @@ append_shell_path() {
     if [ ! -f "$rc_file" ]; then
         return
     fi
-    if grep -q "$VENV_DIR/bin" "$rc_file" 2>/dev/null; then
+    if grep -q "$BIN_DIR" "$rc_file" 2>/dev/null; then
         info "PATH already configured in $(basename "$rc_file")"
         configured_any=true
         return
@@ -330,7 +342,7 @@ append_shell_path() {
     echo "" >> "$rc_file"
     echo "# OpenHarness" >> "$rc_file"
     echo "$ACTIVATION_LINE" >> "$rc_file"
-    success "Added $VENV_DIR/bin to PATH in $(basename "$rc_file")"
+    success "Added $BIN_DIR to PATH in $(basename "$rc_file")"
     configured_any=true
 }
 
@@ -339,13 +351,13 @@ append_shell_path "$HOME/.bashrc"
 append_shell_path "$HOME/.bash_profile"
 
 mkdir -p "$(dirname "$FISH_CONFIG")"
-if [ -f "$FISH_CONFIG" ] && grep -q "$VENV_DIR/bin" "$FISH_CONFIG" 2>/dev/null; then
+if [ -f "$FISH_CONFIG" ] && grep -q "$BIN_DIR" "$FISH_CONFIG" 2>/dev/null; then
     info "PATH already configured in $(basename "$FISH_CONFIG")"
     configured_any=true
 else
     echo "" >> "$FISH_CONFIG"
     printf "%s\n" "$FISH_BLOCK" >> "$FISH_CONFIG"
-    success "Added $VENV_DIR/bin to PATH in $(basename "$FISH_CONFIG")"
+    success "Added $BIN_DIR to PATH in $(basename "$FISH_CONFIG")"
     configured_any=true
 fi
 
@@ -368,4 +380,8 @@ echo "    2. Set your API key:        export ANTHROPIC_API_KEY=your_key"
 echo "    3. Launch:                  oh"
 echo "    4. Launch ohmo:             ohmo"
 echo "    5. Docs:                    https://github.com/HKUDS/OpenHarness"
+echo ""
+echo "  Notes:"
+echo "    - Commands are linked into: ${BIN_DIR}"
+echo "    - The virtual environment remains at: ${VENV_DIR}"
 echo ""

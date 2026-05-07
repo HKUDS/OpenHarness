@@ -9,11 +9,27 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+try:
+    BaseExceptionGroup
+except NameError:  # pragma: no cover - Python < 3.11 compatibility
+    from exceptiongroup import BaseExceptionGroup
+
 from openharness.mcp.client import McpClientManager, McpServerNotConnectedError
 from openharness.mcp.types import McpConnectionStatus, McpStdioServerConfig, McpToolInfo
 from openharness.tools.base import ToolExecutionContext
 from openharness.tools.mcp_tool import McpToolAdapter
 from openharness.tools.read_mcp_resource_tool import ReadMcpResourceTool
+
+
+class _AsyncContextManager:
+    def __init__(self, value):
+        self._value = value
+
+    async def __aenter__(self):
+        return self._value
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
 
 
 # --- McpClientManager.call_tool ---
@@ -127,6 +143,56 @@ async def test_close_suppresses_cancelled_error_from_stdio_cleanup():
 
     assert manager._stacks == {}
     assert manager._sessions == {}
+
+
+@pytest.mark.asyncio
+async def test_close_failed_stack_suppresses_base_exception_group_cleanup_error():
+    manager = McpClientManager({})
+    stack = MagicMock()
+    stack.aclose = AsyncMock(
+        side_effect=BaseExceptionGroup(
+            "cleanup failed",
+            [asyncio.CancelledError()],
+        )
+    )
+
+    await manager._close_failed_stack(stack)
+
+
+@pytest.mark.asyncio
+async def test_connect_all_marks_http_server_failed_when_initialize_is_cancelled(monkeypatch):
+    import openharness.mcp.client as client_module
+    from openharness.mcp.types import McpHttpServerConfig
+
+    manager = McpClientManager(
+        {
+            "broken-http": McpHttpServerConfig(
+                url="http://127.0.0.1:9999/mcp",
+                headers={},
+            )
+        }
+    )
+
+    monkeypatch.setattr(
+        client_module.httpx,
+        "AsyncClient",
+        lambda *args, **kwargs: _AsyncContextManager(AsyncMock()),
+    )
+    monkeypatch.setattr(
+        client_module,
+        "streamable_http_client",
+        lambda *args, **kwargs: _AsyncContextManager((object(), object(), AsyncMock())),
+    )
+    manager._register_connected_session = AsyncMock(
+        side_effect=asyncio.CancelledError("simulated cancellation")
+    )
+
+    await manager.connect_all()
+
+    status = manager.list_statuses()[0]
+    assert status.name == "broken-http"
+    assert status.state == "failed"
+    assert "simulated cancellation" in status.detail
 
 
 # --- McpToolAdapter catches error and returns ToolResult(is_error=True) ---

@@ -6,6 +6,7 @@ import textwrap
 from pathlib import Path
 
 from openharness.skills import get_user_skills_dir, load_skill_registry
+from openharness.skills.bundled import _parse_frontmatter as parse_bundled_frontmatter
 from openharness.skills.loader import _parse_skill_markdown as parse_skill_markdown
 
 
@@ -16,6 +17,12 @@ def test_load_skill_registry_includes_bundled(tmp_path: Path, monkeypatch):
     names = [skill.name for skill in registry.list_skills()]
     assert "simplify" in names
     assert "review" in names
+    assert "skill-creator" in names
+
+    skill_creator = registry.get("skill-creator")
+    assert skill_creator is not None
+    assert skill_creator.source == "bundled"
+    assert "Create, improve, and verify OpenHarness skills" in skill_creator.description
 
 
 def test_load_skill_registry_includes_user_skills(tmp_path: Path, monkeypatch):
@@ -31,6 +38,42 @@ def test_load_skill_registry_includes_user_skills(tmp_path: Path, monkeypatch):
     assert deploy is not None
     assert deploy.source == "user"
     assert "Deployment workflow guidance" in deploy.content
+
+
+def test_user_skill_metadata_tracks_command_name_and_frontmatter_flags(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
+    skills_dir = get_user_skills_dir()
+    deploy_dir = skills_dir / "deploy-flow"
+    deploy_dir.mkdir(parents=True)
+    (deploy_dir / "SKILL.md").write_text(
+        textwrap.dedent("""\
+            ---
+            name: Deploy Flow
+            description: Release deployment workflow.
+            user-invocable: false
+            disable-model-invocation: true
+            model: gpt-5.4
+            argument-hint: ENV
+            ---
+
+            # Deploy Flow
+            """),
+        encoding="utf-8",
+    )
+
+    registry = load_skill_registry()
+    by_command = registry.get("deploy-flow")
+    by_display = registry.get("Deploy Flow")
+
+    assert by_command is not None
+    assert by_display is by_command
+    assert by_command.name == "Deploy Flow"
+    assert by_command.command_name == "deploy-flow"
+    assert by_command.display_name == "Deploy Flow"
+    assert by_command.user_invocable is False
+    assert by_command.disable_model_invocation is True
+    assert by_command.model == "gpt-5.4"
+    assert by_command.argument_hint == "ENV"
 
 
 # --- parse_skill_markdown unit tests ---
@@ -140,3 +183,78 @@ def test_parse_malformed_yaml_falls_back():
     # the first non-heading, non-delimiter line wins.  The important thing
     # is that a YAMLError doesn't crash the loader.
     assert isinstance(desc, str) and desc
+
+
+# --- bundled skill frontmatter tests ---
+#
+# The bundled skill loader used to use a naive line-by-line parser that did
+# not understand YAML block scalars (``>`` / ``|``) — a partial fix landed in
+# #96 only on the user-skill side. These cases pin the bundled loader to the
+# same behavior so future bundled skills with frontmatter parse correctly.
+
+
+def test_bundled_frontmatter_folded_block_scalar():
+    """Bundled loader expands folded block scalars the same way user loader does."""
+    content = textwrap.dedent("""\
+        ---
+        name: bundled-folded
+        description: >
+          A long folded description spanning
+          multiple lines that should join with spaces.
+        ---
+
+        # Body
+    """)
+    name, desc = parse_bundled_frontmatter("fallback", content)
+    assert name == "bundled-folded"
+    assert "A long folded description spanning" in desc
+    assert "join with spaces" in desc
+    assert "\n" not in desc
+
+
+def test_bundled_frontmatter_literal_block_scalar():
+    """Bundled loader preserves literal-scalar newlines."""
+    content = textwrap.dedent("""\
+        ---
+        name: bundled-literal
+        description: |
+          Line one.
+          Line two.
+        ---
+
+        # Body
+    """)
+    name, desc = parse_bundled_frontmatter("fallback", content)
+    assert name == "bundled-literal"
+    assert "Line one." in desc
+    assert "Line two." in desc
+
+
+def test_bundled_frontmatter_inline_description():
+    """Inline frontmatter description still works on the bundled side."""
+    content = textwrap.dedent("""\
+        ---
+        name: bundled-inline
+        description: A short bundled description
+        ---
+
+        # Body
+    """)
+    name, desc = parse_bundled_frontmatter("fallback", content)
+    assert name == "bundled-inline"
+    assert desc == "A short bundled description"
+
+
+def test_bundled_no_description_uses_bundled_prefix():
+    """When nothing supplies a description, the bundled fallback prefix is used."""
+    name, desc = parse_bundled_frontmatter("fallback", "# OnlyHeading\n")
+    assert name == "OnlyHeading"
+    assert desc == "Bundled skill: OnlyHeading"
+
+
+def test_bundled_fallback_heading_and_paragraph():
+    """Without frontmatter, the bundled loader falls back to heading + first paragraph."""
+    content = "# Bundled Skill\nThis is a bundled body description.\n"
+    name, desc = parse_bundled_frontmatter("fallback", content)
+    assert name == "Bundled Skill"
+    assert desc == "This is a bundled body description."

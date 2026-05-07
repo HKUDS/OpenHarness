@@ -1,0 +1,59 @@
+{
+  "generated_at": 1776338766.0050209,
+  "repo_name": "OpenHarness-new",
+  "repo_path": "/home/tangjiabin/OpenHarness-new",
+  "focus": null,
+  "counts": {
+    "queued": 0,
+    "accepted": 0,
+    "preparing": 0,
+    "running": 0,
+    "verifying": 0,
+    "pr_open": 0,
+    "waiting_ci": 0,
+    "repairing": 0,
+    "completed": 0,
+    "merged": 0,
+    "failed": 0,
+    "rejected": 0,
+    "superseded": 0
+  },
+  "status_order": [
+    "queued",
+    "accepted",
+    "preparing",
+    "running",
+    "verifying",
+    "pr_open",
+    "waiting_ci",
+    "repairing",
+    "completed",
+    "merged",
+    "failed",
+    "rejected",
+    "superseded"
+  ],
+  "columns": {
+    "queued": [],
+    "accepted": [],
+    "preparing": [],
+    "running": [],
+    "verifying": [],
+    "pr_open": [],
+    "waiting_ci": [],
+    "repairing": [],
+    "completed": [],
+    "merged": [],
+    "failed": [],
+    "rejected": [],
+    "superseded": []
+  },
+  "cards": [],
+  "journal": [],
+  "policies": {
+    "autopilot": "/home/tangjiabin/OpenHarness-new/.openharness/autopilot/autopilot_policy.yaml",
+    "verification": "/home/tangjiabin/OpenHarness-new/.openharness/autopilot/verification_policy.yaml",
+    "release": "/home/tangjiabin/OpenHarness-new/.openharness/autopilot/release_policy.yaml"
+  },
+  "active_context": "# Active Repo Context\n\nGenerated at: 2026-04-16 11:05:49 UTC\n\n## Current Task Focus\n- No active repo task focus yet.\n\n## In Progress\n- None.\n\n## Next Up\n- No queued items.\n\n## Recently Completed\n- None yet.\n\n## Recent Failures\n- None.\n\n## Recent Repo Journal\n- Journal is empty.\n\n## Policies\n- Autopilot: /home/tangjiabin/OpenHarness-new/.openharness/autopilot/autopilot_policy.yaml\n- Verification: /home/tangjiabin/OpenHarness-new/.openharness/autopilot/verification_policy.yaml\n- Release: /home/tangjiabin/OpenHarness-new/.openharness/autopilot/release_policy.yaml"
+}

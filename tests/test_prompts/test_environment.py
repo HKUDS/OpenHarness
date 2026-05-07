@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import subprocess
 from pathlib import Path
 
@@ -40,8 +39,8 @@ def test_detect_shell_fallback(monkeypatch):
 
 
 def test_detect_git_info_in_repo(tmp_path: Path):
-    # Create a git repo
-    os.system(f"git init {tmp_path} > /dev/null 2>&1")
+    # Create a git repo (cross-platform: use subprocess, not os.system with /dev/null)
+    subprocess.run(["git", "init", str(tmp_path)], capture_output=True)
     is_git, branch = detect_git_info(str(tmp_path))
     assert is_git is True
     # branch may be None for empty repo or "main"/"master"

@@ -15,6 +15,7 @@ from openharness.channels.bus.queue import MessageBus
 from openharness.channels.impl.base import BaseChannel
 from openharness.channels.impl.base import resolve_channel_media_dir
 from openharness.config.schema import FeishuConfig
+from openharness.utils.helpers import safe_filename
 
 import importlib.util
 import logging
@@ -36,6 +37,174 @@ MSG_TYPE_MAP = {
 class _FeishuSenderInfo:
     open_id: str
     display_name: str
+
+
+def _clean_mention_value(value: Any) -> str:
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
+def _normalize_mention_name(value: str) -> str:
+    return value.strip().lstrip("@").strip().lower()
+
+
+def _configured_bot_names(config: FeishuConfig) -> set[str]:
+    raw_names = getattr(config, "bot_names", []) or []
+    if isinstance(raw_names, str):
+        items = [item.strip() for item in raw_names.split(",")]
+    else:
+        items = [str(item).strip() for item in raw_names]
+    names = {_normalize_mention_name(item) for item in items if item.strip()}
+    return names or {"ohmo"}
+
+
+def _mention_value(raw: Any, key: str) -> Any:
+    if isinstance(raw, dict):
+        return raw.get(key)
+    return getattr(raw, key, None)
+
+
+def _mention_id_value(raw_id: Any, key: str) -> Any:
+    if isinstance(raw_id, dict):
+        return raw_id.get(key)
+    return getattr(raw_id, key, None)
+
+
+def _extract_feishu_mentions(
+    content_json: dict,
+    raw_mentions: list[Any] | tuple[Any, ...] | None = None,
+) -> list[dict[str, str]]:
+    """Return normalized mention metadata from Feishu text/post payloads."""
+    mentions: list[dict[str, str]] = []
+    seen: set[tuple[str, str, str, str, str]] = set()
+
+    def add(raw: Any) -> None:
+        mention_id = _mention_value(raw, "id") or {}
+        record = {
+            "key": _clean_mention_value(_mention_value(raw, "key")),
+            "name": _clean_mention_value(_mention_value(raw, "name") or _mention_value(raw, "user_name")),
+            "open_id": _clean_mention_value(
+                _mention_value(raw, "open_id") or _mention_id_value(mention_id, "open_id")
+            ),
+            "user_id": _clean_mention_value(
+                _mention_value(raw, "user_id") or _mention_id_value(mention_id, "user_id")
+            ),
+            "union_id": _clean_mention_value(
+                _mention_value(raw, "union_id") or _mention_id_value(mention_id, "union_id")
+            ),
+        }
+        key = (record["key"], record["name"], record["open_id"], record["user_id"], record["union_id"])
+        if any(record.values()) and key not in seen:
+            seen.add(key)
+            mentions.append(record)
+
+    if raw_mentions:
+        for item in raw_mentions:
+            add(item)
+
+    raw_mentions = content_json.get("mentions")
+    if isinstance(raw_mentions, list):
+        for item in raw_mentions:
+            if isinstance(item, dict):
+                add(item)
+
+    def walk(value: Any) -> None:
+        if isinstance(value, dict):
+            if value.get("tag") == "at":
+                add(value)
+            for child in value.values():
+                walk(child)
+        elif isinstance(value, list):
+            for child in value:
+                walk(child)
+
+    walk(content_json)
+    return mentions
+
+
+def _feishu_mentions_bot(
+    content_json: dict,
+    text: str,
+    config: FeishuConfig,
+    *,
+    mentions: list[dict[str, str]] | None = None,
+) -> bool:
+    """Best-effort bot mention detection for Feishu group messages."""
+    bot_open_id = str(getattr(config, "bot_open_id", "") or "").strip()
+    bot_names = _configured_bot_names(config)
+    for mention in mentions if mentions is not None else _extract_feishu_mentions(content_json):
+        ids = {mention.get("open_id", ""), mention.get("user_id", ""), mention.get("union_id", "")}
+        if bot_open_id and bot_open_id in ids:
+            return True
+        name = _normalize_mention_name(mention.get("name", ""))
+        if name and any(name == candidate or candidate in name for candidate in bot_names):
+            return True
+
+    normalized_text = text.strip().lower()
+    for name in bot_names:
+        if re.search(rf"(^|\s)@{re.escape(name)}(?=$|\s|[:：,，])", normalized_text):
+            return True
+    return False
+
+
+def _normalize_feishu_group_policy(value: str | None) -> str:
+    normalized = str(value or "").strip().lower().replace("-", "_")
+    aliases = {
+        "all": "open",
+        "always": "open",
+        "always_reply": "open",
+        "managed_mention": "managed_or_mention",
+        "managed_or_at": "managed_or_mention",
+        "at": "mention",
+        "mentions": "mention",
+    }
+    normalized = aliases.get(normalized, normalized)
+    if normalized in {"open", "mention", "managed", "managed_or_mention"}:
+        return normalized
+    return "managed_or_mention"
+
+
+def _is_ohmo_managed_feishu_group(chat_id: str) -> bool:
+    workspace = os.environ.get("OHMO_WORKSPACE")
+    if not workspace:
+        return False
+    try:
+        from ohmo.group_registry import load_managed_group_record
+
+        return load_managed_group_record(
+            workspace=workspace,
+            channel="feishu",
+            chat_id=chat_id,
+        ) is not None
+    except Exception:
+        logger.exception("Failed to load ohmo managed Feishu group metadata chat_id=%s", chat_id)
+        return False
+
+
+def _should_process_feishu_group_message(
+    *,
+    chat_type: str,
+    chat_id: str,
+    mentions_bot: bool,
+    config: FeishuConfig,
+) -> bool:
+    if str(chat_type or "").strip().lower() != "group":
+        return True
+    policy = _normalize_feishu_group_policy(getattr(config, "group_policy", "managed_or_mention"))
+    if policy == "open":
+        return True
+    if policy == "mention":
+        return mentions_bot
+    if policy == "managed":
+        return _is_ohmo_managed_feishu_group(chat_id)
+    if policy == "managed_or_mention":
+        return mentions_bot or _is_ohmo_managed_feishu_group(chat_id)
+    return mentions_bot
+
+
+class FeishuApiError(RuntimeError):
+    """Raised when Feishu returns an unsuccessful API response."""
 
 
 def _extract_share_card_content(content_json: dict, msg_type: str) -> str:
@@ -749,10 +918,20 @@ class FeishuChannel(BaseChannel):
                     filename = f"{file_key[:16]}{ext}"
 
         if data and filename:
-            file_path = media_dir / filename
+            safe_name = safe_filename(filename)
+            if not safe_name:
+                logger.warning("Rejected %s download with unsafe filename %r", msg_type, filename)
+                return None, f"[{msg_type}: download failed]"
+
+            media_root = media_dir.resolve()
+            file_path = (media_root / safe_name).resolve()
+            if not file_path.is_relative_to(media_root):
+                logger.warning("Rejected %s download outside media directory: %r", msg_type, filename)
+                return None, f"[{msg_type}: download failed]"
+
             file_path.write_bytes(data)
             logger.debug("Downloaded %s to %s", msg_type, file_path)
-            return str(file_path), f"[{msg_type}: {filename}]"
+            return str(file_path), f"[{msg_type}: {safe_name}]"
 
         return None, f"[{msg_type}: download failed]"
 
@@ -800,6 +979,71 @@ class FeishuChannel(BaseChannel):
             logger.error("Error sending Feishu %s message: %s", msg_type, e)
             return False
 
+    @staticmethod
+    def _format_response_error(action: str, response: Any) -> str:
+        log_id = response.get_log_id() if hasattr(response, "get_log_id") else ""
+        return (
+            f"{action} failed: code={getattr(response, 'code', '')}, "
+            f"msg={getattr(response, 'msg', '')}, log_id={log_id}"
+        )
+
+    def _create_managed_group_sync(self, user_open_id: str, name: str) -> str:
+        """Create a Feishu group containing the user and the app bot."""
+        from lark_oapi.api.im.v1 import CreateChatRequest, CreateChatRequestBody
+
+        if not self._client:
+            raise RuntimeError("Feishu client not initialized")
+        request = (
+            CreateChatRequest.builder()
+            .user_id_type("open_id")
+            .set_bot_manager(True)
+            .request_body(
+                CreateChatRequestBody.builder()
+                .name(name)
+                .user_id_list([user_open_id])
+                .chat_mode("group")
+                .chat_type("private")
+                .build()
+            )
+            .build()
+        )
+        response = self._client.im.v1.chat.create(request)
+        if not response.success():
+            raise FeishuApiError(self._format_response_error("create Feishu group", response))
+        chat_id = getattr(getattr(response, "data", None), "chat_id", None)
+        if not chat_id:
+            raise FeishuApiError("create Feishu group failed: response missing chat_id")
+        logger.info("Created Feishu managed group name=%r chat_id=%s", name, chat_id)
+        return str(chat_id)
+
+    async def create_managed_group(self, *, user_open_id: str, name: str) -> str:
+        """Create a Feishu group for a single user and the ohmo bot."""
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, self._create_managed_group_sync, user_open_id, name)
+
+    def _rename_group_sync(self, chat_id: str, name: str) -> None:
+        """Rename a Feishu group."""
+        from lark_oapi.api.im.v1 import UpdateChatRequest, UpdateChatRequestBody
+
+        if not self._client:
+            raise RuntimeError("Feishu client not initialized")
+        request = (
+            UpdateChatRequest.builder()
+            .user_id_type("open_id")
+            .chat_id(chat_id)
+            .request_body(UpdateChatRequestBody.builder().name(name).build())
+            .build()
+        )
+        response = self._client.im.v1.chat.update(request)
+        if not response.success():
+            raise FeishuApiError(self._format_response_error("rename Feishu group", response))
+        logger.info("Renamed Feishu group chat_id=%s name=%r", chat_id, name)
+
+    async def rename_group(self, *, chat_id: str, name: str) -> None:
+        """Rename a Feishu group."""
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._rename_group_sync, chat_id, name)
+
     async def send(self, msg: OutboundMessage) -> None:
         """Send a message through Feishu, including media (images/files) if present."""
         if not self._client:
@@ -809,7 +1053,12 @@ class FeishuChannel(BaseChannel):
         try:
             receive_id_type = "chat_id" if msg.chat_id.startswith("oc_") else "open_id"
             loop = asyncio.get_running_loop()
-            reply_mid = msg.metadata.get("message_id")
+            chat_type = str(msg.metadata.get("chat_type") or "").lower()
+            reply_mid = (
+                msg.metadata.get("message_id")
+                if chat_type == "group" or msg.metadata.get("thread_id") or msg.metadata.get("root_id")
+                else None
+            )
 
             for file_path in msg.media:
                 if not os.path.isfile(file_path):
@@ -952,9 +1201,6 @@ class FeishuChannel(BaseChannel):
             chat_type = message.chat_type
             msg_type = message.message_type
 
-            # Add reaction
-            await self._add_reaction(message_id, self.config.react_emoji)
-
             # Parse content
             content_parts = []
             media_paths = []
@@ -1001,6 +1247,31 @@ class FeishuChannel(BaseChannel):
 
             if not content and not media_paths:
                 return
+            mentions = _extract_feishu_mentions(content_json, getattr(message, "mentions", None))
+            mentions_bot = chat_type == "group" and _feishu_mentions_bot(
+                content_json,
+                content,
+                self.config,
+                mentions=mentions,
+            )
+            if not _should_process_feishu_group_message(
+                chat_type=chat_type,
+                chat_id=chat_id,
+                mentions_bot=mentions_bot,
+                config=self.config,
+            ):
+                logger.info(
+                    "Feishu group message ignored by policy chat_id=%s policy=%s mentions_bot=%s mention_names=%s mention_open_ids=%s",
+                    chat_id,
+                    getattr(self.config, "group_policy", "managed_or_mention"),
+                    mentions_bot,
+                    [item.get("name", "") for item in mentions],
+                    [item.get("open_id", "") for item in mentions],
+                )
+                return
+
+            # Add reaction only after policy says this message will be handled.
+            await self._add_reaction(message_id, self.config.react_emoji)
 
             # Forward to message bus
             reply_to = chat_id if chat_type == "group" else sender_id
@@ -1019,6 +1290,8 @@ class FeishuChannel(BaseChannel):
                     "root_id": getattr(message, "root_id", None),
                     "chat_type": chat_type,
                     "msg_type": msg_type,
+                    "mentions": mentions,
+                    "mentions_bot": mentions_bot,
                     "sender_display_name": sender_display_name,
                     "sender_label": sender_display_name or sender_id,
                 }

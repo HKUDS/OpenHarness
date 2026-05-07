@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, AsyncIterator, Awaitable, Callable
+from uuid import uuid4
 
 from openharness.api.client import (
     ApiMessageCompleteEvent,
@@ -22,8 +24,15 @@ from openharness.api.errors import (
     RateLimitFailure,
     RequestFailure,
 )
+from openharness.api.provider import is_model_multimodal
 from openharness.api.usage import UsageSnapshot
-from openharness.engine.messages import ConversationMessage, ToolResultBlock
+from openharness.config.paths import get_data_dir
+from openharness.engine.messages import (
+    ConversationMessage,
+    ImageBlock,
+    TextBlock,
+    ToolResultBlock,
+)
 from openharness.engine.stream_events import (
     AssistantTextDelta,
     AssistantTurnComplete,
@@ -36,11 +45,13 @@ from openharness.engine.stream_events import (
 )
 from openharness.hooks import HookEvent, HookExecutor
 from openharness.permissions.checker import PermissionChecker
+from openharness.services.tool_outputs import tool_output_inline_chars, tool_output_preview_chars
 from openharness.tools.base import ToolExecutionContext
 from openharness.tools.base import ToolRegistry
 
 AUTO_COMPACT_STATUS_MESSAGE = "Auto-compacting conversation memory to keep things fast and focused."
 REACTIVE_COMPACT_STATUS_MESSAGE = "Prompt too long; compacting conversation memory and retrying."
+MAX_SAFE_COMPLETION_TOKENS = 128_000
 
 log = logging.getLogger(__name__)
 
@@ -51,6 +62,7 @@ AskUserPrompt = Callable[[str], Awaitable[str]]
 MAX_TRACKED_READ_FILES = 6
 MAX_TRACKED_SKILLS = 8
 MAX_TRACKED_ASYNC_AGENT_EVENTS = 8
+MAX_TRACKED_ASYNC_AGENT_TASKS = 12
 MAX_TRACKED_WORK_LOG = 10
 MAX_TRACKED_USER_GOALS = 5
 MAX_TRACKED_ACTIVE_ARTIFACTS = 8
@@ -63,12 +75,20 @@ def _is_prompt_too_long_error(exc: Exception) -> bool:
         needle in text
         for needle in (
             "prompt too long",
+            "context_length_exceeded",
             "context length",
             "maximum context",
             "context window",
+            "input tokens exceed",
+            "messages resulted in",
+            "reduce the length of the messages",
+            "configured limit",
             "too many tokens",
             "too large for the model",
             "maximum context length",
+            "exceed_context",
+            "exceeds the available context size",
+            "available context size",
         )
     )
 
@@ -247,6 +267,45 @@ def _format_api_error_message(exc: Exception) -> str:
 
     # Generic fallback - but still provide some guidance
     return f"API error: {error_msg}\n\nPlease try again. If the issue persists, check the error details above."
+
+
+def _bounded_completion_tokens(max_tokens: int, context_window_tokens: int | None = None) -> int:
+    """Return a conservative per-request output token cap.
+
+    Some OpenAI-compatible providers reject very large ``max_tokens`` before
+    the request reaches model-side context management.  Keep oversized user
+    config from making every turn fail while preserving normal defaults.
+    """
+    limit = MAX_SAFE_COMPLETION_TOKENS
+    if context_window_tokens is not None and context_window_tokens > 0:
+        limit = min(limit, int(context_window_tokens))
+    return max(1, min(int(max_tokens), limit))
+
+
+def _extract_completion_token_limit(exc: Exception) -> int | None:
+    """Parse provider errors such as "supports at most 128000 completion tokens"."""
+    text = str(exc).lower().replace(",", "")
+    patterns = (
+        r"supports at most\s+(\d+)\s+completion tokens",
+        r"at most\s+(\d+)\s+completion tokens",
+        r"max(?:imum)?(?:_completion)?[_\s-]tokens.*?(?:<=|less than or equal to|at most)\s+(\d+)",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, text)
+        if match:
+            try:
+                return max(1, int(match.group(1)))
+            except ValueError:
+                return None
+    return None
+
+
+def _is_completion_token_limit_error(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return (
+        ("max_tokens" in text or "max_completion_tokens" in text)
+        and ("too large" in text or "at most" in text or "completion tokens" in text)
+    )
 
 
 class MaxTurnsExceeded(RuntimeError):
@@ -445,6 +504,55 @@ def _remember_async_agent_activity(
         del bucket[:-MAX_TRACKED_ASYNC_AGENT_EVENTS]
 
 
+def _parse_spawned_agent_identity(
+    output: str,
+    metadata: dict[str, object] | None = None,
+) -> tuple[str, str] | None:
+    if isinstance(metadata, dict):
+        agent_id = str(metadata.get("agent_id") or "").strip()
+        task_id = str(metadata.get("task_id") or "").strip()
+        if agent_id and task_id:
+            return agent_id, task_id
+    match = re.search(r"Spawned agent (.+?) \(task_id=(\S+?)(?:[,)]|$)", output.strip())
+    if match is None:
+        return None
+    return match.group(1).strip(), match.group(2).strip()
+
+
+def _remember_async_agent_task(
+    tool_metadata: dict[str, object] | None,
+    *,
+    tool_name: str,
+    tool_input: dict[str, object],
+    output: str,
+    result_metadata: dict[str, object] | None = None,
+) -> None:
+    if tool_name != "agent":
+        return
+    identity = _parse_spawned_agent_identity(output, result_metadata)
+    if identity is None:
+        return
+    agent_id, task_id = identity
+    bucket = _tool_metadata_bucket(tool_metadata, "async_agent_tasks")
+    description = str(tool_input.get("description") or tool_input.get("prompt") or "").strip()
+    entry = {
+        "agent_id": agent_id,
+        "task_id": task_id,
+        "description": description[:240],
+        "status": "spawned",
+        "notification_sent": False,
+        "spawned_at": time.time(),
+    }
+    bucket[:] = [
+        existing
+        for existing in bucket
+        if not isinstance(existing, dict) or str(existing.get("task_id") or "") != task_id
+    ]
+    bucket.append(entry)
+    if len(bucket) > MAX_TRACKED_ASYNC_AGENT_TASKS:
+        del bucket[:-MAX_TRACKED_ASYNC_AGENT_TASKS]
+
+
 def _remember_work_log(
     tool_metadata: dict[str, object] | None,
     *,
@@ -471,6 +579,7 @@ def _record_tool_carryover(
     tool_name: str,
     tool_input: dict[str, object],
     tool_output: str,
+    tool_result_metadata: dict[str, object] | None,
     is_error: bool,
     resolved_file_path: str | None,
 ) -> None:
@@ -507,6 +616,13 @@ def _record_tool_carryover(
             tool_name=tool_name,
             tool_input=tool_input,
             output=tool_output,
+        )
+        _remember_async_agent_task(
+            context.tool_metadata,
+            tool_name=tool_name,
+            tool_input=tool_input,
+            output=tool_output,
+            result_metadata=tool_result_metadata,
         )
         description = str(tool_input.get("description") or tool_input.get("prompt") or tool_name).strip()
         _remember_verified_work(
@@ -575,6 +691,126 @@ def _record_tool_carryover(
         _remember_work_log(context.tool_metadata, entry="Exited plan mode")
 
 
+def _tool_artifact_dir() -> Path:
+    artifact_dir = get_data_dir() / "tool_artifacts"
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    return artifact_dir
+
+
+def _safe_tool_artifact_name(tool_name: str) -> str:
+    normalized = re.sub(r"[^A-Za-z0-9_.-]+", "_", tool_name.strip())
+    return (normalized or "tool")[:80]
+
+
+def _offload_tool_output_if_needed(
+    *,
+    tool_name: str,
+    tool_use_id: str,
+    output: str,
+) -> tuple[str, Path | None]:
+    inline_limit = tool_output_inline_chars()
+    if len(output) <= inline_limit:
+        return output, None
+
+    artifact_path = (
+        _tool_artifact_dir()
+        / f"{time.strftime('%Y%m%d-%H%M%S')}-{_safe_tool_artifact_name(tool_name)}-{uuid4().hex[:12]}.txt"
+    )
+    artifact_path.write_text(output, encoding="utf-8", errors="replace")
+    preview = output[:tool_output_preview_chars()]
+    omitted = max(0, len(output) - len(preview))
+    inline = (
+        "[Tool output truncated]\n"
+        f"Tool: {tool_name}\n"
+        f"Tool use id: {tool_use_id}\n"
+        f"Original size: {len(output)} chars\n"
+        f"Full output saved to: {artifact_path}\n"
+        f"Inline preview: first {len(preview)} chars"
+    )
+    if omitted:
+        inline += f" ({omitted} chars omitted)"
+    if preview:
+        inline += f"\n\nPreview:\n{preview}"
+    return inline, artifact_path
+
+
+# ---------------------------------------------------------------------------
+# Image preprocessing — convert ImageBlocks to text for non-multimodal models
+# ---------------------------------------------------------------------------
+
+_IMAGE_PREPROCESS_STATUS = "Converting image to text description via vision model…"
+
+
+async def _preprocess_images_in_messages(
+    messages: list[ConversationMessage],
+    context: QueryContext,
+) -> AsyncIterator[StreamEvent]:
+    """Scan messages for ImageBlocks and convert them to text if the active
+    model does not support multimodal input.
+
+    Yields status events during conversion so the UI stays responsive.
+    """
+    if is_model_multimodal(context.model):
+        return
+
+    vision_config = context.tool_metadata.get("vision_model_config")
+    if not vision_config:
+        # No vision model configured — skip preprocessing.
+        return
+
+    # Collect all ImageBlocks with their parent message index and block index
+    pending: list[tuple[int, int, ImageBlock]] = []
+    for msg_idx, msg in enumerate(messages):
+        if msg.role != "user":
+            continue
+        for blk_idx, block in enumerate(msg.content):
+            if isinstance(block, ImageBlock):
+                pending.append((msg_idx, blk_idx, block))
+
+    if not pending:
+        return
+
+    yield StatusEvent(message=_IMAGE_PREPROCESS_STATUS)
+
+    # Process images in parallel
+    async def _describe(msg_idx: int, blk_idx: int, block: ImageBlock) -> tuple[int, int, str]:
+        tool = context.tool_registry.get("image_to_text")
+        if tool is None:
+            return msg_idx, blk_idx, "[Image: could not describe — image_to_text tool not available]"
+
+        # Build tool input
+        tool_input_data: dict[str, object] = {
+            "image_data": block.data,
+            "media_type": block.media_type,
+            "prompt": "Describe this image in detail, including any text, "
+                      "UI elements, code, diagrams, or visual information present.",
+        }
+
+        try:
+            parsed = tool.input_model.model_validate(tool_input_data)
+        except Exception:
+            return msg_idx, blk_idx, "[Image: could not parse image data]"
+
+        exec_context = ToolExecutionContext(
+            cwd=context.cwd,
+            metadata={
+                "vision_model_config": vision_config,
+                **(context.tool_metadata or {}),
+            },
+        )
+        result = await tool.execute(parsed, exec_context)
+        if result.is_error:
+            return msg_idx, blk_idx, f"[Image description failed: {result.output}]"
+        return msg_idx, blk_idx, result.output
+
+    results = await asyncio.gather(*[_describe(mi, bi, blk) for mi, bi, blk in pending])
+
+    # Replace ImageBlocks with TextBlocks in-place
+    for msg_idx, blk_idx, description in results:
+        msg = messages[msg_idx]
+        msg.content[blk_idx] = TextBlock(text=description)
+
+
 async def run_query(
     context: QueryContext,
     messages: list[ConversationMessage],
@@ -595,6 +831,11 @@ async def run_query(
     compact_state = AutoCompactState()
     reactive_compact_attempted = False
     last_compaction_result: tuple[list[ConversationMessage], bool] = (messages, False)
+    effective_max_tokens = _bounded_completion_tokens(
+        context.max_tokens,
+        context.context_window_tokens,
+    )
+    reported_token_clamp = False
 
     async def _stream_compaction(
         *,
@@ -639,11 +880,27 @@ async def run_query(
     turn_count = 0
     while context.max_turns is None or turn_count < context.max_turns:
         turn_count += 1
+        if effective_max_tokens != context.max_tokens and not reported_token_clamp:
+            reported_token_clamp = True
+            yield StatusEvent(
+                message=(
+                    "Requested max_tokens="
+                    f"{context.max_tokens} exceeds the safe per-request output cap; "
+                    f"using {effective_max_tokens}."
+                )
+            ), None
         # --- auto-compact check before calling the model ---------------
         async for event, usage in _stream_compaction(trigger="auto"):
             yield event, usage
-        messages, was_compacted = last_compaction_result
+        compacted_messages, was_compacted = last_compaction_result
+        if compacted_messages is not messages:
+            messages[:] = compacted_messages
         # ---------------------------------------------------------------
+
+        # --- image preprocessing: convert ImageBlocks to text for non-vision models ---
+        async for event in _preprocess_images_in_messages(messages, context):
+            yield event, None
+        # -----------------------------------------------------------------------------
 
         final_message: ConversationMessage | None = None
         usage = UsageSnapshot()
@@ -654,7 +911,7 @@ async def run_query(
                     model=context.model,
                     messages=messages,
                     system_prompt=context.system_prompt,
-                    max_tokens=context.max_tokens,
+                    max_tokens=effective_max_tokens,
                     tools=context.tool_registry.to_api_schema(),
                 )
             ):
@@ -675,12 +932,28 @@ async def run_query(
                     usage = event.usage
         except Exception as exc:
             # Handle context length errors with automatic compaction
+            error_msg = str(exc)
+            if _is_completion_token_limit_error(exc):
+                supported_limit = _extract_completion_token_limit(exc)
+                if supported_limit is not None and effective_max_tokens > supported_limit:
+                    previous_max_tokens = effective_max_tokens
+                    effective_max_tokens = supported_limit
+                    yield StatusEvent(
+                        message=(
+                            f"Model rejected max_tokens={previous_max_tokens}; "
+                            f"retrying with provider limit {effective_max_tokens}."
+                        )
+                    ), None
+                    turn_count = max(0, turn_count - 1)
+                    continue
             if not reactive_compact_attempted and _is_prompt_too_long_error(exc):
                 reactive_compact_attempted = True
                 yield StatusEvent(message=REACTIVE_COMPACT_STATUS_MESSAGE), None
                 async for event, usage in _stream_compaction(trigger="reactive", force=True):
                     yield event, usage
-                messages, was_compacted = last_compaction_result
+                compacted_messages, was_compacted = last_compaction_result
+                if compacted_messages is not messages:
+                    messages[:] = compacted_messages
                 if was_compacted:
                     continue
             
@@ -725,6 +998,14 @@ async def run_query(
             messages.append(coordinator_context_message)
 
         if not final_message.tool_uses:
+            if context.hook_executor is not None:
+                await context.hook_executor.execute(
+                    HookEvent.STOP,
+                    {
+                        "event": HookEvent.STOP.value,
+                        "stop_reason": "tool_uses_empty",
+                    },
+                )
             return
 
         tool_calls = final_message.tool_uses
@@ -840,6 +1121,16 @@ async def _execute_tool_call(
     if not decision.allowed:
         if decision.requires_confirmation and context.permission_prompt is not None:
             log.debug("permission prompt for %s: %s", tool_name, decision.reason)
+            if context.hook_executor is not None:
+                await context.hook_executor.execute(
+                    HookEvent.NOTIFICATION,
+                    {
+                        "event": HookEvent.NOTIFICATION.value,
+                        "notification_type": "permission_prompt",
+                        "tool_name": tool_name,
+                        "reason": decision.reason,
+                    },
+                )
             confirmed = await context.permission_prompt(tool_name, decision.reason)
             if not confirmed:
                 log.debug("permission denied by user for %s", tool_name)
@@ -867,14 +1158,22 @@ async def _execute_tool_call(
                 "ask_user_prompt": context.ask_user_prompt,
                 **(context.tool_metadata or {}),
             },
+            hook_executor=context.hook_executor,
         ),
     )
     elapsed = time.monotonic() - t0
     log.debug("executed %s in %.2fs err=%s output_len=%d",
               tool_name, elapsed, result.is_error, len(result.output or ""))
+    inline_output, artifact_path = _offload_tool_output_if_needed(
+        tool_name=tool_name,
+        tool_use_id=tool_use_id,
+        output=result.output,
+    )
+    if artifact_path is not None:
+        _remember_active_artifact(context.tool_metadata, str(artifact_path))
     tool_result = ToolResultBlock(
         tool_use_id=tool_use_id,
-        content=result.output,
+        content=inline_output,
         is_error=result.is_error,
     )
     _record_tool_carryover(
@@ -882,6 +1181,7 @@ async def _execute_tool_call(
         tool_name=tool_name,
         tool_input=tool_input,
         tool_output=tool_result.content,
+        tool_result_metadata=result.metadata,
         is_error=tool_result.is_error,
         resolved_file_path=_file_path,
     )

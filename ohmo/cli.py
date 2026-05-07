@@ -208,10 +208,10 @@ def _prompt_channels(existing: GatewayConfig) -> tuple[list[str], dict[str, dict
         else:
             enabled.append(channel)
         allow_from_raw = _text_prompt(
-            f"{channel} allow_from (comma separated, '*' for everyone)",
-            default=",".join(prior.get("allow_from", ["*"])) or "*",
+            f"{channel} allow_from (comma separated user/chat IDs; leave blank to deny all; '*' for everyone)",
+            default=",".join(prior.get("allow_from", [])),
         )
-        allow_from = [item.strip() for item in allow_from_raw.split(",") if item.strip()] or ["*"]
+        allow_from = [item.strip() for item in allow_from_raw.split(",") if item.strip()]
         config: dict[str, object] = {"allow_from": allow_from}
         if channel == "telegram":
             config["token"] = _text_prompt(
@@ -289,6 +289,29 @@ def _prompt_channels(existing: GatewayConfig) -> tuple[list[str], dict[str, dict
                 "Feishu reaction emoji",
                 default=str(prior.get("react_emoji", "OK")),
             )
+            config["group_policy"] = _select_from_menu(
+                "Feishu group policy:",
+                [
+                    ("managed_or_mention", "Managed groups open; other groups require @mention"),
+                    ("mention", "Always require @mention in groups"),
+                    ("open", "Always reply to group messages"),
+                ],
+                default_value=str(prior.get("group_policy", "managed_or_mention")),
+            )
+            prior_bot_names = prior.get("bot_names", ["ohmo", "openclaw", "openharness"])
+            if isinstance(prior_bot_names, str):
+                prior_bot_names_default = prior_bot_names
+            else:
+                prior_bot_names_default = ",".join(str(item) for item in prior_bot_names)
+            bot_names_raw = _text_prompt(
+                "Feishu bot mention names (comma separated)",
+                default=prior_bot_names_default,
+            )
+            config["bot_names"] = [item.strip() for item in bot_names_raw.split(",") if item.strip()]
+            config["bot_open_id"] = _text_prompt(
+                "Feishu bot open_id for exact mention detection (optional)",
+                default=str(prior.get("bot_open_id", "")),
+            )
         configs[channel] = config
     return enabled, configs
 
@@ -344,6 +367,15 @@ def _print_gateway_config_summary(config: GatewayConfig) -> None:
             + ", ".join(config.enabled_channels)
             + f" | provider_profile={config.provider_profile}"
         )
+        deny_all_channels = [
+            name for name in config.enabled_channels
+            if not list(config.channel_configs.get(name, {}).get("allow_from", []))
+        ]
+        if deny_all_channels:
+            print(
+                "Remote access denied until allow_from is configured for: "
+                + ", ".join(deny_all_channels)
+            )
     else:
         print(f"Configured provider_profile={config.provider_profile}; no channels enabled yet.")
     if config.allow_remote_admin_commands and config.allowed_remote_admin_commands:

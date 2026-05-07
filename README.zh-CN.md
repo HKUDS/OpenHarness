@@ -20,6 +20,12 @@
 
 ## 最新更新
 
+### Unreleased · Dry-run 安全预览
+
+- 新增 `oh --dry-run`，可以在**不执行模型、不执行工具、不 spawn subagent** 的前提下，预览当前会话会使用的配置、skills、commands、tools 和 MCP 配置。
+- Dry-run 会给出 `ready / warning / blocked` 结论，并直接告诉你下一步该做什么，例如先修认证、先修 MCP 配置，或者可以直接运行。
+- 对普通 prompt，会给出可能命中的 skills / tools；对 slash command，会展示它更偏只读还是会改本地状态。
+
 ### 2026-04-06 · v0.1.2
 
 - 新增统一配置入口 `oh setup`
@@ -168,6 +174,44 @@ oh -p "Explain this repository"
 oh -p "List all functions in main.py" --output-format json
 oh -p "Fix the bug" --output-format stream-json
 ```
+
+### Dry-run 安全预览
+
+如果你想先看 OpenHarness **会怎么跑**，但又不想真的执行模型或工具，可以用：
+
+```bash
+# 预览交互会话本身
+oh --dry-run
+
+# 预览一个普通 prompt
+oh --dry-run -p "Review this bug fix and grep for failing tests"
+
+# 预览 slash command
+oh --dry-run -p "/plugin list"
+
+# 输出结构化 JSON，方便脚本或 channel 使用
+oh --dry-run -p "Explain this repository" --output-format json
+```
+
+Dry-run 的边界是明确的：
+
+- **不会**调用模型
+- **不会**执行 tools
+- **不会**启动 subagent
+- **不会**连接 MCP server
+- **会**解析 settings、auth 状态、system prompt、skills、commands、tools，以及明显错误的 MCP 配置
+
+Readiness 结论说明：
+
+- `ready`：当前配置基本可直接运行
+- `warning`：能解析会话，但仍有重要问题需要先处理，比如 MCP 配置错误或后续模型调用缺认证
+- `blocked`：按当前状态直接运行会失败，比如 slash command 不存在，或者普通 prompt 无法解析 runtime client
+
+Dry-run 输出里的 `next actions` 会直接给出下一步建议，例如：
+
+- 先执行 `oh auth login`
+- 先修或禁用坏掉的 MCP 配置
+- 直接运行 `oh -p "..."` 或进入 `oh`
 
 ---
 

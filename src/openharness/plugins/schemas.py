@@ -13,6 +13,7 @@ class PluginManifest(BaseModel):
     description: str = ""
     enabled_by_default: bool = True
     skills_dir: str = "skills"
+    tools_dir: str = "tools"
     hooks_file: str = "hooks.json"
     mcp_file: str = "mcp.json"
     # Extended fields: optional author, commands, agents, etc.

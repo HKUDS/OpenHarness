@@ -5,7 +5,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Iterable
 
-from openharness.config.paths import get_project_issue_file, get_project_pr_comments_file
+from openharness.config.paths import (
+    get_project_active_repo_context_path,
+    get_project_issue_file,
+    get_project_pr_comments_file,
+)
 from openharness.config.settings import Settings
 from openharness.coordinator.coordinator_mode import get_coordinator_system_prompt, is_coordinator_mode
 from openharness.memory import find_relevant_memories, load_memory_prompt
@@ -29,7 +33,7 @@ def _build_skills_section(
         extra_plugin_roots=extra_plugin_roots,
         settings=settings,
     )
-    skills = registry.list_skills()
+    skills = [skill for skill in registry.list_skills() if not skill.disable_model_invocation]
     if not skills:
         return None
     lines = [
@@ -37,11 +41,14 @@ def _build_skills_section(
         "",
         "The following skills are available via the `skill` tool. "
         "When a user's request matches a skill, invoke it with `skill(name=\"<skill_name>\")` "
-        "to load detailed instructions before proceeding.",
+        "to load detailed instructions before proceeding. "
+        "User-invocable skills can also be run directly by the user as `/<skill-name>`.",
         "",
     ]
     for skill in skills:
-        lines.append(f"- **{skill.name}**: {skill.description}")
+        command_name = skill.command_name or skill.name
+        display = f" ({skill.display_name})" if skill.display_name else ""
+        lines.append(f"- **{command_name}**{display}: {skill.description}")
     return "\n".join(lines)
 
 
@@ -74,6 +81,7 @@ def build_runtime_system_prompt(
     latest_user_prompt: str | None = None,
     extra_skill_dirs: Iterable[str | Path] | None = None,
     extra_plugin_roots: Iterable[str | Path] | None = None,
+    include_project_memory: bool = True,
 ) -> str:
     """Build the runtime system prompt with project instructions and memory."""
     if is_coordinator_mode():
@@ -119,13 +127,14 @@ def build_runtime_system_prompt(
     for title, path in (
         ("Issue Context", get_project_issue_file(cwd)),
         ("Pull Request Comments", get_project_pr_comments_file(cwd)),
+        ("Active Repo Context", get_project_active_repo_context_path(cwd)),
     ):
         if path.exists():
             content = path.read_text(encoding="utf-8", errors="replace").strip()
             if content:
                 sections.append(f"# {title}\n\n```md\n{content[:12000]}\n```")
 
-    if settings.memory.enabled:
+    if include_project_memory and settings.memory.enabled:
         memory_section = load_memory_prompt(
             cwd,
             max_entrypoint_lines=settings.memory.max_entrypoint_lines,

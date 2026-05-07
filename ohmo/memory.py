@@ -5,6 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from re import sub
 
+from openharness.commands import MemoryCommandBackend
+
 from ohmo.workspace import get_memory_dir, get_memory_index_path
 
 
@@ -67,3 +69,16 @@ def load_memory_prompt(workspace: str | Path | None = None, *, max_files: int = 
         lines.extend(["", f"## {path.name}", "```md", content[:4000], "```"])
 
     return "\n".join(lines)
+
+
+def create_memory_command_backend(workspace: str | Path | None = None) -> MemoryCommandBackend:
+    """Return a ``/memory`` backend bound to ohmo's personal memory store."""
+
+    return MemoryCommandBackend(
+        label="ohmo personal memory",
+        get_memory_dir=lambda: get_memory_dir(workspace),
+        get_entrypoint=lambda: get_memory_index_path(workspace),
+        list_files=lambda: list_memory_files(workspace),
+        add_entry=lambda title, content: add_memory_entry(workspace, title, content),
+        remove_entry=lambda name: remove_memory_entry(workspace, name),
+    )

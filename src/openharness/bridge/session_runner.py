@@ -41,6 +41,6 @@ async def spawn_session(
         command,
         cwd=resolved_cwd,
         stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
     )
     return SessionHandle(session_id=session_id, process=process, cwd=resolved_cwd)

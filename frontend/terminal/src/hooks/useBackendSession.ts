@@ -505,6 +505,7 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 			setModal,
 			setSelectRequest,
 			setBusy,
+			setBusyLabel,
 			sendRequest,
 		}),
 		[assistantBuffer, bridgeSessions, busy, busyLabel, commands, mcpServers, modal, ready, selectRequest, status, swarmNotifications, swarmTeammates, tasks, todoMarkdown, transcript]

@@ -1,13 +1,193 @@
-import React from 'react';
-import {Box, Text} from 'ink';
-import TextInput from 'ink-text-input';
+import React, {useEffect, useRef, useState} from 'react';
+import {Box, Text, useInput, useStdin} from 'ink';
+import chalk from 'chalk';
 
 import {useTheme} from '../theme/ThemeContext.js';
 import {Spinner} from './Spinner.js';
 
-const RUNNING_HINT_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
-
 const noop = (): void => {};
+const BACKSPACE_CONTROL_PATTERN = /^[\b\u007f]+$/;
+
+export function getBackspaceDeleteCount(sequence: string): number {
+	if (!sequence || !BACKSPACE_CONTROL_PATTERN.test(sequence)) {
+		return 1;
+	}
+
+	return [...sequence].length;
+}
+
+function MultilineTextInput({
+	value,
+	onChange,
+	onSubmit,
+	focus = true,
+	promptPrefix,
+	promptColor,
+}: {
+	value: string;
+	onChange: (value: string) => void;
+	onSubmit?: (value: string) => void;
+	focus?: boolean;
+	promptPrefix: string;
+	promptColor: string;
+}): React.JSX.Element {
+	const [cursorOffset, setCursorOffset] = useState(value.length);
+	const {internal_eventEmitter} = useStdin();
+	const lastSequenceRef = useRef('');
+	// Tracks the last value this component produced via onChange. If the
+	// incoming `value` prop diverges from this, the change came from outside
+	// (tab completion, history recall, programmatic clear) and we should
+	// move the cursor to the end — otherwise the cursor stays wherever the
+	// user had it, which puts subsequent keystrokes in the middle of the
+	// newly-completed text. See HKUDS/OpenHarness#183.
+	const lastInternalValueRef = useRef<string>(value);
+
+	useEffect(() => {
+		if (value === lastInternalValueRef.current) {
+			// Self-authored update; cursor was already positioned by the
+			// handler that called onChange.
+			return;
+		}
+		lastInternalValueRef.current = value;
+		setCursorOffset(value.length);
+	}, [value]);
+
+	const commitValue = (nextValue: string): void => {
+		lastInternalValueRef.current = nextValue;
+		onChange(nextValue);
+	};
+
+	useEffect(() => {
+		if (!focus) {
+			return;
+		}
+
+		const handleRawInput = (chunk: string | Buffer): void => {
+			lastSequenceRef.current = Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk);
+		};
+
+		internal_eventEmitter.on('input', handleRawInput);
+		return () => {
+			internal_eventEmitter.removeListener('input', handleRawInput);
+		};
+	}, [focus, internal_eventEmitter]);
+
+	useInput(
+		(input, key) => {
+			if (!focus) {
+				return;
+			}
+
+			if (key.upArrow || key.downArrow || key.tab || (key.shift && key.tab) || key.escape || (key.ctrl && input === 'c')) {
+				return;
+			}
+
+			if (key.return) {
+				if (key.shift) {
+					const nextValue = value.slice(0, cursorOffset) + '\n' + value.slice(cursorOffset);
+					setCursorOffset(cursorOffset + 1);
+					commitValue(nextValue);
+					return;
+				}
+				onSubmit?.(value);
+				return;
+			}
+
+			if (key.leftArrow) {
+				setCursorOffset((previous) => Math.max(0, previous - 1));
+				return;
+			}
+
+			if (key.rightArrow) {
+				setCursorOffset((previous) => Math.min(value.length, previous + 1));
+				return;
+			}
+
+			if (key.backspace) {
+				if (cursorOffset === 0) {
+					return;
+				}
+				const deleteCount = Math.min(cursorOffset, getBackspaceDeleteCount(lastSequenceRef.current || input));
+				const nextValue = value.slice(0, cursorOffset - deleteCount) + value.slice(cursorOffset);
+				setCursorOffset(cursorOffset - deleteCount);
+				commitValue(nextValue);
+				return;
+			}
+
+			if (key.delete) {
+				// Ink reports the common DEL byte (`0x7f`) as `delete`, even though
+				// many terminals emit it for the Backspace key. Use the raw sequence
+				// to distinguish that case from a true forward-delete escape sequence.
+				if (
+					lastSequenceRef.current === '\x7f' ||
+					lastSequenceRef.current === '\x1b\x7f' ||
+					BACKSPACE_CONTROL_PATTERN.test(lastSequenceRef.current)
+				) {
+					if (cursorOffset === 0) {
+						return;
+					}
+					const deleteCount = Math.min(cursorOffset, getBackspaceDeleteCount(lastSequenceRef.current));
+					const nextValue = value.slice(0, cursorOffset - deleteCount) + value.slice(cursorOffset);
+					setCursorOffset(cursorOffset - deleteCount);
+					commitValue(nextValue);
+					return;
+				}
+
+				if (cursorOffset >= value.length) {
+					return;
+				}
+				const nextValue = value.slice(0, cursorOffset) + value.slice(cursorOffset + 1);
+				commitValue(nextValue);
+				return;
+			}
+
+			if (!input) {
+				return;
+			}
+
+			const nextValue = value.slice(0, cursorOffset) + input + value.slice(cursorOffset);
+			setCursorOffset(cursorOffset + input.length);
+			commitValue(nextValue);
+		},
+		{isActive: focus},
+	);
+
+	let renderedValue = value;
+	if (focus) {
+		if (value.length === 0) {
+			renderedValue = chalk.inverse(' ');
+		} else {
+			renderedValue = '';
+			let index = 0;
+			for (const char of value) {
+				if (index === cursorOffset) {
+					renderedValue += chalk.inverse(char === '\n' ? ' ' : char);
+				} else {
+					renderedValue += char;
+				}
+				index += 1;
+			}
+			if (cursorOffset === value.length) {
+				renderedValue += chalk.inverse(' ');
+			}
+		}
+	}
+
+	const lines = renderedValue.split('\n');
+	const indent = ' '.repeat(promptPrefix.length);
+	return (
+		<Box flexDirection="column">
+			{lines.map((line, index) => (
+				<Box key={`${index}:${line}`}>
+					<Text color={promptColor} bold>
+						{index === 0 ? promptPrefix : indent}
+					</Text>
+					<Text>{line.length > 0 ? line : ' '}</Text>
+				</Box>
+			))}
+		</Box>
+	);
+}
 
 export function PromptInput({
 	busy,
@@ -27,6 +207,7 @@ export function PromptInput({
 	statusLabel?: string;
 }): React.JSX.Element {
 	const {theme} = useTheme();
+	const promptPrefix = busy ? '… ' : '> ';
 
 	return (
 		<Box flexDirection="column">
@@ -35,17 +216,16 @@ export function PromptInput({
 					<Box>
 						<Spinner label={statusLabel ?? (toolName ? `Running ${toolName}...` : 'Running...')} />
 					</Box>
-					<Box>
-						<Text color={theme.colors.warning} bold>
-							{RUNNING_HINT_FRAMES.join(' ')} Agent is working…
-						</Text>
-					</Box>
 				</Box>
 			) : null}
-			<Box>
-				<Text color={theme.colors.primary} bold>{busy ? '… ' : '> '}</Text>
-				<TextInput value={input} onChange={setInput} onSubmit={suppressSubmit || busy ? noop : onSubmit} />
-			</Box>
+			<MultilineTextInput
+				value={input}
+				onChange={setInput}
+				onSubmit={suppressSubmit ? noop : onSubmit}
+				focus
+				promptPrefix={promptPrefix}
+				promptColor={theme.colors.primary}
+			/>
 		</Box>
 	);
 }

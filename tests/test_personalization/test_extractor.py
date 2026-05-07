@@ -29,7 +29,14 @@ class TestExtractFacts:
         text = 'export OPENAI_BASE_URL="https://relay.nf.video/v1"'
         facts = extract_facts_from_text(text)
         env_facts = [f for f in facts if f["type"] == "env_var"]
-        assert any("OPENAI_BASE_URL" in f["value"] for f in env_facts)
+        assert env_facts[0]["value"] == "OPENAI_BASE_URL"
+
+    def test_env_var_does_not_capture_secret_value(self):
+        text = "export OPENAI_API_KEY=sk-secret-value"
+        facts = extract_facts_from_text(text)
+        env_facts = [f for f in facts if f["type"] == "env_var"]
+        assert env_facts[0]["value"] == "OPENAI_API_KEY"
+        assert "sk-secret-value" not in env_facts[0]["value"]
 
     def test_extracts_api_endpoint(self):
         text = "curl https://api.minimax.chat/v1/chat/completions"

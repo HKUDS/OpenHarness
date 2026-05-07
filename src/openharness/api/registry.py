@@ -124,6 +124,20 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         is_local=False,
         is_oauth=False,
     ),
+    # ModelScope: OpenAI-compatible inference API
+    ProviderSpec(
+        name="modelscope",
+        keywords=("modelscope",),
+        env_key="MODELSCOPE_API_KEY",
+        display_name="ModelScope",
+        backend_type="openai_compat",
+        default_base_url="https://api-inference.modelscope.cn/v1",
+        detect_by_key_prefix="",
+        detect_by_base_keyword="modelscope",
+        is_gateway=False,
+        is_local=False,
+        is_oauth=False,
+    ),
     # === Standard cloud providers (matched by model-name keyword) ============
     # Anthropic: native SDK for claude-* models
     ProviderSpec(

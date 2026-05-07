@@ -36,6 +36,8 @@ _KNOWN_PROVIDERS = [
     "vertex",
     "moonshot",
     "gemini",
+    "minimax",
+    "modelscope",
 ]
 
 _AUTH_SOURCES = [
@@ -49,6 +51,8 @@ _AUTH_SOURCES = [
     "vertex_api_key",
     "moonshot_api_key",
     "gemini_api_key",
+    "minimax_api_key",
+    "modelscope_api_key",
 ]
 
 _PROFILE_BY_PROVIDER = {
@@ -59,6 +63,8 @@ _PROFILE_BY_PROVIDER = {
     "copilot": "copilot",
     "moonshot": "moonshot",
     "gemini": "gemini",
+    "minimax": "minimax",
+    "modelscope": "modelscope",
 }
 
 
@@ -154,6 +160,15 @@ class AuthManager:
                     configured = True
                     origin = "file"
                     state = "configured"
+            elif source == "modelscope_api_key":
+                if os.environ.get("MODELSCOPE_API_KEY"):
+                    configured = True
+                    origin = "env"
+                    state = "configured"
+                elif load_credential(storage_provider, "api_key"):
+                    configured = True
+                    origin = "file"
+                    state = "configured"
             elif load_credential(storage_provider, "api_key"):
                 configured = True
                 origin = "file"
@@ -239,6 +254,22 @@ class AuthManager:
                     configured = True
                     source = "env"
                 elif load_credential("moonshot", "api_key"):
+                    configured = True
+                    source = "file"
+
+            elif provider == "minimax":
+                if os.environ.get("MINIMAX_API_KEY"):
+                    configured = True
+                    source = "env"
+                elif load_credential("minimax", "api_key"):
+                    configured = True
+                    source = "file"
+
+            elif provider == "modelscope":
+                if os.environ.get("MODELSCOPE_API_KEY"):
+                    configured = True
+                    source = "env"
+                elif load_credential("modelscope", "api_key"):
                     configured = True
                     source = "file"
 

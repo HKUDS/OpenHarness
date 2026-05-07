@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import os
 import shutil
+import subprocess
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -23,7 +24,7 @@ def resolve_shell_command(
     resolved_platform = platform_name or get_platform()
     if resolved_platform == "windows":
         bash = shutil.which("bash")
-        if bash:
+        if bash and _bash_is_usable(bash):
             return [bash, "-lc", command]
         powershell = shutil.which("pwsh") or shutil.which("powershell")
         if powershell:
@@ -34,14 +35,14 @@ def resolve_shell_command(
     if bash:
         argv = [bash, "-lc", command]
         if prefer_pty:
-            wrapped = _wrap_command_with_script(argv)
+            wrapped = _wrap_command_with_script(argv, platform_name=resolved_platform)
             if wrapped is not None:
                 return wrapped
         return argv
     shell = shutil.which("sh") or os.environ.get("SHELL") or "/bin/sh"
     argv = [shell, "-lc", command]
     if prefer_pty:
-        wrapped = _wrap_command_with_script(argv)
+        wrapped = _wrap_command_with_script(argv, platform_name=resolved_platform)
         if wrapped is not None:
             return wrapped
     return argv
@@ -53,7 +54,7 @@ async def create_shell_subprocess(
     cwd: str | Path,
     settings: Settings | None = None,
     prefer_pty: bool = False,
-    stdin: int | None = None,
+    stdin: int | None = asyncio.subprocess.DEVNULL,
     stdout: int | None = None,
     stderr: int | None = None,
     env: Mapping[str, str] | None = None,
@@ -104,13 +105,39 @@ async def create_shell_subprocess(
     return process
 
 
-def _wrap_command_with_script(argv: list[str]) -> list[str] | None:
+def _wrap_command_with_script(
+    argv: list[str],
+    *,
+    platform_name: PlatformName | None = None,
+) -> list[str] | None:
+    resolved_platform = platform_name or get_platform()
+    if resolved_platform == "macos":
+        return None
     script = shutil.which("script")
     if script is None:
         return None
     if len(argv) >= 3 and argv[1] == "-lc":
         return [script, "-qefc", argv[2], "/dev/null"]
     return None
+
+
+def _bash_is_usable(bash_path: str) -> bool:
+    """Return True when a discovered bash executable can run commands.
+
+    On Windows, ``shutil.which("bash")`` can find WSL's ``bash.exe`` even when no
+    WSL distribution is installed. In that case the executable exists but every
+    command fails, so fall back to PowerShell/cmd instead of selecting it.
+    """
+    try:
+        result = subprocess.run(
+            [bash_path, "-lc", "exit 0"],
+            capture_output=True,
+            timeout=5,
+            check=False,
+        )
+    except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
+        return False
+    return result.returncode == 0
 
 
 async def _cleanup_after_exit(process: asyncio.subprocess.Process, cleanup_path: Path) -> None:

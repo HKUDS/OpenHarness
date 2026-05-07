@@ -2,7 +2,14 @@
 
 from __future__ import annotations
 
-from openharness.utils.shell import resolve_shell_command
+import asyncio
+import subprocess
+from pathlib import Path
+
+import pytest
+
+from openharness.config.settings import Settings
+from openharness.utils.shell import _bash_is_usable, create_shell_subprocess, resolve_shell_command
 
 
 def test_resolve_shell_command_prefers_bash_on_linux(monkeypatch):
@@ -39,6 +46,7 @@ def test_resolve_shell_command_uses_powershell_on_windows(monkeypatch):
         return mapping.get(name)
 
     monkeypatch.setattr("openharness.utils.shell.shutil.which", fake_which)
+    monkeypatch.setattr("openharness.utils.shell._bash_is_usable", lambda _: False)
 
     command = resolve_shell_command("Write-Output hi", platform_name="windows")
 
@@ -49,3 +57,136 @@ def test_resolve_shell_command_uses_powershell_on_windows(monkeypatch):
         "-Command",
         "Write-Output hi",
     ]
+
+
+def test_resolve_shell_command_skips_script_on_macos(monkeypatch):
+    def fake_which(name: str) -> str | None:
+        mapping = {
+            "bash": "/bin/bash",
+            "script": "/usr/bin/script",
+        }
+        return mapping.get(name)
+
+    monkeypatch.setattr("openharness.utils.shell.shutil.which", fake_which)
+
+    command = resolve_shell_command("echo hi", platform_name="macos", prefer_pty=True)
+
+    assert command == ["/bin/bash", "-lc", "echo hi"]
+
+
+def test_resolve_shell_command_linux_without_script_falls_back(monkeypatch):
+    def fake_which(name: str) -> str | None:
+        mapping = {
+            "bash": "/usr/bin/bash",
+        }
+        return mapping.get(name)
+
+    monkeypatch.setattr("openharness.utils.shell.shutil.which", fake_which)
+
+    command = resolve_shell_command("echo hi", platform_name="linux", prefer_pty=True)
+
+    assert command == ["/usr/bin/bash", "-lc", "echo hi"]
+
+
+def test_resolve_shell_command_windows_skips_unusable_bash(monkeypatch):
+    def fake_which(name: str) -> str | None:
+        mapping = {
+            "bash": "C:/Windows/System32/bash.exe",
+            "powershell": "C:/Windows/System32/WindowsPowerShell/v1.0/powershell.exe",
+        }
+        return mapping.get(name)
+
+    monkeypatch.setattr("openharness.utils.shell.shutil.which", fake_which)
+    monkeypatch.setattr("openharness.utils.shell._bash_is_usable", lambda _: False)
+
+    command = resolve_shell_command("Write-Output hi", platform_name="windows")
+
+    assert command == [
+        "C:/Windows/System32/WindowsPowerShell/v1.0/powershell.exe",
+        "-NoLogo",
+        "-NoProfile",
+        "-Command",
+        "Write-Output hi",
+    ]
+
+
+def test_resolve_shell_command_windows_uses_usable_bash(monkeypatch):
+    def fake_which(name: str) -> str | None:
+        mapping = {
+            "bash": "C:/Program Files/Git/bin/bash.exe",
+            "powershell": "C:/Windows/System32/WindowsPowerShell/v1.0/powershell.exe",
+        }
+        return mapping.get(name)
+
+    monkeypatch.setattr("openharness.utils.shell.shutil.which", fake_which)
+    monkeypatch.setattr("openharness.utils.shell._bash_is_usable", lambda _: True)
+
+    command = resolve_shell_command("echo hi", platform_name="windows")
+
+    assert command == ["C:/Program Files/Git/bin/bash.exe", "-lc", "echo hi"]
+
+
+def test_bash_is_usable_returns_true_for_zero_exit(monkeypatch):
+    class _Result:
+        returncode = 0
+
+    monkeypatch.setattr("openharness.utils.shell.subprocess.run", lambda *args, **kwargs: _Result())
+
+    assert _bash_is_usable("bash") is True
+
+
+def test_bash_is_usable_returns_false_for_nonzero_exit(monkeypatch):
+    class _Result:
+        returncode = 1
+
+    monkeypatch.setattr("openharness.utils.shell.subprocess.run", lambda *args, **kwargs: _Result())
+
+    assert _bash_is_usable("bash") is False
+
+
+def test_bash_is_usable_returns_false_for_spawn_errors(monkeypatch):
+    def raise_timeout(*args, **kwargs):
+        raise subprocess.TimeoutExpired(cmd="bash", timeout=5)
+
+    monkeypatch.setattr("openharness.utils.shell.subprocess.run", raise_timeout)
+
+    assert _bash_is_usable("bash") is False
+
+
+@pytest.mark.asyncio
+async def test_create_shell_subprocess_defaults_stdin_to_devnull(monkeypatch, tmp_path: Path):
+    captured: dict[str, object] = {}
+
+    async def fake_create_subprocess_exec(*args, **kwargs):
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+
+        class _FakeProcess:
+            returncode = 0
+
+            async def wait(self):
+                return 0
+
+        return _FakeProcess()
+
+    monkeypatch.setattr(
+        "openharness.utils.shell.asyncio.create_subprocess_exec",
+        fake_create_subprocess_exec,
+    )
+    monkeypatch.setattr(
+        "openharness.utils.shell.wrap_command_for_sandbox",
+        lambda argv, settings=None: (argv, None),
+    )
+    monkeypatch.setattr(
+        "openharness.utils.shell.shutil.which",
+        lambda name: "/usr/bin/bash" if name == "bash" else None,
+    )
+
+    await create_shell_subprocess(
+        "echo hi",
+        cwd=tmp_path,
+        settings=Settings(),
+    )
+
+    assert captured["args"] == ("/usr/bin/bash", "-lc", "echo hi")
+    assert captured["kwargs"]["stdin"] is asyncio.subprocess.DEVNULL

@@ -8,7 +8,7 @@ import pytest
 
 from openharness.api.client import ApiMessageCompleteEvent
 from openharness.api.usage import UsageSnapshot
-from openharness.engine.messages import ConversationMessage, ImageBlock, TextBlock, ToolUseBlock
+from openharness.engine.messages import ConversationMessage, ImageBlock, TextBlock, ToolResultBlock, ToolUseBlock
 from openharness.hooks import HookEvent
 from openharness.services import (
     build_post_compact_messages,
@@ -21,8 +21,11 @@ from openharness.services import (
 )
 from openharness.services.compact import (
     AutoCompactState,
+    _is_prompt_too_long_error,
     auto_compact_if_needed,
+    estimate_message_tokens as estimate_compact_message_tokens,
     get_autocompact_threshold,
+    microcompact_messages,
     should_autocompact,
     try_context_collapse,
     try_session_memory_compaction,
@@ -53,12 +56,60 @@ def test_compact_and_summarize_messages():
     assert estimate_conversation_tokens(compacted) >= 1
 
 
+def test_compact_messages_shifts_boundary_to_keep_tool_pair_intact():
+    messages = [
+        ConversationMessage.from_user_text("first"),
+        ConversationMessage(
+            role="assistant",
+            content=[ToolUseBlock(id="toolu_pair", name="read_file", input={"path": "x"})],
+        ),
+        ConversationMessage(
+            role="user",
+            content=[ToolResultBlock(tool_use_id="toolu_pair", content="ok", is_error=False)],
+        ),
+        ConversationMessage(role="assistant", content=[TextBlock(text="done")]),
+    ]
+
+    compacted = compact_messages(messages, preserve_recent=2)
+
+    assert any(
+        isinstance(block, ToolUseBlock) and block.id == "toolu_pair"
+        for message in compacted
+        for block in message.content
+    )
+    assert any(
+        isinstance(block, ToolResultBlock) and block.tool_use_id == "toolu_pair"
+        for message in compacted
+        for block in message.content
+    )
+
+
+def test_compact_messages_drops_dangling_preserved_tool_use():
+    messages = [
+        ConversationMessage.from_user_text("first"),
+        ConversationMessage(role="assistant", content=[TextBlock(text="second")]),
+        ConversationMessage(
+            role="assistant",
+            content=[ToolUseBlock(id="toolu_orphan", name="edit_file", input={"path": "x"})],
+        ),
+    ]
+
+    compacted = compact_messages(messages, preserve_recent=1)
+
+    assert not any(
+        isinstance(block, ToolUseBlock) and block.id == "toolu_orphan"
+        for message in compacted
+        for block in message.content
+    )
+
+
 class _CompactApiClient:
     def __init__(self, responses):
         self._responses = list(responses)
+        self.requests = []
 
     async def stream_message(self, request):
-        del request
+        self.requests.append(request)
         response = self._responses.pop(0)
         if isinstance(response, Exception):
             raise response
@@ -118,6 +169,149 @@ def test_try_context_collapse_trims_oversized_messages():
     assert "[collapsed" in result[0].text
 
 
+def test_try_context_collapse_trims_oversized_tool_results():
+    giant = ("snapshot node " * 1200).strip()
+    messages = [
+        ConversationMessage.from_user_text("open page"),
+        ConversationMessage(
+            role="assistant",
+            content=[ToolUseBlock(id="toolu_snapshot", name="mcp__playwright__browser_snapshot", input={})],
+        ),
+        ConversationMessage(
+            role="user",
+            content=[ToolResultBlock(tool_use_id="toolu_snapshot", content=giant, is_error=False)],
+        ),
+        ConversationMessage(role="assistant", content=[TextBlock(text="I inspected the snapshot")]),
+        ConversationMessage(role="user", content=[TextBlock(text="latest")]),
+        ConversationMessage(role="assistant", content=[TextBlock(text="keep recent")]),
+    ]
+
+    result = try_context_collapse(messages, preserve_recent=2)
+
+    assert result is not None
+    collapsed_results = [
+        block
+        for message in result
+        for block in message.content
+        if isinstance(block, ToolResultBlock)
+    ]
+    assert len(collapsed_results) == 1
+    assert "[collapsed" in collapsed_results[0].content
+    assert collapsed_results[0].tool_use_id == "toolu_snapshot"
+
+
+def test_microcompact_compacts_mcp_results_while_preserving_recent():
+    messages = []
+    for index in range(3):
+        tool_id = f"toolu_snapshot_{index}"
+        messages.extend(
+            [
+                ConversationMessage(
+                    role="assistant",
+                    content=[
+                        ToolUseBlock(
+                            id=tool_id,
+                            name="mcp__playwright__browser_snapshot",
+                            input={},
+                        )
+                    ],
+                ),
+                ConversationMessage(
+                    role="user",
+                    content=[
+                        ToolResultBlock(
+                            tool_use_id=tool_id,
+                            content=f"snapshot {index} " * 600,
+                            is_error=False,
+                        )
+                    ],
+                ),
+            ]
+        )
+
+    compacted, tokens_saved = microcompact_messages(messages, keep_recent=1)
+
+    assert tokens_saved > 0
+    results = [
+        block
+        for message in compacted
+        for block in message.content
+        if isinstance(block, ToolResultBlock)
+    ]
+    assert results[0].content == "[Old tool result content cleared]"
+    assert results[1].content == "[Old tool result content cleared]"
+    assert results[2].content.startswith("snapshot 2")
+
+
+def test_microcompact_compacts_large_non_allowlisted_results(monkeypatch):
+    monkeypatch.setenv("OPENHARNESS_MICROCOMPACT_TOOL_RESULT_CHARS", "256")
+    messages = [
+        ConversationMessage(
+            role="assistant",
+            content=[ToolUseBlock(id="toolu_custom_0", name="custom_snapshot_tool", input={})],
+        ),
+        ConversationMessage(
+            role="user",
+            content=[ToolResultBlock(tool_use_id="toolu_custom_0", content="A" * 512, is_error=False)],
+        ),
+        ConversationMessage(
+            role="assistant",
+            content=[ToolUseBlock(id="toolu_custom_1", name="custom_snapshot_tool", input={})],
+        ),
+        ConversationMessage(
+            role="user",
+            content=[ToolResultBlock(tool_use_id="toolu_custom_1", content="B" * 512, is_error=False)],
+        ),
+    ]
+
+    compacted, tokens_saved = microcompact_messages(messages, keep_recent=1)
+
+    assert tokens_saved > 0
+    results = [
+        block
+        for message in compacted
+        for block in message.content
+        if isinstance(block, ToolResultBlock)
+    ]
+    assert results[0].content == "[Old tool result content cleared]"
+    assert results[1].content == "B" * 512
+
+
+def test_compact_prompt_too_long_detection_handles_llama_cpp_errors():
+    assert _is_prompt_too_long_error(
+        RuntimeError("exceed_context_size_error: prompt exceeds the available context size")
+    )
+
+
+def test_compact_token_estimate_counts_images(monkeypatch):
+    monkeypatch.setenv("OPENHARNESS_IMAGE_TOKEN_ESTIMATE", "6000")
+    messages = [
+        ConversationMessage(
+            role="user",
+            content=[ImageBlock(media_type="image/png", data="YWJj", source_path="/tmp/screen.png")],
+        )
+    ]
+
+    assert estimate_compact_message_tokens(messages) == 8000
+
+
+def test_should_autocompact_counts_image_tokens(monkeypatch):
+    monkeypatch.setenv("OPENHARNESS_IMAGE_TOKEN_ESTIMATE", "6000")
+    messages = [
+        ConversationMessage(
+            role="user",
+            content=[ImageBlock(media_type="image/png", data="YWJj", source_path="/tmp/screen.png")],
+        )
+    ]
+
+    assert should_autocompact(
+        messages,
+        "local-vision",
+        AutoCompactState(),
+        auto_compact_threshold_tokens=7000,
+    ) is True
+
+
 @pytest.mark.asyncio
 async def test_compact_conversation_retries_after_incomplete_response():
     messages = [
@@ -139,6 +333,36 @@ async def test_compact_conversation_retries_after_incomplete_response():
     rebuilt = build_post_compact_messages(compacted)
     assert rebuilt[0].text.startswith("[Compact boundary marker]")
     assert any(message.text.startswith("This session is being continued") for message in rebuilt)
+
+
+@pytest.mark.asyncio
+async def test_compact_conversation_replaces_images_in_summary_request():
+    image = ImageBlock(media_type="image/png", data="YWJj", source_path="/tmp/screen.png")
+    messages = [
+        ConversationMessage(role="user", content=[image]),
+        ConversationMessage(role="assistant", content=[TextBlock(text="I can see the screenshot")]),
+        ConversationMessage(role="user", content=[TextBlock(text="Please summarize before moving on")]),
+        ConversationMessage(role="assistant", content=[TextBlock(text="Working")]),
+    ]
+    client = _CompactApiClient(["<summary>image context preserved</summary>"])
+
+    await compact_conversation(
+        messages,
+        api_client=client,
+        model="local-vision",
+        preserve_recent=1,
+    )
+
+    request = client.requests[0]
+    request_blocks = [block for message in request.messages for block in message.content]
+    assert not any(isinstance(block, ImageBlock) for block in request_blocks)
+    assert any(
+        isinstance(block, TextBlock)
+        and "Image omitted from compaction summarization" in block.text
+        and "/tmp/screen.png" in block.text
+        for block in request_blocks
+    )
+    assert isinstance(messages[0].content[0], ImageBlock)
 
 
 @pytest.mark.asyncio
@@ -221,6 +445,70 @@ async def test_compact_conversation_runs_hooks_and_preserves_carryover_state(tmp
     assert "[Compact attachment: async_agents]" in joined
     assert "[Compact attachment: recent_work_log]" in joined
     assert "41 passed" in joined
+
+
+@pytest.mark.asyncio
+async def test_compact_conversation_keeps_tool_pair_when_boundary_would_split_it():
+    messages = [
+        ConversationMessage.from_user_text("alpha"),
+        ConversationMessage(role="assistant", content=[TextBlock(text="beta")]),
+        ConversationMessage(role="user", content=[TextBlock(text="gamma")]),
+        ConversationMessage(
+            role="assistant",
+            content=[ToolUseBlock(id="toolu_pair", name="read_file", input={"path": "demo.txt"})],
+        ),
+        ConversationMessage(
+            role="user",
+            content=[ToolResultBlock(tool_use_id="toolu_pair", content="contents", is_error=False)],
+        ),
+        ConversationMessage(role="assistant", content=[TextBlock(text="used the tool")]),
+        ConversationMessage(role="user", content=[TextBlock(text="continue")]),
+    ]
+
+    compacted = await compact_conversation(
+        messages,
+        api_client=_CompactApiClient(["<summary>condensed</summary>"]),
+        model="claude-test",
+        preserve_recent=3,
+    )
+
+    rebuilt = build_post_compact_messages(compacted)
+    pair_positions: list[tuple[int, str]] = []
+    for index, message in enumerate(rebuilt):
+        for block in message.content:
+            if isinstance(block, ToolUseBlock) and block.id == "toolu_pair":
+                pair_positions.append((index, "use"))
+            if isinstance(block, ToolResultBlock) and block.tool_use_id == "toolu_pair":
+                pair_positions.append((index, "result"))
+
+    assert pair_positions == [(2, "use"), (3, "result")]
+
+
+@pytest.mark.asyncio
+async def test_compact_conversation_drops_orphan_preserved_tool_use():
+    messages = [
+        ConversationMessage.from_user_text("alpha"),
+        ConversationMessage(role="assistant", content=[TextBlock(text="beta")]),
+        ConversationMessage(role="user", content=[TextBlock(text="gamma")]),
+        ConversationMessage(
+            role="assistant",
+            content=[ToolUseBlock(id="toolu_orphan", name="edit_file", input={"path": "demo.txt"})],
+        ),
+    ]
+
+    compacted = await compact_conversation(
+        messages,
+        api_client=_CompactApiClient(["<summary>condensed</summary>"]),
+        model="claude-test",
+        preserve_recent=1,
+    )
+
+    rebuilt = build_post_compact_messages(compacted)
+    assert not any(
+        isinstance(block, ToolUseBlock) and block.id == "toolu_orphan"
+        for message in rebuilt
+        for block in message.content
+    )
 
 
 @pytest.mark.asyncio

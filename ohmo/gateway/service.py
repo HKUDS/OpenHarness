@@ -13,6 +13,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+if sys.platform == "win32":
+    import ctypes
+
 from openharness.channels.bus.events import OutboundMessage
 from openharness.channels.bus.queue import MessageBus
 from openharness.channels.impl.manager import ChannelManager
@@ -49,10 +52,13 @@ class OhmoGatewayService:
                 ",".join(self._config.allowed_remote_admin_commands),
             )
         self._bus = MessageBus()
+        self._manager = ChannelManager(build_channel_manager_config(self._config), self._bus)
         self._runtime_pool = OhmoSessionRuntimePool(
             cwd=self._cwd,
             workspace=self._workspace,
             provider_profile=self._config.provider_profile,
+            create_feishu_group=self.create_group_for_user,
+            publish_group_welcome=self.publish_group_welcome,
         )
         self._stop_event: asyncio.Event | None = None
         self._restart_requested = False
@@ -60,8 +66,11 @@ class OhmoGatewayService:
             bus=self._bus,
             runtime_pool=self._runtime_pool,
             restart_gateway=self.request_restart,
+            workspace=root,
+            feishu_group_policy=str(
+                self._config.channel_configs.get("feishu", {}).get("group_policy", "managed_or_mention")
+            ),
         )
-        self._manager = ChannelManager(build_channel_manager_config(self._config), self._bus)
 
     @property
     def pid_file(self) -> Path:
@@ -104,6 +113,34 @@ class OhmoGatewayService:
         await asyncio.sleep(0.75)
         if self._stop_event is not None:
             self._stop_event.set()
+
+    async def create_group(self, message, name: str) -> str:
+        """Create a managed group through the active channel implementation."""
+        if message.channel != "feishu":
+            raise RuntimeError(f"{message.channel} does not support managed group creation.")
+        return await self.create_group_for_user(str(message.sender_id), name)
+
+    async def create_group_for_user(self, user_open_id: str, name: str) -> str:
+        """Create a managed Feishu group for a user open_id."""
+        channel = self._manager.get_channel("feishu")
+        if channel is None:
+            raise RuntimeError("Feishu channel is not enabled.")
+        creator = getattr(channel, "create_managed_group", None)
+        if creator is None:
+            raise RuntimeError("Feishu channel does not support managed group creation.")
+        result = creator(user_open_id=str(user_open_id), name=name)
+        return str(await result if asyncio.iscoroutine(result) else result)
+
+    async def publish_group_welcome(self, chat_id: str, content: str, owner_open_id: str) -> None:
+        """Send a welcome message to a newly created managed group."""
+        await self._bus.publish_outbound(
+            OutboundMessage(
+                channel="feishu",
+                chat_id=chat_id,
+                content=content,
+                metadata={"chat_type": "group", "_session_key": f"feishu:{chat_id}:{owner_open_id}"},
+            )
+        )
 
     def _exec_restart(self) -> None:
         root = str(get_workspace_root(self._workspace))
@@ -205,7 +242,22 @@ def start_gateway_process(cwd: str | Path | None = None, workspace: str | Path |
     if existing_pythonpath:
         pythonpath_entries.append(existing_pythonpath)
     env["PYTHONPATH"] = os.pathsep.join(pythonpath_entries)
+
+    popen_kwargs: dict = {
+        "cwd": service._cwd,
+        "stdout": None,
+        "stderr": None,
+        "env": env,
+    }
+    if sys.platform == "win32":
+        popen_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS  # type: ignore[attr-defined]
+        popen_kwargs["stdin"] = subprocess.DEVNULL
+    else:
+        popen_kwargs["start_new_session"] = True
+
     with service.log_file.open("a", encoding="utf-8") as log_file:
+        popen_kwargs["stdout"] = log_file
+        popen_kwargs["stderr"] = log_file
         process = subprocess.Popen(
             [
                 sys.executable,
@@ -218,55 +270,91 @@ def start_gateway_process(cwd: str | Path | None = None, workspace: str | Path |
                 "--workspace",
                 str(get_workspace_root(workspace)),
             ],
-            cwd=service._cwd,
-            stdout=log_file,
-            stderr=log_file,
-            start_new_session=True,
-            env=env,
+            **popen_kwargs,
         )
     return process.pid
 
 
 def _pid_is_running(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-    except OSError:
-        return False
-    return True
+    if sys.platform == "win32":
+        kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+        handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+        if not handle:
+            return False
+        try:
+            exit_code = ctypes.c_ulong()
+            if kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
+                return exit_code.value == 259  # STILL_ACTIVE
+            return False
+        finally:
+            kernel32.CloseHandle(handle)
+    else:
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            return False
+        return True
 
 
 def _iter_workspace_gateway_pids(workspace: str | Path | None = None) -> list[int]:
     root = str(get_workspace_root(workspace))
-    try:
-        result = subprocess.run(
-            ["ps", "-eo", "pid=,args="],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-    except Exception:
-        return []
-
-    current_pid = os.getpid()
-    pids: list[int] = []
-    for line in result.stdout.splitlines():
-        line = line.strip()
-        if not line:
-            continue
+    if sys.platform == "win32":
         try:
-            pid_text, args = line.split(None, 1)
-            pid = int(pid_text)
-        except ValueError:
-            continue
-        if pid == current_pid:
-            continue
-        if "-m ohmo gateway run" not in args:
-            continue
-        if f"--workspace {root}" not in args:
-            continue
-        if _pid_is_running(pid):
-            pids.append(pid)
-    return pids
+            result = subprocess.run(
+                ["wmic", "process", "where",
+                 f"commandline like '%-m ohmo gateway run%' and commandline like '%--workspace {root}%'",
+                 "get", "processid"],
+                capture_output=True, text=True, check=True,
+            )
+        except Exception:
+            return []
+        current_pid = os.getpid()
+        pids: list[int] = []
+        for line in result.stdout.splitlines():
+            line = line.strip()
+            if not line or line.lower() == "processid":
+                continue
+            try:
+                pid = int(line)
+            except ValueError:
+                continue
+            if pid == current_pid:
+                continue
+            if _pid_is_running(pid):
+                pids.append(pid)
+        return pids
+    else:
+        try:
+            result = subprocess.run(
+                ["ps", "-eo", "pid=,args="],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+        except Exception:
+            return []
+
+        current_pid = os.getpid()
+        pids = []
+        for line in result.stdout.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                pid_text, args = line.split(None, 1)
+                pid = int(pid_text)
+            except ValueError:
+                continue
+            if pid == current_pid:
+                continue
+            if "-m ohmo gateway run" not in args:
+                continue
+            if f"--workspace {root}" not in args:
+                continue
+            if _pid_is_running(pid):
+                pids.append(pid)
+        return pids
 
 
 def stop_gateway_process(cwd: str | Path | None = None, workspace: str | Path | None = None) -> bool:
@@ -286,9 +374,18 @@ def stop_gateway_process(cwd: str | Path | None = None, workspace: str | Path | 
     if not unique_pids:
         service.pid_file.unlink(missing_ok=True)
         return False
-    for pid in unique_pids:
-        with contextlib.suppress(ProcessLookupError):
-            os.kill(pid, signal.SIGTERM)
+    if sys.platform == "win32":
+        for pid in unique_pids:
+            with contextlib.suppress(Exception):
+                subprocess.run(
+                    ["taskkill", "/F", "/T", "/PID", str(pid)],
+                    capture_output=True,
+                    check=False,
+                )
+    else:
+        for pid in unique_pids:
+            with contextlib.suppress(ProcessLookupError):
+                os.kill(pid, signal.SIGTERM)
     service.pid_file.unlink(missing_ok=True)
     service.write_state(running=False)
     return True

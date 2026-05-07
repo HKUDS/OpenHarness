@@ -529,3 +529,272 @@ class TestAnsiEscapeSequences:
         s = Settings()
         updated = s.merge_cli_overrides(model="\x1b[1mclaude-opus-4-6\x1b[0m")
         assert updated.model == "claude-opus-4-6"
+
+
+class TestMiniMaxProvider:
+    """Tests for MiniMax provider profile and auth integration."""
+
+    def test_minimax_in_default_provider_profiles(self):
+        from openharness.config.settings import default_provider_profiles
+
+        profiles = default_provider_profiles()
+        assert "minimax" in profiles
+        profile = profiles["minimax"]
+        assert profile.provider == "minimax"
+        assert profile.api_format == "openai"
+        assert profile.auth_source == "minimax_api_key"
+        assert profile.default_model == "MiniMax-M2.7"
+        assert profile.base_url == "https://api.minimax.io/v1"
+
+    def test_auth_source_provider_name_minimax(self):
+        from openharness.config.settings import auth_source_provider_name
+
+        assert auth_source_provider_name("minimax_api_key") == "minimax"
+
+    def test_default_auth_source_for_minimax_provider(self):
+        from openharness.config.settings import default_auth_source_for_provider
+
+        assert default_auth_source_for_provider("minimax") == "minimax_api_key"
+
+    def test_resolve_auth_reads_minimax_api_key_env(self, monkeypatch):
+        monkeypatch.setenv("MINIMAX_API_KEY", "minimax-test-key")
+        settings = Settings(
+            active_profile="minimax",
+            profiles={
+                "minimax": ProviderProfile(
+                    label="MiniMax",
+                    provider="minimax",
+                    api_format="openai",
+                    auth_source="minimax_api_key",
+                    default_model="MiniMax-M2.7",
+                    base_url="https://api.minimax.io/v1",
+                )
+            },
+        )
+        resolved = settings.resolve_auth()
+        assert resolved.value == "minimax-test-key"
+        assert "MINIMAX_API_KEY" in resolved.source
+
+    def test_minimax_profile_materializes_default_model(self):
+        settings = Settings(
+            active_profile="minimax",
+            profiles={
+                "minimax": ProviderProfile(
+                    label="MiniMax",
+                    provider="minimax",
+                    api_format="openai",
+                    auth_source="minimax_api_key",
+                    default_model="MiniMax-M2.7",
+                    base_url="https://api.minimax.io/v1",
+                )
+            },
+        )
+        materialized = settings.materialize_active_profile()
+        assert materialized.model == "MiniMax-M2.7"
+        assert materialized.provider == "minimax"
+        assert materialized.api_format == "openai"
+
+
+class TestNvidiaProvider:
+    """Tests for NVIDIA NIM provider profile and auth integration."""
+
+    def test_nvidia_in_default_provider_profiles(self):
+        from openharness.config.settings import default_provider_profiles
+
+        profiles = default_provider_profiles()
+        assert "nvidia" in profiles
+        profile = profiles["nvidia"]
+        assert profile.provider == "nvidia"
+        assert profile.api_format == "openai"
+        assert profile.auth_source == "nvidia_api_key"
+        assert profile.default_model == "openai/gpt-oss-120b"
+        assert profile.base_url == "https://integrate.api.nvidia.com/v1"
+
+    def test_auth_source_provider_name_nvidia(self):
+        from openharness.config.settings import auth_source_provider_name
+
+        assert auth_source_provider_name("nvidia_api_key") == "nvidia"
+
+    def test_default_auth_source_for_nvidia_provider(self):
+        from openharness.config.settings import default_auth_source_for_provider
+
+        assert default_auth_source_for_provider("nvidia") == "nvidia_api_key"
+
+    def test_resolve_auth_reads_nvidia_api_key_env(self, monkeypatch):
+        monkeypatch.setenv("NVIDIA_API_KEY", "nvidia-test-key")
+        settings = Settings(
+            active_profile="nvidia",
+            profiles={
+                "nvidia": ProviderProfile(
+                    label="NVIDIA NIM",
+                    provider="nvidia",
+                    api_format="openai",
+                    auth_source="nvidia_api_key",
+                    default_model="openai/gpt-oss-120b",
+                    base_url="https://integrate.api.nvidia.com/v1",
+                )
+            },
+        )
+        resolved = settings.resolve_auth()
+        assert resolved.value == "nvidia-test-key"
+        assert "NVIDIA_API_KEY" in resolved.source
+
+    def test_nvidia_profile_materializes_default_model(self):
+        settings = Settings(
+            active_profile="nvidia",
+            profiles={
+                "nvidia": ProviderProfile(
+                    label="NVIDIA NIM",
+                    provider="nvidia",
+                    api_format="openai",
+                    auth_source="nvidia_api_key",
+                    default_model="openai/gpt-oss-120b",
+                    base_url="https://integrate.api.nvidia.com/v1",
+                )
+            },
+        )
+        materialized = settings.materialize_active_profile()
+        assert materialized.model == "openai/gpt-oss-120b"
+        assert materialized.provider == "nvidia"
+        assert materialized.api_format == "openai"
+
+
+class TestQwenProvider:
+    """Tests for Qwen (DashScope) provider profile and auth integration."""
+
+    def test_qwen_in_default_provider_profiles(self):
+        from openharness.config.settings import default_provider_profiles
+
+        profiles = default_provider_profiles()
+        assert "qwen" in profiles
+        profile = profiles["qwen"]
+        assert profile.provider == "dashscope"
+        assert profile.api_format == "openai"
+        assert profile.auth_source == "dashscope_api_key"
+        assert profile.default_model == "qwen-plus"
+        assert profile.base_url == "https://dashscope.aliyuncs.com/compatible-mode/v1"
+
+    def test_auth_source_provider_name_qwen(self):
+        from openharness.config.settings import auth_source_provider_name
+
+        assert auth_source_provider_name("dashscope_api_key") == "dashscope"
+
+    def test_default_auth_source_for_qwen_provider(self):
+        from openharness.config.settings import default_auth_source_for_provider
+
+        assert default_auth_source_for_provider("dashscope") == "dashscope_api_key"
+
+    def test_resolve_auth_reads_qwen_api_key_env(self, monkeypatch):
+        monkeypatch.setenv("DASHSCOPE_API_KEY", "dashscope-test-key")
+        settings = Settings(
+            active_profile="qwen",
+            profiles={
+                "qwen": ProviderProfile(
+                    label="Qwen (DashScope)",
+                    provider="dashscope",
+                    api_format="openai",
+                    auth_source="dashscope_api_key",
+                    default_model="qwen-plus",
+                    base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+                )
+            },
+        )
+        resolved = settings.resolve_auth()
+        assert resolved.value == "dashscope-test-key"
+        assert "DASHSCOPE_API_KEY" in resolved.source
+
+    def test_display_model_setting_for_qwen(self):
+        from openharness.config.settings import display_model_setting
+
+        profile = ProviderProfile(
+            label="Qwen (DashScope)",
+            provider="dashscope",
+            api_format="openai",
+            auth_source="dashscope_api_key",
+            default_model="qwen-plus",
+            base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+        )
+        assert display_model_setting(profile) == "qwen-plus"
+
+    def test_materialize_active_profile_qwen(self):
+        settings = Settings(
+            active_profile="qwen",
+            profiles={
+                "qwen": ProviderProfile(
+                    label="Qwen (DashScope)",
+                    provider="dashscope",
+                    api_format="openai",
+                    auth_source="dashscope_api_key",
+                    default_model="qwen-plus",
+                    base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+                )
+            },
+        )
+        materialized = settings.materialize_active_profile()
+        assert materialized.model == "qwen-plus"
+        assert materialized.provider == "dashscope"
+        assert materialized.api_format == "openai"
+
+
+class TestModelScopeProvider:
+    """Tests for ModelScope provider profile and auth integration."""
+
+    def test_modelscope_in_default_provider_profiles(self):
+        from openharness.config.settings import default_provider_profiles
+
+        profiles = default_provider_profiles()
+        assert "modelscope" in profiles
+        profile = profiles["modelscope"]
+        assert profile.provider == "modelscope"
+        assert profile.api_format == "openai"
+        assert profile.auth_source == "modelscope_api_key"
+        assert profile.default_model == "deepseek-ai/DeepSeek-V4-Flash"
+        assert profile.base_url == "https://api-inference.modelscope.cn/v1"
+
+    def test_auth_source_provider_name_modelscope(self):
+        from openharness.config.settings import auth_source_provider_name
+
+        assert auth_source_provider_name("modelscope_api_key") == "modelscope"
+
+    def test_default_auth_source_for_modelscope_provider(self):
+        from openharness.config.settings import default_auth_source_for_provider
+
+        assert default_auth_source_for_provider("modelscope") == "modelscope_api_key"
+
+    def test_resolve_auth_reads_modelscope_api_key_env(self, monkeypatch):
+        monkeypatch.setenv("MODELSCOPE_API_KEY", "modelscope-test-key")
+        settings = Settings(
+            active_profile="modelscope",
+            profiles={
+                "modelscope": ProviderProfile(
+                    label="ModelScope",
+                    provider="modelscope",
+                    api_format="openai",
+                    auth_source="modelscope_api_key",
+                    default_model="deepseek-ai/DeepSeek-V4-Flash",
+                    base_url="https://api-inference.modelscope.cn/v1",
+                )
+            },
+        )
+        resolved = settings.resolve_auth()
+        assert resolved.value == "modelscope-test-key"
+        assert "MODELSCOPE_API_KEY" in resolved.source
+
+    def test_modelscope_profile_materializes_default_model(self):
+        settings = Settings(
+            active_profile="modelscope",
+            profiles={
+                "modelscope": ProviderProfile(
+                    label="ModelScope",
+                    provider="modelscope",
+                    api_format="openai",
+                    auth_source="modelscope_api_key",
+                    default_model="deepseek-ai/DeepSeek-V4-Flash",
+                    base_url="https://api-inference.modelscope.cn/v1",
+                )
+            },
+        )
+        materialized = settings.materialize_active_profile()
+        assert materialized.model == "deepseek-ai/DeepSeek-V4-Flash"
+        assert materialized.provider == "modelscope"
+        assert materialized.api_format == "openai"

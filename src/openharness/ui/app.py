@@ -6,9 +6,12 @@ import asyncio
 import json
 import sys
 
+from openharness.coordinator.coordinator_mode import is_coordinator_mode
+
 from openharness.api.client import SupportsStreamingMessages
 from openharness.engine.stream_events import StreamEvent
 from openharness.ui.backend_host import run_backend_host
+from openharness.ui.coordinator_drain import drain_coordinator_async_agents
 from openharness.ui.react_launcher import launch_react_tui
 from openharness.ui.runtime import build_runtime, close_runtime, handle_line, start_runtime
 
@@ -294,6 +297,14 @@ async def run_print_mode(
             render_event=_render_event,
             clear_output=_clear_output,
         )
+        if is_coordinator_mode():
+            await drain_coordinator_async_agents(
+                bundle,
+                prompt_seed=prompt,
+                print_system=_print_system,
+                render_event=_render_event,
+                announce_waiting=output_format == "text",
+            )
 
         if output_format == "json":
             result = {"type": "result", "text": collected_text.strip()}

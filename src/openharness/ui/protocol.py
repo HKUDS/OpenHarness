@@ -23,6 +23,7 @@ class FrontendRequest(BaseModel):
         "list_sessions",
         "select_command",
         "apply_select_command",
+        "interrupt",
         "shutdown",
         "create_cron_job",
         "delete_cron_job",

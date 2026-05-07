@@ -134,7 +134,7 @@ def test_network_none_by_default(monkeypatch):
     assert argv[net_idx + 1] == "none"
 
 
-def test_network_bridge_when_domains_allowed(monkeypatch):
+def test_network_none_and_warning_when_domain_policy_is_configured(monkeypatch, caplog):
     monkeypatch.setattr(
         "openharness.sandbox.docker_backend.shutil.which",
         lambda name: "/usr/bin/docker",
@@ -143,7 +143,10 @@ def test_network_bridge_when_domains_allowed(monkeypatch):
         sandbox=SandboxSettings(
             enabled=True,
             backend="docker",
-            network=SandboxNetworkSettings(allowed_domains=["github.com"]),
+            network=SandboxNetworkSettings(
+                allowed_domains=["github.com"],
+                denied_domains=["example.com"],
+            ),
         )
     )
     session = DockerSandboxSession(settings=settings, session_id="abc", cwd=Path("/repo"))
@@ -151,7 +154,8 @@ def test_network_bridge_when_domains_allowed(monkeypatch):
     argv = session._build_run_argv()
 
     net_idx = argv.index("--network")
-    assert argv[net_idx + 1] == "bridge"
+    assert argv[net_idx + 1] == "none"
+    assert "does not enforce allowed_domains/denied_domains yet" in caplog.text
 
 
 def test_resource_limits_applied(monkeypatch):
