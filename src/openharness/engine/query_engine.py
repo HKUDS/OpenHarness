@@ -8,7 +8,7 @@ from typing import AsyncIterator
 from openharness.api.client import SupportsStreamingMessages
 from openharness.engine.cost_tracker import CostTracker
 from openharness.coordinator.coordinator_mode import get_coordinator_user_context
-from openharness.engine.messages import ConversationMessage, TextBlock, ToolResultBlock
+from openharness.engine.messages import ConversationMessage, TextBlock, ToolResultBlock, sanitize_conversation_messages
 from openharness.engine.query import AskUserPrompt, PermissionPrompt, QueryContext, remember_user_goal, run_query
 from openharness.engine.stream_events import AssistantTurnComplete, StreamEvent
 from openharness.hooks import HookEvent, HookExecutor
@@ -153,6 +153,7 @@ class QueryEngine:
         )
         if user_message.text.strip() and not self._tool_metadata.pop("_suppress_next_user_goal", False):
             remember_user_goal(self._tool_metadata, user_message.text)
+        self._messages = sanitize_conversation_messages(self._messages)
         self._messages.append(user_message)
         if self._hook_executor is not None:
             await self._hook_executor.execute(
