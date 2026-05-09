@@ -65,6 +65,9 @@ class MemorySettings(BaseModel):
     max_entrypoint_lines: int = 200
     context_window_tokens: int | None = None
     auto_compact_threshold_tokens: int | None = None
+    auto_dream_enabled: bool = False
+    auto_dream_min_hours: float = 24.0
+    auto_dream_min_sessions: int = 5
 
 
 class SandboxNetworkSettings(BaseModel):
@@ -555,7 +558,7 @@ class Settings(BaseModel):
     def resolve_profile(self, name: str | None = None) -> tuple[str, ProviderProfile]:
         """Return the active provider profile."""
         profiles = self.merged_profiles()
-        profile_name = (name or self.active_profile or "").strip() or "claude-api"
+        profile_name = (name or self.active_profile or os.environ.get("OPENHARNESS_PROFILE") or "").strip() or "claude-api"
         if profile_name not in profiles:
             fallback_name, fallback = _profile_from_flat_settings(self)
             profiles[fallback_name] = fallback
@@ -592,9 +595,15 @@ class Settings(BaseModel):
         directly before the profile layer is used everywhere.
         """
         profile_name, profile = self.resolve_profile()
-        next_provider = (self.provider or "").strip() or profile.provider
-        next_api_format = (self.api_format or "").strip() or profile.api_format
-        next_base_url = self.base_url if self.base_url is not None else profile.base_url
+        profile_from_env = bool(os.environ.get("OPENHARNESS_PROFILE"))
+        flat_profile_fields_match_profile = profile_from_env or (
+            (self.provider or "").strip() == profile.provider
+            and (self.api_format or "").strip() == profile.api_format
+            and self.base_url == profile.base_url
+        )
+        next_provider = profile.provider if flat_profile_fields_match_profile else (self.provider or "").strip() or profile.provider
+        next_api_format = profile.api_format if flat_profile_fields_match_profile else (self.api_format or "").strip() or profile.api_format
+        next_base_url = profile.base_url if flat_profile_fields_match_profile else (self.base_url if self.base_url is not None else profile.base_url)
         next_context_window_tokens = (
             self.context_window_tokens
             if self.context_window_tokens is not None
@@ -686,6 +695,15 @@ class Settings(BaseModel):
         provider = profile.provider.strip()
         auth_source = profile.auth_source.strip() or default_auth_source_for_provider(provider, profile.api_format)
         if auth_source in {"codex_subscription", "claude_subscription"}:
+            env_auth_token = os.environ.get("ANTHROPIC_AUTH_TOKEN", "").strip()
+            if auth_source == "claude_subscription" and env_auth_token:
+                return ResolvedAuth(
+                    provider=provider,
+                    auth_kind="oauth",
+                    value=env_auth_token,
+                    source="env:ANTHROPIC_AUTH_TOKEN",
+                    state="configured",
+                )
             from openharness.auth.external import (
                 is_third_party_anthropic_endpoint,
                 load_external_credential,
@@ -928,6 +946,9 @@ def load_settings(config_path: Path | None = None) -> Settings:
     if config_path.exists():
         raw = json.loads(config_path.read_text(encoding="utf-8"))
         settings = Settings.model_validate(raw)
+        env_profile = os.environ.get("OPENHARNESS_PROFILE")
+        if env_profile:
+            settings = settings.model_copy(update={"active_profile": env_profile.strip()})
         if "profiles" not in raw or "active_profile" not in raw:
             profile_name, profile = _profile_from_flat_settings(settings)
             merged_profiles = settings.merged_profiles()
@@ -940,7 +961,11 @@ def load_settings(config_path: Path | None = None) -> Settings:
             )
         return _apply_env_overrides(settings.materialize_active_profile())
 
-    return _apply_env_overrides(Settings().materialize_active_profile())
+    settings = Settings()
+    env_profile = os.environ.get("OPENHARNESS_PROFILE")
+    if env_profile:
+        settings = settings.model_copy(update={"active_profile": env_profile.strip()})
+    return _apply_env_overrides(settings.materialize_active_profile())
 
 
 def save_settings(settings: Settings, config_path: Path | None = None) -> None:

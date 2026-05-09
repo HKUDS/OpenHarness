@@ -98,6 +98,7 @@ class RuntimeBundle:
     extra_plugin_roots: tuple[str, ...] = ()
     memory_backend: MemoryCommandBackend | None = None
     include_project_memory: bool = True
+    autodream_context: dict[str, object] | None = None
 
     def current_settings(self):
         """Return the effective settings for this session.
@@ -225,6 +226,7 @@ async def build_runtime(
     extra_plugin_roots: Iterable[str | Path] | None = None,
     memory_backend: MemoryCommandBackend | None = None,
     include_project_memory: bool = True,
+    autodream_context: dict[str, object] | None = None,
 ) -> RuntimeBundle:
     """Build the shared runtime for an OpenHarness session."""
     settings_overrides: dict[str, Any] = {
@@ -341,6 +343,7 @@ async def build_runtime(
         permission_prompt=permission_prompt,
         ask_user_prompt=ask_user_prompt,
         hook_executor=hook_executor,
+        settings=settings,
         tool_metadata={
             "mcp_manager": mcp_manager,
             "bridge_manager": bridge_manager,
@@ -351,6 +354,8 @@ async def build_runtime(
             **restored_metadata,
         },
     )
+    if autodream_context is not None:
+        engine.tool_metadata["autodream_context"] = autodream_context
     # Restore messages from a saved session if provided
     if restore_messages:
         restored = sanitize_conversation_messages(
@@ -389,6 +394,7 @@ async def build_runtime(
         extra_plugin_roots=normalized_plugin_roots,
         memory_backend=memory_backend,
         include_project_memory=include_project_memory,
+        autodream_context=autodream_context,
     )
 
 

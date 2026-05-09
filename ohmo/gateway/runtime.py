@@ -39,7 +39,7 @@ from ohmo.group_registry import load_managed_group_record, normalize_cwd
 from ohmo.memory import create_memory_command_backend
 from ohmo.prompts import build_ohmo_system_prompt
 from ohmo.session_storage import OhmoSessionBackend
-from ohmo.workspace import get_plugins_dir, get_skills_dir, initialize_workspace
+from ohmo.workspace import get_memory_dir, get_plugins_dir, get_sessions_dir, get_skills_dir, initialize_workspace
 
 logger = logging.getLogger(__name__)
 
@@ -194,6 +194,12 @@ class OhmoSessionRuntimePool:
             extra_plugin_roots=(str(get_plugins_dir(self._workspace)),),
             memory_backend=create_memory_command_backend(self._workspace),
             include_project_memory=False,
+            autodream_context={
+                "memory_dir": str(get_memory_dir(self._workspace)),
+                "session_dir": str(get_sessions_dir(self._workspace)),
+                "app_label": "ohmo personal memory",
+                "runner_module": "ohmo",
+            },
         )
         if snapshot and snapshot.get("session_id"):
             bundle.session_id = str(snapshot["session_id"])
@@ -643,6 +649,12 @@ class OhmoSessionRuntimePool:
             extra_plugin_roots=(str(get_plugins_dir(self._workspace)),),
             memory_backend=create_memory_command_backend(self._workspace),
             include_project_memory=False,
+            autodream_context={
+                "memory_dir": str(get_memory_dir(self._workspace)),
+                "session_dir": str(get_sessions_dir(self._workspace)),
+                "app_label": "ohmo personal memory",
+                "runner_module": "ohmo",
+            },
         )
         refreshed.session_id = prior_session_id
         self._register_gateway_tools(refreshed)

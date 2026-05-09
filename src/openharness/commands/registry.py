@@ -50,6 +50,14 @@ from openharness.services import (
     estimate_conversation_tokens,
     summarize_messages,
 )
+from openharness.services.autodream import (
+    diff_memory_dirs,
+    format_memory_diff,
+    latest_memory_backup,
+    read_last_consolidated_at,
+    restore_memory_backup,
+    start_dream_now,
+)
 from openharness.services.session_backend import DEFAULT_SESSION_BACKEND, SessionBackend
 from openharness.skills import load_skill_registry
 from openharness.skills.types import SkillDefinition
@@ -540,6 +548,97 @@ def create_default_command_registry(
                 f"- memory_files: {memory_count}\n"
                 f"- background_tasks: {task_count}\n"
                 f"- output_style: {style}"
+            )
+        )
+
+    async def _dream_handler(args: str, context: CommandContext) -> CommandResult:
+        settings = getattr(context.engine, "_settings", None) or load_settings().materialize_active_profile()
+        parts = args.split()
+        action = parts[0] if parts else "run"
+        backend = context.memory_backend if context.memory_backend is not None else None
+        memory_dir = backend.get_memory_dir() if backend is not None else get_project_memory_dir(context.cwd)
+        session_dir = context.session_backend.get_session_dir(context.cwd)
+        app_label = backend.label if backend is not None else "openharness project memory"
+        runner_module = "ohmo" if backend is not None and "ohmo" in backend.label.lower() else "openharness"
+        if action == "status":
+            last_at = read_last_consolidated_at(context.cwd, memory_dir=memory_dir)
+            last = "never" if last_at <= 0 else datetime.fromtimestamp(last_at).isoformat(timespec="seconds")
+            return CommandResult(
+                message=(
+                    f"Auto-dream: {'on' if settings.memory.auto_dream_enabled else 'off'}\n"
+                    f"Memory store: {app_label}\n"
+                    f"Memory directory: {memory_dir}\n"
+                    f"Session directory: {session_dir}\n"
+                    f"Last consolidated: {last}"
+                )
+            )
+        if action == "diff":
+            target = parts[1] if len(parts) > 1 else "latest"
+            task_memory_dir = str(memory_dir)
+            backup_dir = ""
+            label = target
+            if target == "latest":
+                latest = latest_memory_backup(memory_dir, app_label=app_label)
+                backup_dir = str(latest) if latest is not None else ""
+                label = "latest backup"
+            else:
+                task = get_task_manager().get_task(target)
+                if task is not None and task.type == "dream":
+                    backup_dir = task.metadata.get("backup_dir", "")
+                    task_memory_dir = task.metadata.get("memory_dir", str(memory_dir))
+                    label = task.id
+            if not backup_dir:
+                return CommandResult(message=f"No dream backup found for {target}.")
+            diff = diff_memory_dirs(backup_dir, task_memory_dir)
+            return CommandResult(
+                message=(
+                    f"Dream diff for {label}:\n"
+                    f"Backup: {backup_dir}\n"
+                    f"Memory: {task_memory_dir}\n"
+                    f"{format_memory_diff(diff)}"
+                )
+            )
+        if action == "rollback":
+            target = parts[1] if len(parts) > 1 else "latest"
+            task_memory_dir = str(memory_dir)
+            backup_dir = ""
+            label = target
+            if target == "latest":
+                latest = latest_memory_backup(memory_dir, app_label=app_label)
+                backup_dir = str(latest) if latest is not None else ""
+                label = "latest backup"
+            else:
+                task = get_task_manager().get_task(target)
+                if task is not None and task.type == "dream":
+                    backup_dir = task.metadata.get("backup_dir", "")
+                    task_memory_dir = task.metadata.get("memory_dir", str(memory_dir))
+                    label = task.id
+            if not backup_dir:
+                return CommandResult(message=f"No dream backup found for {target}.")
+            restore_memory_backup(backup_dir, task_memory_dir)
+            return CommandResult(message=f"Rolled back memory from backup for {label}: {backup_dir}")
+        if action not in {"run", "now", "preview"}:
+            return CommandResult(message="Usage: /dream [run|now|preview|status|diff [task_id]|rollback [task_id]]")
+        task = await start_dream_now(
+            cwd=context.cwd,
+            settings=settings,
+            model=context.engine.model,
+            current_session_id=context.session_id,
+            force=True,
+            memory_dir=memory_dir,
+            session_dir=session_dir,
+            app_label=app_label,
+            runner_module=runner_module,
+            preview=action == "preview",
+        )
+        if task is None:
+            return CommandResult(message="Dream did not start. Memory may be disabled or another dream is running.")
+        return CommandResult(
+            message=(
+                f"Started {'preview ' if action == 'preview' else ''}memory consolidation task {task.id}.\n"
+                f"Memory directory: {task.metadata.get('memory_dir', get_project_memory_dir(context.cwd))}\n"
+                f"Backup directory: {task.metadata.get('backup_dir', '') or '(preview/no backup)'}\n"
+                "Use /tasks or task_output to inspect progress. After completion: /dream diff latest or /dream rollback latest."
             )
         )
 
@@ -2117,6 +2216,7 @@ def create_default_command_registry(
     registry.register(SlashCommand("cost", "Show token usage and estimated cost", _cost_handler))
     registry.register(SlashCommand("usage", "Show usage and token estimates", _usage_handler))
     registry.register(SlashCommand("stats", "Show session statistics", _stats_handler))
+    registry.register(SlashCommand("dream", "Consolidate memory", _dream_handler))
     registry.register(SlashCommand("memory", "Inspect and manage project memory", _memory_handler))
     registry.register(SlashCommand("hooks", "Show configured hooks", _hooks_handler))
     registry.register(SlashCommand("resume", "Restore the latest saved session", _resume_handler))
