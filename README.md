@@ -777,6 +777,42 @@ Create `.openharness/plugins/my-plugin/.claude-plugin/plugin.json`:
 
 Add commands in `commands/*.md`, hooks in `hooks/hooks.json`, agents in `agents/*.md`.
 
+### Command Hook Context
+
+Command hooks can receive their JSON payload on stdin and return additional model context:
+
+```json
+{
+  "hooks": {
+    "session_start": [
+      {
+        "type": "command",
+        "command": "my-memory-hook",
+        "stdin_payload": true
+      }
+    ]
+  }
+}
+```
+
+A command hook may print either OpenHarness-style context:
+
+```json
+{"additional_context": "Relevant memory for this session."}
+```
+
+or Claude-style context:
+
+```json
+{
+  "hookSpecificOutput": {
+    "additionalContext": "Relevant memory for this session."
+  }
+}
+```
+
+`session_start` context is appended to the runtime system prompt. `user_prompt_submit` context is injected for the current turn only and is not persisted into conversation history.
+
 ---
 
 ## 🌍 Showcase

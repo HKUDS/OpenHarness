@@ -330,6 +330,9 @@ async def build_runtime(
         ),
     )
     engine_max_turns = settings.max_turns if (enforce_max_turns or max_turns is not None) else None
+    from uuid import uuid4
+
+    session_id = uuid4().hex[:12]
     system_prompt_text = build_runtime_system_prompt(
         settings,
         cwd=cwd,
@@ -338,9 +341,21 @@ async def build_runtime(
         extra_plugin_roots=normalized_plugin_roots,
         include_project_memory=include_project_memory,
     )
-    from uuid import uuid4
-
-    session_id = uuid4().hex[:12]
+    session_start_hooks = await hook_executor.execute(
+        HookEvent.SESSION_START,
+        {
+            "cwd": cwd,
+            "event": HookEvent.SESSION_START.value,
+            "session_id": session_id,
+            "model": settings.model,
+            "permission_mode": settings.permission.mode.value,
+        },
+    )
+    if session_start_hooks.additional_context:
+        system_prompt_text = (
+            f"{system_prompt_text}\n\n# Hook Additional Context\n\n"
+            f"{session_start_hooks.additional_context}"
+        )
 
     restored_metadata = {
         "permission_mode": settings.permission.mode.value,
@@ -434,10 +449,7 @@ async def build_runtime(
 
 async def start_runtime(bundle: RuntimeBundle) -> None:
     """Run session start hooks."""
-    await bundle.hook_executor.execute(
-        HookEvent.SESSION_START,
-        {"cwd": bundle.cwd, "event": HookEvent.SESSION_START.value},
-    )
+    return None
 
 
 async def close_runtime(bundle: RuntimeBundle) -> None:

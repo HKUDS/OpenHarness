@@ -15,6 +15,7 @@ class CommandHookDefinition(BaseModel):
     timeout_seconds: int = Field(default=30, ge=1, le=600)
     matcher: str | None = None
     block_on_failure: bool = False
+    stdin_payload: bool = False
 
 
 class PromptHookDefinition(BaseModel):

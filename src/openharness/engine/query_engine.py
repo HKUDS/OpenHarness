@@ -155,14 +155,23 @@ class QueryEngine:
             remember_user_goal(self._tool_metadata, user_message.text)
         self._messages = sanitize_conversation_messages(self._messages)
         self._messages.append(user_message)
+        prompt_context_message: ConversationMessage | None = None
         if self._hook_executor is not None:
-            await self._hook_executor.execute(
+            prompt_hooks = await self._hook_executor.execute(
                 HookEvent.USER_PROMPT_SUBMIT,
                 {
                     "event": HookEvent.USER_PROMPT_SUBMIT.value,
                     "prompt": user_message.text,
+                    "cwd": str(self._cwd),
+                    "session_id": str(self._tool_metadata.get("session_id", "")),
+                    "model": self._model,
+                    "permission_mode": str(self._tool_metadata.get("permission_mode", "")),
                 },
             )
+            if prompt_hooks.additional_context:
+                prompt_context_message = ConversationMessage.from_user_text(
+                    f"# Hook Additional Context\n\n{prompt_hooks.additional_context}"
+                )
         context = QueryContext(
             api_client=self._api_client,
             tool_registry=self._tool_registry,
@@ -180,12 +189,17 @@ class QueryEngine:
             tool_metadata=self._tool_metadata,
         )
         query_messages = list(self._messages)
+        if prompt_context_message is not None:
+            query_messages.append(prompt_context_message)
         coordinator_context = self._build_coordinator_context_message()
         if coordinator_context is not None:
             query_messages.append(coordinator_context)
         async for event, usage in run_query(context, query_messages):
             if isinstance(event, AssistantTurnComplete):
-                self._messages = list(query_messages)
+                self._messages = [
+                    message for message in query_messages
+                    if message is not prompt_context_message and message is not coordinator_context
+                ]
             if usage is not None:
                 self._cost_tracker.add(usage)
             yield event

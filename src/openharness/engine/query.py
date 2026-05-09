@@ -810,6 +810,10 @@ async def run_query(
                     {
                         "event": HookEvent.STOP.value,
                         "stop_reason": "tool_uses_empty",
+                        "cwd": str(context.cwd),
+                        "session_id": str((context.tool_metadata or {}).get("session_id", "")),
+                        "last_assistant_message": final_message.text,
+                        "model": context.model,
                     },
                 )
             return
@@ -883,7 +887,14 @@ async def _execute_tool_call(
     if context.hook_executor is not None:
         pre_hooks = await context.hook_executor.execute(
             HookEvent.PRE_TOOL_USE,
-            {"tool_name": tool_name, "tool_input": tool_input, "event": HookEvent.PRE_TOOL_USE.value},
+            {
+                "tool_name": tool_name,
+                "tool_input": tool_input,
+                "event": HookEvent.PRE_TOOL_USE.value,
+                "cwd": str(context.cwd),
+                "session_id": str((context.tool_metadata or {}).get("session_id", "")),
+                "model": context.model,
+            },
         )
         if pre_hooks.blocked:
             return ToolResultBlock(
@@ -1001,8 +1012,16 @@ async def _execute_tool_call(
                 "tool_name": tool_name,
                 "tool_input": tool_input,
                 "tool_output": tool_result.content,
+                "tool_response": {
+                    "output": tool_result.content,
+                    "is_error": tool_result.is_error,
+                    "metadata": result.metadata,
+                },
                 "tool_is_error": tool_result.is_error,
                 "event": HookEvent.POST_TOOL_USE.value,
+                "cwd": str(context.cwd),
+                "session_id": str((context.tool_metadata or {}).get("session_id", "")),
+                "model": context.model,
             },
         )
     return tool_result

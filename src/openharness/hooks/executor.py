@@ -85,15 +85,17 @@ class HookExecutor:
     ) -> HookResult:
         command = _inject_arguments(hook.command, payload, shell_escape=True)
         try:
+            payload_json = json.dumps(payload)
             process = await create_shell_subprocess(
                 command,
                 cwd=self._context.cwd,
+                stdin=asyncio.subprocess.PIPE if hook.stdin_payload else asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 env={
                     **os.environ,
                     "OPENHARNESS_HOOK_EVENT": event.value,
-                    "OPENHARNESS_HOOK_PAYLOAD": json.dumps(payload),
+                    "OPENHARNESS_HOOK_PAYLOAD": payload_json,
                 },
             )
         except SandboxUnavailableError as exc:
@@ -104,9 +106,10 @@ class HookExecutor:
                 reason=str(exc),
             )
 
+        stdin_data = payload_json.encode("utf-8") if hook.stdin_payload else None
         try:
             stdout, stderr = await asyncio.wait_for(
-                process.communicate(),
+                process.communicate(stdin_data),
                 timeout=hook.timeout_seconds,
             )
         except asyncio.TimeoutError:
@@ -126,13 +129,17 @@ class HookExecutor:
             ) if part
         )
         success = process.returncode == 0
+        metadata: dict[str, Any] = {"returncode": process.returncode}
+        parsed_stdout = _parse_command_output_json(stdout.decode("utf-8", errors="replace").strip())
+        if parsed_stdout is not None:
+            metadata.update(parsed_stdout)
         return HookResult(
             hook_type=hook.type,
             success=success,
             output=output,
             blocked=hook.block_on_failure and not success,
             reason=output or f"command hook failed with exit code {process.returncode}",
-            metadata={"returncode": process.returncode},
+            metadata=metadata,
         )
 
     async def _run_http_hook(
@@ -227,6 +234,14 @@ def _inject_arguments(
     if shell_escape:
         serialized = shlex.quote(serialized)
     return template.replace("$ARGUMENTS", serialized)
+
+
+def _parse_command_output_json(text: str) -> dict[str, Any] | None:
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        return None
+    return parsed if isinstance(parsed, dict) else None
 
 
 def _parse_hook_json(text: str) -> dict[str, Any]:
