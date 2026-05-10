@@ -304,13 +304,19 @@ async def test_cron_and_remote_trigger_tools(tmp_path: Path, monkeypatch):
     context = ToolExecutionContext(cwd=tmp_path)
 
     create_result = await CronCreateTool().execute(
-        CronCreateToolInput(name="nightly", schedule="0 0 * * *", command="printf 'CRON_OK'"),
+        CronCreateToolInput(
+            name="nightly",
+            schedule="0 0 * * *",
+            command="printf 'CRON_OK'",
+            notify={"type": "feishu_dm", "user_open_id": "ou_test"},
+        ),
         context,
     )
     assert create_result.is_error is False
 
     list_result = await CronListTool().execute(CronListToolInput(), context)
     assert "nightly" in list_result.output
+    assert "feishu_dm" in list_result.output
 
     trigger_result = await RemoteTriggerTool().execute(
         RemoteTriggerToolInput(name="nightly"),
@@ -324,3 +330,26 @@ async def test_cron_and_remote_trigger_tools(tmp_path: Path, monkeypatch):
         context,
     )
     assert delete_result.is_error is False
+
+
+@pytest.mark.asyncio
+async def test_cron_create_agent_turn_payload(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("OPENHARNESS_DATA_DIR", str(tmp_path / "data"))
+    context = ToolExecutionContext(cwd=tmp_path)
+
+    create_result = await CronCreateTool().execute(
+        CronCreateToolInput(
+            name="daily-summary",
+            schedule="0 18 * * *",
+            timezone="Asia/Hong_Kong",
+            message="check GitHub",
+            payload={"deliver": True, "channel": "feishu", "to": "ou_test"},
+        ),
+        context,
+    )
+    assert create_result.is_error is False
+
+    list_result = await CronListTool().execute(CronListToolInput(), context)
+    assert "daily-summary" in list_result.output
+    assert "Asia/Hong_Kong" in list_result.output
+    assert "payload: agent_turn -> feishu:ou_test" in list_result.output

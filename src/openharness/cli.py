@@ -930,8 +930,20 @@ def cron_list_cmd() -> None:
             last = last[:19]  # trim to readable datetime
         last_status = job.get("last_status", "")
         status_indicator = f" [{last_status}]" if last_status else ""
-        print(f"  [{enabled}] {job['name']}  {job.get('schedule', '?')}")
-        print(f"        cmd: {job['command']}")
+        timezone = f" ({job['timezone']})" if job.get("timezone") else ""
+        print(f"  [{enabled}] {job['name']}  {job.get('schedule', '?')}{timezone}")
+        print(f"        cmd: {job.get('command') or '(agent_turn)'}")
+        payload = job.get("payload")
+        if isinstance(payload, dict):
+            print(
+                f"        payload: {payload.get('kind', 'agent_turn')} -> "
+                f"{payload.get('channel', '?')}:{payload.get('to', '?')}"
+            )
+        notify = job.get("notify")
+        if isinstance(notify, dict):
+            notify_type = notify.get("type", "?")
+            target = notify.get("user_open_id") or notify.get("open_id") or notify.get("chat_id") or "?"
+            print(f"        notify: {notify_type} -> {target}")
         print(f"        last: {last}{status_indicator}  next: {job.get('next_run', 'n/a')[:19]}")
 
 

@@ -47,9 +47,23 @@ class CronListTool(BaseTool):
                 next_run = next_run[:19]
             last_status = job.get("last_status", "")
             status_str = f" ({last_status})" if last_status else ""
+            notify = job.get("notify")
+            notify_line = ""
+            if isinstance(notify, dict):
+                notify_type = notify.get("type", "?")
+                target = notify.get("user_open_id") or notify.get("open_id") or notify.get("chat_id") or "?"
+                notify_line = f"\n     notify: {notify_type} -> {target}"
+            timezone = f" ({job['timezone']})" if job.get("timezone") else ""
+            payload = job.get("payload")
+            payload_line = ""
+            if isinstance(payload, dict):
+                payload_line = f"\n     payload: {payload.get('kind', 'agent_turn')} -> {payload.get('channel', '?')}:{payload.get('to', '?')}"
+            command = job.get("command") or "(agent_turn)"
             lines.append(
-                f"[{enabled}] {job['name']}  {job.get('schedule', '?')}\n"
-                f"     cmd: {job['command']}\n"
+                f"[{enabled}] {job['name']}  {job.get('schedule', '?')}{timezone}\n"
+                f"     cmd: {command}"
+                f"{payload_line}"
+                f"{notify_line}\n"
                 f"     last: {last_run}{status_str}  next: {next_run}"
             )
         return ToolResult(output="\n".join(lines))

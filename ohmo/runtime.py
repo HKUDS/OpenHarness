@@ -171,7 +171,10 @@ async def run_ohmo_print_mode(
         async def _print_system(message: str) -> None:
             print(message, file=sys.stderr)
 
+        saw_error = False
+
         async def _render_event(event) -> None:
+            nonlocal saw_error
             if isinstance(event, AssistantTextDelta):
                 sys.stdout.write(event.text)
                 sys.stdout.flush()
@@ -179,6 +182,7 @@ async def run_ohmo_print_mode(
                 sys.stdout.write("\n")
                 sys.stdout.flush()
             elif isinstance(event, ErrorEvent):
+                saw_error = True
                 print(event.message, file=sys.stderr)
             elif isinstance(event, CompactProgressEvent):
                 if event.message:
@@ -197,6 +201,6 @@ async def run_ohmo_print_mode(
             clear_output=_clear_output,
         )
         await close_runtime(bundle)
-        return 0
+        return 1 if saw_error else 0
     finally:
         os.chdir(previous_cwd)

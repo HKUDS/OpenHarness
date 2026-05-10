@@ -17,6 +17,7 @@ from openharness.services.cron import (
     set_job_enabled,
     upsert_cron_job,
     validate_cron_expression,
+    validate_timezone,
 )
 
 
@@ -49,6 +50,15 @@ class TestValidation:
         nxt = next_run_time("0 * * * *", base)
         assert nxt == datetime(2026, 1, 1, 1, 0, 0, tzinfo=timezone.utc)
 
+    def test_next_run_time_with_timezone_returns_utc(self) -> None:
+        base = datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+        nxt = next_run_time("0 18 * * *", base, tz="Asia/Hong_Kong")
+        assert nxt == datetime(2026, 1, 1, 10, 0, 0, tzinfo=timezone.utc)
+
+    def test_validate_timezone(self) -> None:
+        assert validate_timezone("Asia/Hong_Kong")
+        assert not validate_timezone("Asia/HongKong")
+
 
 class TestCRUD:
     def test_empty_load(self) -> None:
@@ -62,6 +72,21 @@ class TestCRUD:
         assert jobs[0]["enabled"] is True
         assert "next_run" in jobs[0]
         assert "created_at" in jobs[0]
+
+    def test_upsert_preserves_notify_target(self) -> None:
+        notify = {"type": "feishu_dm", "user_open_id": "ou_test"}
+        upsert_cron_job({"name": "test-job", "schedule": "*/5 * * * *", "command": "echo hi", "notify": notify})
+        job = get_cron_job("test-job")
+        assert job is not None
+        assert job["notify"] == notify
+
+    def test_upsert_preserves_agent_turn_payload(self) -> None:
+        payload = {"kind": "agent_turn", "message": "check GitHub", "deliver": True, "channel": "feishu", "to": "ou_test"}
+        upsert_cron_job({"name": "test-job", "schedule": "0 18 * * *", "timezone": "Asia/Hong_Kong", "payload": payload})
+        job = get_cron_job("test-job")
+        assert job is not None
+        assert job["payload"] == payload
+        assert job["timezone"] == "Asia/Hong_Kong"
 
     def test_upsert_replaces(self) -> None:
         upsert_cron_job({"name": "j1", "schedule": "* * * * *", "command": "echo 1"})
