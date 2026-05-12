@@ -128,6 +128,172 @@ def test_gateway_router_separates_senders_in_same_group_without_thread():
     assert session_key_for_message(second) == "feishu:oc_shared:bob"
 
 
+@pytest.mark.asyncio
+async def test_slack_thread_messages_use_sender_scoped_router_keys(monkeypatch):
+    import sys
+    import types
+
+    def install_stub(name, **attrs):
+        module = types.ModuleType(name)
+        for key, value in attrs.items():
+            setattr(module, key, value)
+        monkeypatch.setitem(sys.modules, name, module)
+        return module
+
+    install_stub("slackify_markdown", slackify_markdown=lambda text: text)
+    install_stub("slack_sdk")
+    install_stub("slack_sdk.socket_mode")
+    install_stub("slack_sdk.socket_mode.request", SocketModeRequest=object)
+
+    class FakeSocketModeResponse:
+        def __init__(self, envelope_id=None):
+            self.envelope_id = envelope_id
+
+    install_stub("slack_sdk.socket_mode.response", SocketModeResponse=FakeSocketModeResponse)
+    install_stub("slack_sdk.socket_mode.websockets", SocketModeClient=object)
+    install_stub("slack_sdk.web")
+    install_stub("slack_sdk.web.async_client", AsyncWebClient=object)
+
+    from openharness.channels.impl.slack import SlackChannel
+    from openharness.config.schema import SlackConfig
+
+    class CapturingBus:
+        def __init__(self):
+            self.messages = []
+
+        async def publish_inbound(self, msg):
+            self.messages.append(msg)
+
+    class FakeSocketClient:
+        async def send_socket_mode_response(self, response):
+            return None
+
+    async def send_thread_message(channel, *, user):
+        request = SimpleNamespace(
+            type="events_api",
+            envelope_id=f"env-{user}",
+            payload={
+                "event": {
+                    "type": "app_mention",
+                    "user": user,
+                    "channel": "C_SHARED",
+                    "channel_type": "channel",
+                    "text": "<@BOT> /summary 50",
+                    "thread_ts": "1710000000.000100",
+                    "ts": f"1710000000.{user[-1]}",
+                }
+            },
+        )
+        await channel._on_socket_request(FakeSocketClient(), request)
+
+    bus = CapturingBus()
+    config = SlackConfig(
+        allow_from=["U_ALICE", "U_BOB"],
+        bot_token="xoxb-fake",
+        app_token="xapp-fake",
+        mode="socket",
+        group_policy="mention",
+        reply_in_thread=True,
+        react_emoji="eyes",
+        dm=SimpleNamespace(enabled=True, policy="allowlist", allow_from=["U_ALICE", "U_BOB"]),
+    )
+    channel = SlackChannel(config, bus)
+    channel._bot_user_id = "BOT"
+    channel._web_client = None
+
+    await send_thread_message(channel, user="U_ALICE")
+    await send_thread_message(channel, user="U_BOB")
+
+    alice, bob = bus.messages
+    assert alice.session_key_override is None
+    assert bob.session_key_override is None
+    assert alice.metadata["thread_ts"] == "1710000000.000100"
+    assert bob.metadata["thread_ts"] == "1710000000.000100"
+    assert alice.metadata["chat_type"] == "group"
+    assert bob.metadata["chat_type"] == "group"
+    assert session_key_for_message(alice) == "slack:C_SHARED:1710000000.000100:U_ALICE"
+    assert session_key_for_message(bob) == "slack:C_SHARED:1710000000.000100:U_BOB"
+
+
+@pytest.mark.asyncio
+async def test_runtime_pool_summary_does_not_restore_other_slack_thread_sender(tmp_path, monkeypatch):
+    workspace = tmp_path / ".ohmo-home"
+    initialize_workspace(workspace)
+    alice_message = InboundMessage(
+        channel="slack",
+        sender_id="U_ALICE",
+        chat_id="C_SHARED",
+        content="hello",
+        timestamp=datetime.utcnow(),
+        metadata={"thread_ts": "1710000000.000100", "chat_type": "group"},
+    )
+    bob_message = InboundMessage(
+        channel="slack",
+        sender_id="U_BOB",
+        chat_id="C_SHARED",
+        content="/summary 50",
+        timestamp=datetime.utcnow(),
+        metadata={"thread_ts": "1710000000.000100", "chat_type": "group"},
+    )
+    alice_key = session_key_for_message(alice_message)
+    bob_key = session_key_for_message(bob_message)
+    assert alice_key != bob_key
+    save_session_snapshot(
+        cwd=tmp_path,
+        workspace=workspace,
+        model="gpt-5.4",
+        system_prompt="test",
+        session_key=alice_key,
+        usage=UsageSnapshot(),
+        messages=[
+            ConversationMessage(
+                role="user",
+                content=[TextBlock(text="Alice private note: ALICE_PRIVATE_SUMMARY_SECRET")],
+            )
+        ],
+    )
+
+    async def fake_build_runtime(**kwargs):
+        restored = [ConversationMessage.model_validate(item) for item in (kwargs.get("restore_messages") or [])]
+
+        class FakeEngine:
+            def __init__(self):
+                self.messages = restored
+                self.total_usage = UsageSnapshot()
+
+            def set_system_prompt(self, prompt):
+                return None
+
+        return SimpleNamespace(
+            engine=FakeEngine(),
+            session_id="sess123",
+            current_settings=lambda: SimpleNamespace(model="gpt-5.4"),
+            commands=create_default_command_registry(),
+            cwd=str(tmp_path),
+            session_backend=None,
+            extra_skill_dirs=(),
+            extra_plugin_roots=(),
+            hook_summary=lambda: "",
+            mcp_summary=lambda: "",
+            plugin_summary=lambda: "",
+            tool_registry=None,
+            app_state=None,
+        )
+
+    async def fake_start_runtime(bundle):
+        return None
+
+    monkeypatch.setattr("ohmo.gateway.runtime.build_runtime", fake_build_runtime)
+    monkeypatch.setattr("ohmo.gateway.runtime.start_runtime", fake_start_runtime)
+
+    pool = OhmoSessionRuntimePool(cwd=tmp_path, workspace=workspace, provider_profile="codex")
+    updates = [u async for u in pool.stream_message(bob_message, bob_key)]
+
+    assert updates[-1].kind == "final"
+    assert updates[-1].text == "No conversation content to summarize."
+    assert "ALICE_PRIVATE_SUMMARY_SECRET" not in updates[-1].text
+
+
 def test_gateway_error_formats_claude_refresh_failure():
     exc = ValueError("Claude OAuth refresh failed: HTTP Error 400: Bad Request")
     assert "claude-login" in _format_gateway_error(exc)

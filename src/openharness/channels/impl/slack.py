@@ -179,8 +179,11 @@ class SlackChannel(BaseChannel):
         except Exception as e:
             logger.debug("Slack reactions_add failed: %s", e)
 
-        # Thread-scoped session key for channel/group messages
-        session_key = f"slack:{chat_id}:{thread_ts}" if thread_ts and channel_type != "im" else None
+        # Preserve Slack thread metadata for reply routing, but let the ohmo
+        # gateway router derive the session key.  The router includes sender
+        # identity for shared chats; passing a senderless Slack override here
+        # would make different people in the same thread share one session.
+        chat_type = "p2p" if channel_type == "im" else "group"
 
         try:
             await self._handle_message(
@@ -188,13 +191,14 @@ class SlackChannel(BaseChannel):
                 chat_id=chat_id,
                 content=text,
                 metadata={
+                    "thread_ts": thread_ts,
+                    "chat_type": chat_type,
                     "slack": {
                         "event": event,
                         "thread_ts": thread_ts,
                         "channel_type": channel_type,
                     },
                 },
-                session_key=session_key,
             )
         except Exception:
             logger.exception("Error handling Slack message from %s", sender_id)
