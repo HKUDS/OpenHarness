@@ -161,6 +161,24 @@ async def test_bridge_command_supports_explicit_remote_admin_opt_in(tmp_path: Pa
     assert getattr(command, "remote_admin_opt_in", False) is True
 
 
+@pytest.mark.asyncio
+async def test_autopilot_command_is_marked_local_only(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
+    registry = create_default_command_registry()
+    command, _ = registry.lookup("/autopilot run-next")
+    assert command is not None
+    assert command.remote_invocable is False
+
+
+@pytest.mark.asyncio
+async def test_autopilot_command_supports_explicit_remote_admin_opt_in(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
+    registry = create_default_command_registry()
+    command, _ = registry.lookup("/autopilot run-next")
+    assert command is not None
+    assert getattr(command, "remote_admin_opt_in", False) is True
+
+
 
 @pytest.mark.asyncio
 async def test_sensitive_control_plane_commands_are_local_only(tmp_path: Path, monkeypatch):
