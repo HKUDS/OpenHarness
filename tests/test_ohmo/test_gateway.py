@@ -1,6 +1,7 @@
 import asyncio
 import contextlib
 import logging
+import subprocess
 from types import SimpleNamespace
 from datetime import datetime
 import json
@@ -753,6 +754,95 @@ async def test_runtime_pool_blocks_registered_bridge_spawn_without_shelling_out(
     assert {session.session_id for session in get_bridge_manager().list_sessions()} == existing_bridge_sessions
     assert marker.exists() is False
 
+
+@pytest.mark.asyncio
+async def test_runtime_pool_blocks_registered_commit_without_running_git_hooks(tmp_path, monkeypatch):
+    workspace = tmp_path / ".ohmo-home"
+    initialize_workspace(workspace)
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True, text=True)
+    subprocess.run(
+        ["git", "config", "user.email", "openharness-test@example.invalid"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "OpenHarness Test"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    tracked = repo / "tracked.txt"
+    tracked.write_text("before\n", encoding="utf-8")
+    subprocess.run(["git", "add", "tracked.txt"], cwd=repo, check=True, capture_output=True, text=True)
+    subprocess.run(
+        ["git", "commit", "-m", "initial"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    marker = repo / "remote-commit-hook-marker.txt"
+    hook = repo / ".git" / "hooks" / "pre-commit"
+    hook.write_text(f"#!/bin/sh\nprintf REMOTE_COMMIT_HOOK_EXEC > {marker}\n", encoding="utf-8")
+    hook.chmod(0o755)
+    tracked.write_text("before\nremote change\n", encoding="utf-8")
+
+    registry = create_default_command_registry()
+    command, _ = registry.lookup("/commit remote requested commit")
+    assert command is not None
+    assert command.name == "commit"
+    assert command.remote_invocable is False
+
+    async def fake_build_runtime(**kwargs):
+        class FakeEngine:
+            messages = []
+            total_usage = UsageSnapshot()
+
+            def set_system_prompt(self, prompt):
+                return None
+
+        return SimpleNamespace(
+            engine=FakeEngine(),
+            cwd=str(repo),
+            session_id="sess123",
+            current_settings=lambda: SimpleNamespace(model="gpt-5.4"),
+            commands=registry,
+        )
+
+    async def fake_start_runtime(bundle):
+        return None
+
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("OPENHARNESS_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setattr("ohmo.gateway.runtime.build_runtime", fake_build_runtime)
+    monkeypatch.setattr("ohmo.gateway.runtime.start_runtime", fake_start_runtime)
+
+    pool = OhmoSessionRuntimePool(cwd=repo, workspace=workspace, provider_profile="codex")
+    message = InboundMessage(
+        channel="slack",
+        sender_id="U_ATTACKER",
+        chat_id="C_SHARED",
+        content="/commit remote requested commit",
+    )
+    updates = [u async for u in pool.stream_message(message, "slack:C_SHARED:U_ATTACKER")]
+
+    assert updates[-1].kind == "final"
+    assert updates[-1].text == "/commit is only available in the local OpenHarness UI."
+    assert marker.exists() is False
+    last_commit = subprocess.run(
+        ["git", "log", "-1", "--pretty=%s"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    assert last_commit == "initial"
 
 
 @pytest.mark.asyncio

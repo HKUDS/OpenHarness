@@ -174,6 +174,7 @@ async def test_sensitive_control_plane_commands_are_local_only(tmp_path: Path, m
         "/mcp",
         "/provider",
         "/model show",
+        "/commit remote requested commit",
         "/ship",
     ):
         command, _ = registry.lookup(payload)
