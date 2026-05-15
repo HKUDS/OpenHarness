@@ -11,6 +11,7 @@ import pytest
 from openharness.api.client import ApiMessageRequest
 from openharness.api.openai_client import (
     OpenAICompatibleClient,
+    _convert_assistant_message,
     _convert_messages_to_openai,
     _convert_tools_to_openai,
     _normalize_openai_base_url,
@@ -435,3 +436,64 @@ class TestStripThinkBlocks:
         visible, buf = _strip_think_blocks(buf)
         assert visible == "answer"
         assert buf == ""
+
+
+class TestReasoningContentEmission:
+    """``reasoning_content`` is a non-standard field. It must round-trip
+    when the streaming parser captured non-empty reasoning, but the
+    legacy "emit empty string when there are tool calls" behaviour now
+    requires opt-in via ``OPENHARNESS_REQUIRE_EMPTY_REASONING_CONTENT=1``.
+
+    Strict-OpenAI providers (Cerebras, NVIDIA NIM, OpenAI direct) reject
+    requests carrying the field with a ``wrong_api_format`` 400, so the
+    default-off behaviour fixes them out-of-the-box; Kimi-on-Anthropic
+    users opt in via env var.
+    """
+
+    def _msg_with_tool_use(self, *, reasoning: str | None = None) -> ConversationMessage:
+        msg = ConversationMessage(
+            role="assistant",
+            content=[
+                TextBlock(text="ok"),
+                ToolUseBlock(id="tool_1", name="read_file", input={"path": "x"}),
+            ],
+        )
+        if reasoning is not None:
+            msg._reasoning = reasoning  # type: ignore[attr-defined]
+        return msg
+
+    def test_omits_reasoning_when_no_captured_text(self, monkeypatch):
+        monkeypatch.delenv("OPENHARNESS_REQUIRE_EMPTY_REASONING_CONTENT", raising=False)
+        out = _convert_assistant_message(self._msg_with_tool_use())
+        assert "reasoning_content" not in out
+
+    def test_replays_captured_reasoning(self, monkeypatch):
+        monkeypatch.delenv("OPENHARNESS_REQUIRE_EMPTY_REASONING_CONTENT", raising=False)
+        out = _convert_assistant_message(self._msg_with_tool_use(reasoning="thinking…"))
+        assert out["reasoning_content"] == "thinking…"
+
+    def test_emits_empty_when_opted_in(self, monkeypatch):
+        monkeypatch.setenv("OPENHARNESS_REQUIRE_EMPTY_REASONING_CONTENT", "1")
+        out = _convert_assistant_message(self._msg_with_tool_use())
+        assert out["reasoning_content"] == ""
+
+    def test_opt_in_truthy_values(self, monkeypatch):
+        for v in ("1", "true", "TRUE", "yes", "on"):
+            monkeypatch.setenv("OPENHARNESS_REQUIRE_EMPTY_REASONING_CONTENT", v)
+            out = _convert_assistant_message(self._msg_with_tool_use())
+            assert out.get("reasoning_content") == "", f"value={v!r}"
+
+    def test_opt_in_falsy_values(self, monkeypatch):
+        for v in ("0", "false", "no", "off", ""):
+            monkeypatch.setenv("OPENHARNESS_REQUIRE_EMPTY_REASONING_CONTENT", v)
+            out = _convert_assistant_message(self._msg_with_tool_use())
+            assert "reasoning_content" not in out, f"value={v!r} should not opt in"
+
+    def test_no_tool_calls_never_emits_empty(self, monkeypatch):
+        # Pure-text assistant messages have always omitted the field; the
+        # opt-in is scoped to tool-use messages where Kimi specifically
+        # demands the placeholder.
+        monkeypatch.setenv("OPENHARNESS_REQUIRE_EMPTY_REASONING_CONTENT", "1")
+        msg = ConversationMessage(role="assistant", content=[TextBlock(text="hi")])
+        out = _convert_assistant_message(msg)
+        assert "reasoning_content" not in out

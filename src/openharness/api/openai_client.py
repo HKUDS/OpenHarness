@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import re
 from typing import Any, AsyncIterator
 from urllib.parse import urlsplit, urlunsplit
@@ -145,13 +146,43 @@ def _convert_user_content_to_openai(blocks: list[ContentBlock]) -> str | list[di
     return content
 
 
+_EMPTY_REASONING_ENV = "OPENHARNESS_REQUIRE_EMPTY_REASONING_CONTENT"
+
+
+def _empty_reasoning_required() -> bool:
+    """True when the operator's provider requires an empty
+    ``reasoning_content`` field on tool-using assistant messages
+    (Kimi-on-Anthropic style). Default off — strict-OpenAI providers
+    reject the field outright.
+    """
+    raw = os.environ.get(_EMPTY_REASONING_ENV, "").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
+
+
 def _convert_assistant_message(msg: ConversationMessage) -> dict[str, Any]:
     """Convert an assistant ConversationMessage to OpenAI format.
 
-    Providers with thinking models (e.g. Kimi k2.5) require a
-    ``reasoning_content`` field on every assistant message that contains
-    tool calls.  We stash the raw reasoning text on ``msg._reasoning``
-    during parsing and replay it here.
+    ``reasoning_content`` is a non-standard field used by thinking models
+    (e.g. Kimi k2.5) to carry the model's internal chain-of-thought across
+    turns. Some thinking-model providers require it on every assistant
+    message with tool calls — even when empty — or they reject the request.
+    Other OpenAI-compatible providers (Cerebras, OpenAI's own
+    endpoint, etc.) reject the field outright with a 400
+    ``wrong_api_format`` error.
+
+    Behaviour:
+
+    - When the streaming parser captured non-empty reasoning on
+      ``msg._reasoning``, we always replay it. Models that emit reasoning
+      tokens are by definition thinking models that round-trip them.
+    - When there is no captured reasoning but the message has tool calls,
+      we emit ``reasoning_content: ""`` only if the operator opts in via
+      ``OPENHARNESS_REQUIRE_EMPTY_REASONING_CONTENT=1``. The default is
+      omit, which matches strict-OpenAI providers.
+
+    The opt-in default keeps strict-OpenAI providers (Cerebras, NVIDIA NIM,
+    OpenAI direct, etc.) working out-of-the-box; Kimi-on-Anthropic users
+    set the env var in their dotfiles or settings.
     """
     text_parts = [b.text for b in msg.content if isinstance(b, TextBlock)]
     tool_uses = [b for b in msg.content if isinstance(b, ToolUseBlock)]
@@ -165,8 +196,9 @@ def _convert_assistant_message(msg: ConversationMessage) -> dict[str, Any]:
     reasoning = getattr(msg, "_reasoning", None)
     if reasoning:
         openai_msg["reasoning_content"] = reasoning
-    elif tool_uses:
-        # Thinking models require this field even if empty
+    elif tool_uses and _empty_reasoning_required():
+        # Kimi-style providers reject tool_use messages without this field
+        # even when there's nothing to put in it. Opt-in via env var.
         openai_msg["reasoning_content"] = ""
 
     if tool_uses:
