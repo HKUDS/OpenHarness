@@ -1,5 +1,4 @@
 import asyncio
-import contextlib
 import logging
 from types import SimpleNamespace
 from datetime import datetime
@@ -382,7 +381,6 @@ async def test_runtime_pool_stream_message_emits_progress_and_tool_hint(tmp_path
             cwd=str(tmp_path),
             session_id="sess123",
             current_settings=lambda: SimpleNamespace(model="gpt-5.4"),
-            commands=SimpleNamespace(lookup=lambda raw: None),
         )
 
     async def fake_start_runtime(bundle):
@@ -591,7 +589,6 @@ async def test_runtime_pool_stream_message_uses_english_progress_for_english_inp
             engine=FakeEngine(),
             session_id="sess123",
             current_settings=lambda: SimpleNamespace(model="gpt-5.4"),
-            commands=SimpleNamespace(lookup=lambda raw: None),
         )
 
     async def fake_start_runtime(bundle):
@@ -1927,7 +1924,6 @@ async def test_runtime_pool_logs_session_lifecycle(tmp_path, monkeypatch, caplog
             engine=FakeEngine(),
             session_id="sess123",
             current_settings=lambda: SimpleNamespace(model="gpt-5.4"),
-            commands=SimpleNamespace(lookup=lambda raw: None),
         )
 
     async def fake_start_runtime(bundle):

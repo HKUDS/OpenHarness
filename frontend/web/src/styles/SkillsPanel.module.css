@@ -1,0 +1,323 @@
+.skillsPanel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-4) var(--space-4);
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-tertiary);
+}
+
+.headerLeft {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.headerLeft h3 {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.headerLeft svg {
+  color: var(--primary-500);
+}
+
+.addButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background: linear-gradient(135deg, var(--primary-500) 0%, var(--purple-500) 100%);
+  border: none;
+  border-radius: var(--radius-md);
+  color: white;
+  cursor: pointer;
+  transition: var(--transition-fast);
+  box-shadow: 0 2px 8px rgba(95, 115, 220, 0.3);
+}
+
+.addButton:hover {
+  transform: scale(1.05);
+  box-shadow: 0 4px 12px rgba(95, 115, 220, 0.4);
+}
+
+.addForm {
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.input {
+  padding: var(--space-3) var(--space-3);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  font-family: inherit;
+  transition: var(--transition-fast);
+}
+
+.input:focus {
+  outline: none;
+  border-color: var(--primary-500);
+  box-shadow: 0 0 0 3px rgba(95, 115, 220, 0.1);
+}
+
+.input::placeholder {
+  color: var(--text-tertiary);
+}
+
+.formActions {
+  display: flex;
+  gap: var(--space-2);
+  justify-content: flex-end;
+}
+
+.cancelButton {
+  padding: var(--space-2) var(--space-4);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.cancelButton:hover {
+  background: var(--border-default);
+  color: var(--text-primary);
+}
+
+.saveButton {
+  padding: var(--space-2) var(--space-4);
+  background: var(--primary-500);
+  border: none;
+  border-radius: var(--radius-md);
+  color: white;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.saveButton:hover {
+  background: var(--primary-600);
+}
+
+.skills {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-3);
+}
+
+.skills::-webkit-scrollbar {
+  width: 6px;
+}
+
+.skills::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.skills::-webkit-scrollbar-thumb {
+  background: var(--border-default);
+  border-radius: var(--radius-full);
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-10) var(--space-4);
+  text-align: center;
+  color: var(--text-tertiary);
+}
+
+.empty svg {
+  color: var(--text-tertiary);
+  margin-bottom: var(--space-4);
+}
+
+.empty p {
+  font-size: 0.9375rem;
+  margin-bottom: var(--space-2);
+  color: var(--text-secondary);
+}
+
+.hint {
+  font-size: 0.8125rem !important;
+  color: var(--text-tertiary) !important;
+}
+
+.skillCard {
+  padding: var(--space-4);
+  background: var(--bg-tertiary);
+  border: 2px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  margin-bottom: var(--space-2);
+  transition: var(--transition-fast);
+  position: relative;
+}
+
+.skillCard.enabled {
+  border-color: #22c55e;
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.03) 0%, var(--bg-tertiary) 100%);
+}
+
+.skillCard.enabled:hover {
+  border-color: #16a34a;
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.08) 0%, var(--bg-elevated) 100%);
+}
+
+.skillCard.disabled {
+  border-color: var(--border-default);
+  opacity: 0.85;
+}
+
+.skillCard.disabled:hover {
+  border-color: var(--text-tertiary);
+  opacity: 1;
+}
+
+.skillCard.enabled .skillIcon {
+  background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+  box-shadow: 0 2px 8px rgba(34, 197, 94, 0.3);
+}
+
+.skillCard.disabled .skillIcon {
+  background: linear-gradient(135deg, var(--text-tertiary) 0%, var(--text-secondary) 100%);
+  opacity: 0.7;
+}
+
+.skillHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.skillIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  background: linear-gradient(135deg, var(--primary-500) 0%, var(--purple-500) 100%);
+  border-radius: var(--radius-md);
+  color: white;
+  flex-shrink: 0;
+}
+
+.skillInfo {
+  flex: 1;
+  min-width: 0;
+}
+
+.skillName {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: var(--space-1);
+}
+
+.skillDescription {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.toggleButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.toggleButton:hover {
+  transform: scale(1.1);
+}
+
+.skillStatus {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.statusBadge {
+  font-size: 0.6875rem;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.statusBadge.enabled {
+  background: rgba(80, 250, 123, 0.12);
+  color: var(--success-500);
+  border: 1px solid rgba(80, 250, 123, 0.2);
+}
+
+.statusBadge.disabled {
+  background: rgba(113, 113, 122, 0.12);
+  color: var(--text-tertiary);
+  border: 1px solid rgba(113, 113, 122, 0.2);
+}
+
+.deleteButton {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.deleteButton:hover {
+  background: rgba(255, 85, 85, 0.1);
+  color: var(--error-500);
+}
+
+.infoCard {
+  padding: var(--space-4);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  margin: var(--space-3);
+}
+
+.infoCard h4 {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: var(--space-2);
+}
+
+.infoCard p {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}

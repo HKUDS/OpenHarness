@@ -1,0 +1,282 @@
+.memoryPanel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-4) var(--space-4);
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-tertiary);
+}
+
+.headerLeft {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.headerLeft h3 {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.headerLeft svg {
+  color: var(--purple-500);
+}
+
+.addForm {
+  display: flex;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.input {
+  flex: 1;
+  padding: var(--space-3) var(--space-3);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  font-family: inherit;
+  transition: var(--transition-fast);
+}
+
+.input:focus {
+  outline: none;
+  border-color: var(--purple-500);
+  box-shadow: 0 0 0 3px rgba(189, 147, 249, 0.1);
+}
+
+.input::placeholder {
+  color: var(--text-tertiary);
+}
+
+.addButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  background: linear-gradient(135deg, var(--purple-500) 0%, var(--purple-600) 100%);
+  border: none;
+  border-radius: var(--radius-md);
+  color: white;
+  cursor: pointer;
+  transition: var(--transition-fast);
+  box-shadow: 0 2px 8px rgba(189, 147, 249, 0.3);
+}
+
+.addButton:hover {
+  transform: scale(1.05);
+  box-shadow: 0 4px 12px rgba(189, 147, 249, 0.4);
+}
+
+.memories {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-3);
+}
+
+.memories::-webkit-scrollbar {
+  width: 6px;
+}
+
+.memories::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.memories::-webkit-scrollbar-thumb {
+  background: var(--border-default);
+  border-radius: var(--radius-full);
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-10) var(--space-4);
+  text-align: center;
+  color: var(--text-tertiary);
+}
+
+.empty svg {
+  color: var(--text-tertiary);
+  margin-bottom: var(--space-4);
+}
+
+.empty p {
+  font-size: 0.9375rem;
+  margin-bottom: var(--space-2);
+  color: var(--text-secondary);
+}
+
+.hint {
+  font-size: 0.8125rem !important;
+  color: var(--text-tertiary) !important;
+}
+
+.memoryCard {
+  display: flex;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  margin-bottom: var(--space-2);
+  transition: var(--transition-fast);
+}
+
+.memoryCard:hover {
+  background: var(--bg-elevated);
+  border-color: var(--border-default);
+}
+
+.memoryIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  background: linear-gradient(135deg, var(--purple-500) 0%, var(--purple-600) 100%);
+  border-radius: var(--radius-md);
+  color: white;
+  flex-shrink: 0;
+}
+
+.memoryContent {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.memoryText {
+  font-size: 0.9375rem;
+  color: var(--text-primary);
+  line-height: 1.6;
+}
+
+.memoryDate {
+  font-size: 0.75rem;
+  color: var(--text-tertiary);
+  font-weight: 500;
+}
+
+.editMode {
+  display: flex;
+  gap: var(--space-2);
+  width: 100%;
+}
+
+.editInput {
+  flex: 1;
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  font-family: inherit;
+}
+
+.editInput:focus {
+  outline: none;
+  border-color: var(--purple-500);
+}
+
+.editActions {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.saveEdit,
+.cancelEdit {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.saveEdit {
+  background: rgba(80, 250, 123, 0.15);
+  color: var(--success-500);
+}
+
+.saveEdit:hover {
+  background: rgba(80, 250, 123, 0.25);
+}
+
+.cancelEdit {
+  background: rgba(255, 85, 85, 0.15);
+  color: var(--error-500);
+}
+
+.cancelEdit:hover {
+  background: rgba(255, 85, 85, 0.25);
+}
+
+.memoryActions {
+  display: flex;
+  gap: var(--space-1);
+  flex-shrink: 0;
+}
+
+.actionButton,
+.deleteButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.actionButton:hover {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+}
+
+.deleteButton:hover {
+  background: rgba(255, 85, 85, 0.1);
+  color: var(--error-500);
+}
+
+.infoCard {
+  padding: var(--space-4);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  margin: var(--space-3);
+}
+
+.infoCard h4 {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: var(--space-2);
+}
+
+.infoCard p {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
