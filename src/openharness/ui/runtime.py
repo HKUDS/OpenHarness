@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -21,7 +22,7 @@ from openharness.commands import (
     create_default_command_registry,
     lookup_skill_slash_command,
 )
-from openharness.config import get_config_file_path, load_settings
+from openharness.config import get_config_file_path, load_settings_for_project
 from openharness.engine import QueryEngine
 from openharness.engine.messages import (
     ConversationMessage,
@@ -42,12 +43,28 @@ from openharness.state import AppState, AppStateStore
 from openharness.services.session_backend import DEFAULT_SESSION_BACKEND, SessionBackend
 from openharness.tools import ToolRegistry, create_default_tool_registry
 from openharness.keybindings import load_keybindings
+from openharness.memory import configure_memory_provider
 
 PermissionPrompt = Callable[[str, str], Awaitable[bool]]
 AskUserPrompt = Callable[[str], Awaitable[str]]
 SystemPrinter = Callable[[str], Awaitable[None]]
 StreamRenderer = Callable[[StreamEvent], Awaitable[None]]
 ClearHandler = Callable[[], Awaitable[None]]
+
+log = logging.getLogger(__name__)
+
+
+def load_settings(cwd: str | Path | None = None):
+    """Backward-compatible settings loader for runtime callers and tests."""
+    return load_settings_for_project(cwd or Path.cwd())
+
+
+def _load_runtime_settings(cwd: str | Path | None = None):
+    """Load settings while tolerating older test monkeypatches with no args."""
+    try:
+        return load_settings(cwd)
+    except TypeError:
+        return load_settings()
 
 
 def _resolve_image_generation_config(settings) -> dict[str, str]:
@@ -142,13 +159,13 @@ class RuntimeBundle:
     def current_settings(self):
         """Return the effective settings for this session.
 
-        We persist most settings to disk (``~/.openharness/settings.json``), but
-        CLI options like ``--model``/``--api-format`` should remain in effect for
-        the lifetime of the running process. Without this overlay, issuing any
-        slash command (e.g. ``/fast``) would refresh UI state from disk and
-        "snap back" the model/provider to whatever is stored in the config file.
+        We persist most settings to disk, including project overrides in
+        ``.openharness/settings.json``. CLI options like ``--model`` and
+        ``--api-format`` should still remain in effect for the lifetime of the
+        running process. Without this overlay, issuing any slash command would
+        refresh UI state from disk and snap back to the persisted settings.
         """
-        return load_settings().merge_cli_overrides(**self.settings_overrides)
+        return _load_runtime_settings(self.cwd).merge_cli_overrides(**self.settings_overrides)
 
     def current_plugins(self):
         """Return currently visible plugins for the working tree."""
@@ -268,6 +285,7 @@ async def build_runtime(
     autodream_context: dict[str, object] | None = None,
 ) -> RuntimeBundle:
     """Build the shared runtime for an OpenHarness session."""
+    cwd = str(Path(cwd).expanduser().resolve()) if cwd else str(Path.cwd())
     settings_overrides: dict[str, Any] = {
         "model": model,
         "max_turns": max_turns,
@@ -278,11 +296,11 @@ async def build_runtime(
         "active_profile": active_profile,
         "permission_mode": permission_mode,
     }
-    settings = load_settings().merge_cli_overrides(**settings_overrides)
-    cwd = str(Path(cwd).expanduser().resolve()) if cwd else str(Path.cwd())
+    settings = _load_runtime_settings(cwd).merge_cli_overrides(**settings_overrides)
     normalized_skill_dirs = tuple(str(Path(path).expanduser().resolve()) for path in (extra_skill_dirs or ()))
     normalized_plugin_roots = tuple(str(Path(path).expanduser().resolve()) for path in (extra_plugin_roots or ()))
     plugins = load_plugins(settings, cwd, extra_roots=normalized_plugin_roots)
+    configure_memory_provider(cwd, settings.memory.provider, settings=settings)
     if api_client:
         resolved_api_client = api_client
     else:
@@ -346,6 +364,12 @@ async def build_runtime(
 
     restored_metadata = {
         "permission_mode": settings.permission.mode.value,
+        "memory_review_state": {
+            "turns_since_review": 0,
+            "turns_since_write": 0,
+            "reviews": 0,
+            "writes": 0,
+        },
         "read_file_state": [],
         "invoked_skills": [],
         "async_agent_state": [],
@@ -378,6 +402,11 @@ async def build_runtime(
             settings.auto_compact_threshold_tokens
             or settings.memory.auto_compact_threshold_tokens
         ),
+        memory_auto_write_enabled=settings.memory.auto_write_enabled,
+        memory_review_after_response=settings.memory.review_after_response,
+        memory_review_interval_turns=settings.memory.review_interval_turns,
+        memory_review_max_messages=settings.memory.review_max_messages,
+        memory_repeat_prompt_threshold=settings.memory.repeat_prompt_threshold,
         max_turns=engine_max_turns,
         permission_prompt=permission_prompt,
         ask_user_prompt=ask_user_prompt,
@@ -454,9 +483,14 @@ async def close_runtime(bundle: RuntimeBundle) -> None:
     # Extract local environment rules from session before closing
     try:
         from openharness.personalization.session_hook import update_rules_from_session
-        update_rules_from_session(bundle.engine.messages)
+        settings = bundle.current_settings()
+        update_rules_from_session(
+            bundle.engine.messages,
+            bundle.cwd,
+            sync_memory=settings.memory.session_fact_sync_enabled and settings.memory.auto_write_enabled,
+        )
     except Exception:
-        pass  # personalization is best-effort, never block session end
+        log.exception("Session-end personalization sync failed for %s", bundle.cwd)
 
     await bundle.mcp_manager.close()
     await bundle.hook_executor.execute(

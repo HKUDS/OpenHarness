@@ -5,11 +5,16 @@ Follows XDG-like conventions with ~/.openharness/ as the default base directory.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 import os
 from pathlib import Path
 
 _DEFAULT_BASE_DIR = ".openharness"
 _CONFIG_FILE_NAME = "settings.json"
+_memory_dir_override: ContextVar[str | None] = ContextVar("openharness_memory_dir_override", default=None)
+_memory_root_is_shared: ContextVar[bool] = ContextVar("openharness_memory_root_is_shared", default=False)
 
 
 def get_config_dir() -> Path:
@@ -34,6 +39,11 @@ def get_config_file_path() -> Path:
     return get_config_dir() / _CONFIG_FILE_NAME
 
 
+def get_project_settings_file(cwd: str | Path) -> Path:
+    """Return the per-project settings override file."""
+    return Path(cwd).resolve() / _DEFAULT_BASE_DIR / _CONFIG_FILE_NAME
+
+
 def get_data_dir() -> Path:
     """Return the data directory for caches, history, etc.
 
@@ -49,6 +59,52 @@ def get_data_dir() -> Path:
 
     data_dir.mkdir(parents=True, exist_ok=True)
     return data_dir
+
+
+def get_memory_store_dir() -> Path:
+    """Return the durable project memory root directory.
+
+    Resolution order:
+    1. Active override from ``use_memory_store_dir``
+    2. OPENHARNESS_MEMORY_DIR environment variable
+    3. OHMO_WORKSPACE/memory when running inside ohmo
+    4. ~/.openharness/data/memory/
+    """
+    override_dir = _memory_dir_override.get()
+    if override_dir:
+        memory_dir = Path(override_dir)
+    else:
+        env_dir = os.environ.get("OPENHARNESS_MEMORY_DIR")
+        if env_dir:
+            memory_dir = Path(env_dir)
+        else:
+            ohmo_workspace = os.environ.get("OHMO_WORKSPACE")
+            if ohmo_workspace:
+                memory_dir = Path(ohmo_workspace).expanduser() / "memory"
+            else:
+                memory_dir = get_data_dir() / "memory"
+
+    memory_dir = memory_dir.expanduser().resolve()
+    memory_dir.mkdir(parents=True, exist_ok=True)
+    return memory_dir
+
+
+@contextmanager
+def use_memory_store_dir(path: str | Path, *, shared_root: bool = False) -> Iterator[Path]:
+    """Temporarily route durable project memory into a specific root directory."""
+    resolved = Path(path).expanduser().resolve()
+    token = _memory_dir_override.set(str(resolved))
+    shared_token = _memory_root_is_shared.set(shared_root)
+    try:
+        yield resolved
+    finally:
+        _memory_root_is_shared.reset(shared_token)
+        _memory_dir_override.reset(token)
+
+
+def memory_store_uses_shared_root() -> bool:
+    """Return whether the active memory store should use a shared root entrypoint."""
+    return _memory_root_is_shared.get()
 
 
 def get_logs_dir() -> Path:

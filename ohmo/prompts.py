@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from openharness.config.paths import use_memory_store_dir
 from openharness.memory import load_memory_prompt as load_project_memory_prompt
 from openharness.prompts.system_prompt import get_base_system_prompt
 
@@ -11,6 +12,7 @@ from ohmo.memory import load_memory_prompt as load_ohmo_memory_prompt
 from ohmo.workspace import (
     get_bootstrap_path,
     get_identity_path,
+    get_memory_dir,
     get_soul_path,
     get_user_path,
     get_workspace_root,
@@ -67,7 +69,8 @@ def build_ohmo_system_prompt(
         sections.append(ohmo_memory)
 
     if include_project_memory:
-        project_memory = load_project_memory_prompt(cwd)
+        with use_memory_store_dir(get_memory_dir(root), shared_root=True):
+            project_memory = load_project_memory_prompt(cwd)
         if project_memory:
             sections.append(project_memory)
 

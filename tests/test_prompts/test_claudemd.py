@@ -58,6 +58,47 @@ def test_build_runtime_system_prompt_combines_sections(tmp_path: Path, monkeypat
     assert "Memory" in prompt
 
 
+def test_build_runtime_system_prompt_includes_shared_durable_memory_policy(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("OPENHARNESS_DATA_DIR", str(tmp_path / "data"))
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    prompt = build_runtime_system_prompt(Settings(), cwd=repo, latest_user_prompt="hello")
+
+    assert "# Durable Memory Writes" in prompt
+    assert "Use the memory_write tool for durable context that should survive future sessions." in prompt
+    assert "## Stable Key Patterns" in prompt
+    assert "NO_MEMORY_UPDATE" not in prompt
+
+
+def test_build_runtime_system_prompt_accepts_memory_policy_skill_override(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("OPENHARNESS_DATA_DIR", str(tmp_path / "data"))
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    skills_root = tmp_path / "skills"
+    skill_dir = skills_root / "durable-memory-policy"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\n"
+        "name: durable-memory-policy\n"
+        "description: Custom policy\n"
+        "---\n\n"
+        "# Custom Durable Memory Writes\n\n"
+        "Prefer long-lived branch policy and deployment constraints.\n",
+        encoding="utf-8",
+    )
+
+    prompt = build_runtime_system_prompt(
+        Settings(),
+        cwd=repo,
+        latest_user_prompt="hello",
+        extra_skill_dirs=[skills_root],
+    )
+
+    assert "# Custom Durable Memory Writes" in prompt
+    assert "Prefer long-lived branch policy and deployment constraints." in prompt
+
+
 def test_build_runtime_system_prompt_includes_project_context_and_fast_mode(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("OPENHARNESS_DATA_DIR", str(tmp_path / "data"))
     repo = tmp_path / "repo"

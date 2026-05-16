@@ -22,6 +22,7 @@ from openharness.tools.file_write_tool import FileWriteTool, FileWriteToolInput
 from openharness.tools.glob_tool import GlobTool, GlobToolInput
 from openharness.tools.grep_tool import GrepTool, GrepToolInput
 from openharness.tools.lsp_tool import LspTool, LspToolInput
+from openharness.tools.memory_write_tool import MemoryWriteTool, MemoryWriteToolInput
 from openharness.tools.notebook_edit_tool import NotebookEditTool, NotebookEditToolInput
 from openharness.tools.remote_trigger_tool import RemoteTriggerTool, RemoteTriggerToolInput
 from openharness.tools.skill_tool import SkillTool, SkillToolInput
@@ -204,6 +205,47 @@ async def test_todo_write_upsert(tmp_path: Path):
     noop = await tool.execute(TodoWriteToolInput(item="task A", checked=True), ctx)
     assert "No change" in noop.output
     assert (tmp_path / "TODO.md").read_text(encoding="utf-8").count("task A") == 1
+
+
+@pytest.mark.asyncio
+async def test_memory_write_tool_upserts_and_deletes(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("OPENHARNESS_DATA_DIR", str(tmp_path / "data"))
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    ctx = ToolExecutionContext(cwd=repo)
+    tool = MemoryWriteTool()
+
+    created = await tool.execute(
+        MemoryWriteToolInput(
+            key="preference:python",
+            title="Language preference",
+            description="User prefers Python",
+            memory_type="preference",
+            content="Prefer Python over JavaScript for automation tasks.",
+        ),
+        ctx,
+    )
+    updated = await tool.execute(
+        MemoryWriteToolInput(
+            key="preference:python",
+            title="Language preference",
+            description="User prefers Python strongly",
+            memory_type="preference",
+            content="Prefer Python over JavaScript for automation and scripting tasks.",
+        ),
+        ctx,
+    )
+    deleted = await tool.execute(
+        MemoryWriteToolInput(action="delete", key="preference:python"),
+        ctx,
+    )
+
+    assert created.is_error is False
+    assert "Created durable memory" in created.output
+    assert updated.is_error is False
+    assert "Updated durable memory" in updated.output
+    assert deleted.is_error is False
+    assert "Deleted memory entry" in deleted.output
 
 
 @pytest.mark.asyncio

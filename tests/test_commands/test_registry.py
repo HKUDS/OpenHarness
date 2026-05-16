@@ -10,10 +10,11 @@ import pytest
 import openharness.commands.registry as registry_module
 from openharness.commands.registry import CommandContext, create_default_command_registry, lookup_skill_slash_command
 from openharness.autopilot import RepoVerificationStep
-from openharness.config.paths import get_feedback_log_path, get_project_issue_file, get_project_pr_comments_file
-from openharness.config.settings import load_settings, save_settings, Settings
+from openharness.config.paths import get_feedback_log_path, get_project_issue_file, get_project_pr_comments_file, get_project_settings_file
+from openharness.config.settings import load_settings, load_settings_for_project, save_settings, Settings
 from openharness.engine.messages import ConversationMessage, TextBlock
 from openharness.engine.query_engine import QueryEngine
+from openharness.memory import FileMemoryStoreProvider, get_project_memory_dir, register_memory_provider_factory, unregister_memory_provider_factory
 from openharness.mcp.types import McpHttpServerConfig, McpStdioServerConfig
 from openharness.permissions import PermissionChecker
 from openharness.plugins.types import PluginCommandDefinition
@@ -277,6 +278,43 @@ async def test_memory_show_reads_normal_entries_with_md_fallback(tmp_path: Path,
     result = await show_command.handler(show_args, CommandContext(engine=_make_engine(tmp_path), cwd=str(tmp_path)))
 
     assert "hello world" in result.message
+
+
+@pytest.mark.asyncio
+async def test_memory_backend_command_persists_project_override_and_requests_refresh(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("OPENHARNESS_DATA_DIR", str(tmp_path / "data"))
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    register_memory_provider_factory("demo", lambda cwd, settings=None: FileMemoryStoreProvider())
+    try:
+        registry = create_default_command_registry()
+        context = _make_context(repo)
+
+        command, args = registry.lookup("/memory backend set demo")
+        assert command is not None
+        result = await command.handler(args, context)
+
+        assert result.refresh_runtime is True
+        assert result.message == "Project memory backend set to demo"
+        assert load_settings_for_project(repo).memory.provider == "demo"
+        assert get_project_settings_file(repo).exists()
+
+        show_command, show_args = registry.lookup("/memory backend show")
+        assert show_command is not None
+        show_result = await show_command.handler(show_args, context)
+        assert "Memory backend: demo" in show_result.message
+        assert "Source: project" in show_result.message
+
+        reset_command, reset_args = registry.lookup("/memory backend default")
+        assert reset_command is not None
+        reset_result = await reset_command.handler(reset_args, context)
+        assert reset_result.refresh_runtime is True
+        assert "Reset project memory backend override." in reset_result.message
+        assert load_settings_for_project(repo).memory.provider == "file"
+        assert get_project_settings_file(repo).exists() is False
+    finally:
+        unregister_memory_provider_factory("demo")
 
 
 @pytest.mark.asyncio
@@ -855,6 +893,9 @@ async def test_memory_command_manages_entries(tmp_path: Path, monkeypatch):
     list_command, list_args = registry.lookup("/memory list")
     list_result = await list_command.handler(list_args, context)
     assert "pytest_tips.md" in list_result.message
+
+    entrypoint = get_project_memory_dir(tmp_path) / "MEMORY.md"
+    assert "(entries/pytest_tips.md)" in entrypoint.read_text(encoding="utf-8")
 
     show_command, show_args = registry.lookup("/memory show pytest_tips")
     show_result = await show_command.handler(show_args, context)

@@ -12,7 +12,8 @@ from openharness.config.paths import (
 )
 from openharness.config.settings import Settings
 from openharness.coordinator.coordinator_mode import get_coordinator_system_prompt, is_coordinator_mode
-from openharness.memory import find_relevant_memories, load_memory_prompt
+from openharness.memory.auto_write import load_memory_policy_skill_content
+from openharness.memory import load_memory_prompt
 from openharness.personalization.rules import load_local_rules
 from openharness.prompts.claudemd import load_claude_md_prompt
 from openharness.prompts.system_prompt import build_system_prompt
@@ -142,25 +143,14 @@ def build_runtime_system_prompt(
         if memory_section:
             sections.append(memory_section)
 
-        if latest_user_prompt:
-            relevant = find_relevant_memories(
-                latest_user_prompt,
+        if settings.memory.auto_write_enabled:
+            memory_policy = load_memory_policy_skill_content(
                 cwd,
-                max_results=settings.memory.max_files,
+                extra_skill_dirs=extra_skill_dirs,
+                extra_plugin_roots=extra_plugin_roots,
+                settings=settings,
             )
-            if relevant:
-                lines = ["# Relevant Memories"]
-                for header in relevant:
-                    content = header.path.read_text(encoding="utf-8", errors="replace").strip()
-                    lines.extend(
-                        [
-                            "",
-                            f"## {header.path.name}",
-                            "```md",
-                            content[:8000],
-                            "```",
-                        ]
-                    )
-                sections.append("\n".join(lines))
+            if memory_policy:
+                sections.append(memory_policy)
 
     return "\n\n".join(section for section in sections if section.strip())

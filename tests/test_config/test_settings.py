@@ -8,13 +8,17 @@ from pathlib import Path
 import pytest
 
 from openharness.auth.storage import store_credential
+from openharness.config.paths import get_project_settings_file
 from openharness.config.settings import (
     ProviderProfile,
     Settings,
     display_model_setting,
+    load_project_settings_overrides,
     load_settings,
+    load_settings_for_project,
     normalize_anthropic_model_name,
     save_settings,
+    set_project_memory_provider,
     strip_ansi_escape_sequences,
     _apply_env_overrides,
 )
@@ -230,6 +234,39 @@ class TestLoadSaveSettings:
 
         assert materialized.context_window_tokens == 100000
         assert materialized.auto_compact_threshold_tokens == 90000
+
+    def test_load_settings_for_project_applies_memory_backend_override_per_workspace(self, tmp_path: Path, monkeypatch):
+        monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
+        repo_a = tmp_path / "repo-a"
+        repo_b = tmp_path / "repo-b"
+        repo_a.mkdir()
+        repo_b.mkdir()
+
+        set_project_memory_provider(repo_a, "demo")
+
+        repo_a_settings = load_settings_for_project(repo_a)
+        repo_b_settings = load_settings_for_project(repo_b)
+        overrides = load_project_settings_overrides(repo_a)
+
+        assert repo_a_settings.memory.provider == "demo"
+        assert repo_b_settings.memory.provider == "file"
+        assert overrides == {"memory": {"provider": "demo"}}
+        assert get_project_settings_file(repo_a).exists()
+
+    def test_set_project_memory_provider_none_clears_override_file(self, tmp_path: Path, monkeypatch):
+        monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
+        repo = tmp_path / "repo"
+        repo.mkdir()
+
+        set_project_memory_provider(repo, "demo")
+        project_settings_path = get_project_settings_file(repo)
+        assert project_settings_path.exists()
+
+        set_project_memory_provider(repo, None)
+
+        assert load_settings_for_project(repo).memory.provider == "file"
+        assert load_project_settings_overrides(repo) == {}
+        assert project_settings_path.exists() is False
 
     def test_merge_cli_active_profile_does_not_inherit_flat_provider_fields(self):
         settings = Settings(

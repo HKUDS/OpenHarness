@@ -3,8 +3,9 @@
 Settings are resolved with the following precedence (highest first):
 1. CLI arguments
 2. Environment variables (ANTHROPIC_API_KEY, OPENHARNESS_MODEL, etc.)
-3. Config file (~/.openharness/settings.json)
-4. Defaults
+3. Project config file (.openharness/settings.json)
+4. Global config file (~/.openharness/settings.json)
+5. Defaults
 """
 
 from __future__ import annotations
@@ -61,6 +62,7 @@ class MemorySettings(BaseModel):
     """Memory system configuration."""
 
     enabled: bool = True
+    provider: str = "file"
     max_files: int = 5
     max_entrypoint_lines: int = 200
     context_window_tokens: int | None = None
@@ -68,6 +70,12 @@ class MemorySettings(BaseModel):
     auto_dream_enabled: bool = False
     auto_dream_min_hours: float = 24.0
     auto_dream_min_sessions: int = 5
+    auto_write_enabled: bool = True
+    review_after_response: bool = True
+    review_interval_turns: int = 3
+    review_max_messages: int = 8
+    repeat_prompt_threshold: int = 2
+    session_fact_sync_enabled: bool = True
 
 
 class SandboxNetworkSettings(BaseModel):
@@ -444,9 +452,12 @@ def _profile_from_flat_settings(settings: "Settings") -> tuple[str, ProviderProf
     ) and (
         existing.base_url == settings.base_url
     ):
+        explicit_last_model = settings.model or None
+        if explicit_last_model == existing.default_model:
+            explicit_last_model = existing.last_model
         profile = existing.model_copy(
             update={
-                "last_model": settings.model or existing.resolved_model,
+                "last_model": explicit_last_model,
             }
         )
         return name, profile
@@ -963,6 +974,62 @@ def _parse_bool_env(value: str) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _load_settings_raw(config_path: Path) -> dict[str, Any]:
+    if not config_path.exists():
+        return {}
+    raw = json.loads(config_path.read_text(encoding="utf-8"))
+    if not isinstance(raw, dict):
+        raise ValueError(f"Settings file must contain a JSON object: {config_path}")
+    return raw
+
+
+def _merge_settings_dicts(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(base)
+    for key, value in override.items():
+        current = merged.get(key)
+        if isinstance(current, dict) and isinstance(value, dict):
+            merged[key] = _merge_settings_dicts(current, value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def _materialize_loaded_settings(
+    raw: dict[str, Any],
+    *,
+    override_raw: dict[str, Any] | None = None,
+) -> Settings:
+    settings = Settings.model_validate(raw)
+    if "profiles" not in raw or "active_profile" not in raw:
+        profile_name, profile = _profile_from_flat_settings(settings)
+        merged_profiles = settings.merged_profiles()
+        merged_profiles[profile_name] = profile
+        settings = settings.model_copy(
+            update={
+                "active_profile": profile_name,
+                "profiles": merged_profiles,
+            }
+        )
+
+    if override_raw:
+        if "active_profile" in override_raw:
+            settings = settings.model_copy(update={"active_profile": override_raw["active_profile"]})
+        flat_override_keys = {
+            "api_key",
+            "api_format",
+            "base_url",
+            "context_window_tokens",
+            "auto_compact_threshold_tokens",
+            "model",
+            "provider",
+        }
+        flat_updates = {key: override_raw[key] for key in flat_override_keys if key in override_raw}
+        if flat_updates:
+            settings = settings.model_copy(update=flat_updates).sync_active_profile_from_flat_fields()
+
+    return settings.materialize_active_profile()
+
+
 def load_settings(config_path: Path | None = None) -> Settings:
     """Load settings from config file, merging with defaults.
 
@@ -976,30 +1043,94 @@ def load_settings(config_path: Path | None = None) -> Settings:
         from openharness.config.paths import get_config_file_path
 
         config_path = get_config_file_path()
+    return _apply_env_overrides(_materialize_loaded_settings(_load_settings_raw(config_path)))
 
-    if config_path.exists():
-        raw = json.loads(config_path.read_text(encoding="utf-8"))
-        settings = Settings.model_validate(raw)
-        env_profile = os.environ.get("OPENHARNESS_PROFILE")
-        if env_profile:
-            settings = settings.model_copy(update={"active_profile": env_profile.strip()})
-        if "profiles" not in raw or "active_profile" not in raw:
-            profile_name, profile = _profile_from_flat_settings(settings)
-            merged_profiles = settings.merged_profiles()
-            merged_profiles[profile_name] = profile
-            settings = settings.model_copy(
-                update={
-                    "active_profile": profile_name,
-                    "profiles": merged_profiles,
-                }
-            )
-        return _apply_env_overrides(settings.materialize_active_profile())
 
-    settings = Settings()
-    env_profile = os.environ.get("OPENHARNESS_PROFILE")
-    if env_profile:
-        settings = settings.model_copy(update={"active_profile": env_profile.strip()})
-    return _apply_env_overrides(settings.materialize_active_profile())
+def load_project_settings_overrides(
+    cwd: str | Path,
+    project_config_path: Path | None = None,
+) -> dict[str, Any]:
+    """Load raw project-scoped settings overrides for one workspace."""
+    if project_config_path is None:
+        from openharness.config.paths import get_project_settings_file
+
+        project_config_path = get_project_settings_file(cwd)
+
+    return _load_settings_raw(project_config_path)
+
+
+def save_project_settings_overrides(
+    cwd: str | Path,
+    overrides: dict[str, Any],
+    project_config_path: Path | None = None,
+) -> Path:
+    """Persist raw project-scoped settings overrides for one workspace."""
+    if project_config_path is None:
+        from openharness.config.paths import get_project_settings_file
+
+        project_config_path = get_project_settings_file(cwd)
+
+    lock_path = project_config_path.with_suffix(project_config_path.suffix + ".lock")
+    with exclusive_file_lock(lock_path):
+        if not overrides:
+            if project_config_path.exists():
+                project_config_path.unlink()
+            return project_config_path
+        project_config_path.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write_text(
+            project_config_path,
+            json.dumps(overrides, indent=2) + "\n",
+        )
+    return project_config_path
+
+
+def set_project_memory_provider(
+    cwd: str | Path,
+    provider_name: str | None,
+    project_config_path: Path | None = None,
+) -> Path:
+    """Persist or clear the project-scoped memory backend override."""
+    if project_config_path is None:
+        from openharness.config.paths import get_project_settings_file
+
+        project_config_path = get_project_settings_file(cwd)
+
+    overrides = load_project_settings_overrides(cwd, project_config_path=project_config_path)
+    memory_overrides = overrides.get("memory")
+    next_memory_overrides = dict(memory_overrides) if isinstance(memory_overrides, dict) else {}
+    normalized_provider = (provider_name or "").strip()
+    if normalized_provider:
+        next_memory_overrides["provider"] = normalized_provider
+        overrides["memory"] = next_memory_overrides
+    else:
+        next_memory_overrides.pop("provider", None)
+        if next_memory_overrides:
+            overrides["memory"] = next_memory_overrides
+        else:
+            overrides.pop("memory", None)
+
+    return save_project_settings_overrides(cwd, overrides, project_config_path=project_config_path)
+
+
+def load_settings_for_project(
+    cwd: str | Path,
+    config_path: Path | None = None,
+    project_config_path: Path | None = None,
+) -> Settings:
+    """Load global settings merged with project-scoped overrides."""
+    if config_path is None:
+        from openharness.config.paths import get_config_file_path
+
+        config_path = get_config_file_path()
+    if project_config_path is None:
+        from openharness.config.paths import get_project_settings_file
+
+        project_config_path = get_project_settings_file(cwd)
+
+    global_raw = _load_settings_raw(config_path)
+    project_raw = _load_settings_raw(project_config_path)
+    merged_raw = _merge_settings_dicts(global_raw, project_raw)
+    return _apply_env_overrides(_materialize_loaded_settings(merged_raw, override_raw=project_raw))
 
 
 def save_settings(settings: Settings, config_path: Path | None = None) -> None:

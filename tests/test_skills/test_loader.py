@@ -17,6 +17,8 @@ def test_load_skill_registry_includes_bundled(tmp_path: Path, monkeypatch):
     registry = load_skill_registry()
 
     names = [skill.name for skill in registry.list_skills()]
+    assert "durable-memory-policy" in names
+    assert "durable-memory-reviewer" in names
     assert "simplify" in names
     assert "review" in names
     assert "skill-creator" in names

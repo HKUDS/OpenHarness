@@ -50,7 +50,7 @@ from ohmo.memory import add_memory_entry as add_ohmo_memory_entry
 from ohmo.memory import list_memory_files as list_ohmo_memory_files
 from ohmo.gateway.router import session_key_for_message
 from ohmo.session_storage import save_session_snapshot
-from ohmo.workspace import get_gateway_restart_notice_path, get_skills_dir, initialize_workspace
+from ohmo.workspace import get_gateway_restart_notice_path, get_memory_dir, get_skills_dir, initialize_workspace
 
 
 def test_gateway_router_uses_thread_and_sender_for_group_when_present():
@@ -307,6 +307,9 @@ async def test_runtime_pool_restores_messages_for_group_sender_scoped_session_ke
 
     async def fake_build_runtime(**kwargs):
         captured["restore_messages"] = kwargs.get("restore_messages")
+        from openharness.memory import get_project_memory_dir
+
+        captured["memory_dir"] = get_project_memory_dir(tmp_path)
         return SimpleNamespace(
             engine=SimpleNamespace(set_system_prompt=lambda prompt: None, messages=[]),
             session_id="newsession",
@@ -322,6 +325,7 @@ async def test_runtime_pool_restores_messages_for_group_sender_scoped_session_ke
     bundle = await pool.get_bundle("feishu:chat-1:alice")
 
     assert captured["restore_messages"] is not None
+    assert captured["memory_dir"] == get_memory_dir(workspace)
     assert bundle.session_id == "sess123"
 
 

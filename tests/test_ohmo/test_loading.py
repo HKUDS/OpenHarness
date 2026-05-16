@@ -3,11 +3,12 @@ import json
 from pathlib import Path
 
 from openharness.config.settings import load_settings
+from openharness.memory import get_project_memory_dir
 from openharness.plugins import load_plugins
 from openharness.skills import load_skill_registry
 
 from ohmo.runtime import run_ohmo_backend
-from ohmo.workspace import get_plugins_dir, get_skills_dir, initialize_workspace
+from ohmo.workspace import get_memory_dir, get_plugins_dir, get_skills_dir, initialize_workspace
 
 
 def _write_plugin(root: Path, name: str, skill_name: str) -> None:
@@ -134,6 +135,7 @@ def test_run_ohmo_backend_passes_private_skill_and_plugin_roots(tmp_path, monkey
 
     async def fake_run_backend_host(**kwargs):
         captured.update(kwargs)
+        captured["memory_dir"] = get_project_memory_dir(kwargs["cwd"])
         return 0
 
     monkeypatch.setattr("ohmo.runtime.run_backend_host", fake_run_backend_host)
@@ -144,6 +146,7 @@ def test_run_ohmo_backend_passes_private_skill_and_plugin_roots(tmp_path, monkey
     assert result == 0
     assert captured["extra_skill_dirs"] == (str(get_skills_dir(workspace)),)
     assert captured["extra_plugin_roots"] == (str(get_plugins_dir(workspace)),)
+    assert captured["memory_dir"] == get_memory_dir(workspace)
 
 
 def test_plugin_loader_supports_directory_skill_layout(tmp_path, monkeypatch):

@@ -56,6 +56,64 @@ class TestExtractFacts:
         ssh_facts = [f for f in facts if f["type"] == "ssh_host"]
         assert len(ssh_facts) == 1
 
+    def test_extracts_pitfall_fix_pattern(self):
+        text = "Pitfall: if the sandbox is stale, restart it before rerunning tests"
+        facts = extract_facts_from_text(text)
+        pitfall_facts = [f for f in facts if f["type"] == "pitfall"]
+        assert len(pitfall_facts) == 1
+        assert "restart it before rerunning tests" in pitfall_facts[0]["value"]
+
+    def test_extracts_guardrail_forbidden_command_and_protected_path(self):
+        text = (
+            "Guardrail: never mutate production data directly\n"
+            "Forbidden command: rm -rf /tmp/project-cache\n"
+            "Protected path: migrations/"
+        )
+        facts = extract_facts_from_text(text)
+        guardrails = [f for f in facts if f["type"] == "guardrail"]
+        forbidden = [f for f in facts if f["type"] == "forbidden_command"]
+        protected = [f for f in facts if f["type"] == "protected_path"]
+        assert len(guardrails) == 1
+        assert "mutate production data directly" in guardrails[0]["value"]
+        assert len(forbidden) == 1
+        assert forbidden[0]["value"] == "rm -rf /tmp/project-cache"
+        assert len(protected) == 1
+        assert protected[0]["value"] == "migrations/"
+
+    def test_extracts_style_validation_and_retry_rules(self):
+        text = (
+            "Output style: concise bullets only\n"
+            "Naming convention: use snake_case for generated files\n"
+            "Validation rule: always run pytest tests/test_engine/test_query_engine.py first\n"
+            "Retry strategy: retry flaky network requests once after reconnect"
+        )
+        facts = extract_facts_from_text(text)
+        assert any(f["type"] == "style_rule" and "concise bullets only" in f["value"] for f in facts)
+        assert any(f["type"] == "naming_rule" and "snake_case" in f["value"] for f in facts)
+        assert any(f["type"] == "validation_rule" and "pytest tests/test_engine/test_query_engine.py first" in f["value"] for f in facts)
+        assert any(f["type"] == "retry_rule" and "retry flaky network requests once" in f["value"] for f in facts)
+
+    def test_extracts_chinese_rule_labels(self):
+        text = (
+            "高频易错点：改完接口字段后要同步更新测试和文档\n"
+            "安全红线：不要直接改生产配置\n"
+            "禁止命令：rm -rf migrations/\n"
+            "保护路径：migrations/\n"
+            "输出风格：默认用中文回复\n"
+            "命名规则：工具函数要见名知意\n"
+            "验证规则：修改后先运行 pytest tests/test_engine/test_query_engine.py\n"
+            "重试策略：网络恢复后只重试一次"
+        )
+        facts = extract_facts_from_text(text)
+        assert any(f["type"] == "pitfall" and "同步更新测试和文档" in f["value"] for f in facts)
+        assert any(f["type"] == "guardrail" and "不要直接改生产配置" in f["value"] for f in facts)
+        assert any(f["type"] == "forbidden_command" and f["value"] == "rm -rf migrations/" for f in facts)
+        assert any(f["type"] == "protected_path" and f["value"] == "migrations/" for f in facts)
+        assert any(f["type"] == "style_rule" and "默认用中文回复" in f["value"] for f in facts)
+        assert any(f["type"] == "naming_rule" and "见名知意" in f["value"] for f in facts)
+        assert any(f["type"] == "validation_rule" and "pytest tests/test_engine/test_query_engine.py" in f["value"] for f in facts)
+        assert any(f["type"] == "retry_rule" and "网络恢复后只重试一次" in f["value"] for f in facts)
+
 
 class TestMergeFacts:
     def test_merge_new_facts(self):
@@ -86,9 +144,13 @@ class TestFactsToMarkdown:
         facts = [
             {"key": "ssh_host:a@1.1", "type": "ssh_host", "value": "a@1.1", "confidence": 0.7},
             {"key": "conda_env:dev312", "type": "conda_env", "value": "dev312", "confidence": 0.7},
+            {"key": "guardrail:no-prod", "type": "guardrail", "value": "never write to prod", "confidence": 0.7},
+            {"key": "style_rule:concise", "type": "style_rule", "value": "concise bullets only", "confidence": 0.7},
         ]
         md = facts_to_rules_markdown(facts)
         assert "## SSH Hosts" in md
         assert "## Python Environments" in md
+        assert "## Guardrails" in md
+        assert "## Style Rules" in md
         assert "`a@1.1`" in md
         assert "`dev312`" in md

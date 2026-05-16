@@ -371,6 +371,38 @@ async def test_query_engine_coordinator_mode_uses_coordinator_prompt_and_runs_ag
     assert "coordinator mode is active" in events[-1].message.text
 
 
+def test_build_runtime_system_prompt_keeps_memory_as_index_only(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("OPENHARNESS_DATA_DIR", str(tmp_path / "data"))
+    project_dir = tmp_path / "repo"
+    project_dir.mkdir()
+
+    from openharness.memory import get_memory_entrypoint, get_project_memory_dir
+
+    entrypoint = get_memory_entrypoint(project_dir)
+    entrypoint.write_text("# Memory Index\n- [高风险区域保护规则](memory.md)\n", encoding="utf-8")
+    child_memory = get_project_memory_dir(project_dir) / "memory.md"
+    child_memory.write_text(
+        "---\n"
+        "name: 高风险区域保护规则\n"
+        "description: 避免直接修改高风险区域\n"
+        "---\n"
+        "绝不能直接改生产配置。这段内容不应在系统 prompt 中预展开。\n",
+        encoding="utf-8",
+    )
+
+    system_prompt = build_runtime_system_prompt(
+        Settings(),
+        cwd=project_dir,
+        latest_user_prompt="请看看高风险区域保护规则",
+    )
+
+    assert "# Memory" in system_prompt
+    assert "[高风险区域保护规则](memory.md)" in system_prompt
+    assert "Treat MEMORY.md as the default index" in system_prompt
+    assert "# Relevant Memories" not in system_prompt
+    assert "绝不能直接改生产配置。这段内容不应在系统 prompt 中预展开。" not in system_prompt
+
+
 @pytest.mark.asyncio
 async def test_query_engine_allows_unbounded_turns_when_max_turns_is_none(tmp_path: Path):
     sample = tmp_path / "hello.txt"
@@ -581,6 +613,255 @@ async def test_query_engine_tracks_recent_read_files_and_skills(tmp_path: Path):
     assert isinstance(verified, list)
     assert any("Inspected file" in entry for entry in verified)
     assert any("Loaded skill demo-skill" in entry for entry in verified)
+
+
+@pytest.mark.asyncio
+async def test_query_engine_runs_silent_turn_memory_review(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("OPENHARNESS_DATA_DIR", str(tmp_path / "data"))
+    engine = QueryEngine(
+        api_client=FakeApiClient(
+            [
+                _FakeResponse(
+                    message=ConversationMessage(
+                        role="assistant",
+                        content=[TextBlock(text="Use ssh dev@10.0.0.8 and keep the dev312 conda env for this project.")],
+                    ),
+                    usage=UsageSnapshot(input_tokens=3, output_tokens=4),
+                ),
+                _FakeResponse(
+                    message=ConversationMessage(
+                        role="assistant",
+                        content=[
+                            ToolUseBlock(
+                                id="toolu_memory_1",
+                                name="memory_write",
+                                input={
+                                    "action": "upsert",
+                                    "key": "environment:ssh_dev_10_0_0_8",
+                                    "title": "SSH host: dev@10.0.0.8",
+                                    "description": "Stable SSH target for this project",
+                                    "memory_type": "environment",
+                                    "content": "Use `ssh dev@10.0.0.8` for the project host and keep the `dev312` conda environment active.",
+                                },
+                            )
+                        ],
+                    ),
+                    usage=UsageSnapshot(input_tokens=2, output_tokens=2),
+                ),
+                _FakeResponse(
+                    message=ConversationMessage(role="assistant", content=[TextBlock(text="MEMORY_REVIEW_COMPLETE")]),
+                    usage=UsageSnapshot(input_tokens=1, output_tokens=1),
+                ),
+            ]
+        ),
+        tool_registry=create_default_tool_registry(),
+        permission_checker=PermissionChecker(PermissionSettings()),
+        cwd=tmp_path,
+        model="claude-test",
+        system_prompt="system",
+        memory_review_interval_turns=1,
+    )
+
+    events = [event async for event in engine.submit_message("Remember the environment details.")]
+
+    assert isinstance(events[-1], AssistantTurnComplete)
+    memory_dir = tmp_path / "data" / "memory"
+    created_files = list(memory_dir.rglob("*.md"))
+    assert any(path.name != "MEMORY.md" for path in created_files)
+    state = engine.tool_metadata.get("memory_review_state")
+    assert isinstance(state, dict)
+    assert state["reviews"] == 1
+    assert state["writes"] == 1
+
+
+@pytest.mark.asyncio
+async def test_query_engine_repeats_prompt_threshold_into_memory_review(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("OPENHARNESS_DATA_DIR", str(tmp_path / "data"))
+
+    class CapturingApiClient:
+        def __init__(self) -> None:
+            self.requests = []
+            self._calls = 0
+
+        async def stream_message(self, request):
+            self.requests.append(request)
+            self._calls += 1
+            if self._calls == 1:
+                yield ApiMessageCompleteEvent(
+                    message=ConversationMessage(role="assistant", content=[TextBlock(text="Use pm-rag for this topic.")]),
+                    usage=UsageSnapshot(input_tokens=1, output_tokens=1),
+                    stop_reason=None,
+                )
+                return
+            if self._calls == 2:
+                yield ApiMessageCompleteEvent(
+                    message=ConversationMessage(role="assistant", content=[TextBlock(text="Still using pm-rag.")]),
+                    usage=UsageSnapshot(input_tokens=1, output_tokens=1),
+                    stop_reason=None,
+                )
+                return
+            if self._calls == 3:
+                yield ApiMessageCompleteEvent(
+                    message=ConversationMessage(
+                        role="assistant",
+                        content=[
+                            ToolUseBlock(
+                                id="toolu_memory_repeat_1",
+                                name="memory_write",
+                                input={
+                                    "action": "upsert",
+                                    "key": "preference:pm_rag_for_test_pm_change_management",
+                                    "title": "Use pm-rag for requirement-change management questions",
+                                    "description": "Repeated user request to use pm-rag for test project management questions",
+                                    "memory_type": "preference",
+                                    "content": "When the user asks about requirement-change management as a test project manager, prefer pm-rag.",
+                                },
+                            )
+                        ],
+                    ),
+                    usage=UsageSnapshot(input_tokens=1, output_tokens=1),
+                    stop_reason=None,
+                )
+                return
+            yield ApiMessageCompleteEvent(
+                message=ConversationMessage(role="assistant", content=[TextBlock(text="MEMORY_REVIEW_COMPLETE")]),
+                usage=UsageSnapshot(input_tokens=1, output_tokens=1),
+                stop_reason=None,
+            )
+
+    api_client = CapturingApiClient()
+    engine = QueryEngine(
+        api_client=api_client,
+        tool_registry=create_default_tool_registry(),
+        permission_checker=PermissionChecker(PermissionSettings()),
+        cwd=tmp_path,
+        model="claude-test",
+        system_prompt="system",
+        memory_review_interval_turns=99,
+        memory_repeat_prompt_threshold=2,
+    )
+
+    first_events = [
+        event
+        async for event in engine.submit_message(
+            "When project requirements change often, answer with pm-rag."
+        )
+    ]
+    assert isinstance(first_events[-1], AssistantTurnComplete)
+    assert len(api_client.requests) == 1
+
+    second_events = [
+        event
+        async for event in engine.submit_message(
+            "When project requirements change often, answer with pm-rag."
+        )
+    ]
+
+    assert isinstance(second_events[-1], AssistantTurnComplete)
+    assert len(api_client.requests) == 4
+    review_prompt_texts = [
+        message.text
+        for request in api_client.requests
+        for message in request.messages
+        if getattr(message, "text", "")
+    ]
+    review_prompt = next(
+        text for text in review_prompt_texts if "# Repeated User Prompt Candidates" in text
+    )
+    assert "Asked 2 times this session" in review_prompt
+    assert "pm-rag" in review_prompt
+
+    memory_dir = tmp_path / "data" / "memory"
+    created_files = list(memory_dir.rglob("*.md"))
+    assert any(path.name != "MEMORY.md" for path in created_files)
+
+    review_state = engine.tool_metadata.get("memory_review_state")
+    assert isinstance(review_state, dict)
+    assert review_state["reviews"] == 1
+    assert review_state["writes"] == 1
+
+    repeat_state = engine.tool_metadata.get("memory_repeat_prompt_state")
+    assert isinstance(repeat_state, dict)
+    prompts = repeat_state.get("prompts")
+    assert isinstance(prompts, dict)
+    assert any(
+        isinstance(record, dict)
+        and record.get("count") == 2
+        and record.get("reviewed_stage") == 1
+        for record in prompts.values()
+    )
+
+
+@pytest.mark.asyncio
+async def test_query_engine_loads_memory_reviewer_skill_from_extra_skill_dirs(tmp_path: Path):
+    skills_root = tmp_path / "skills"
+    policy_dir = skills_root / "durable-memory-policy"
+    policy_dir.mkdir(parents=True)
+    (policy_dir / "SKILL.md").write_text(
+        "---\n"
+        "name: durable-memory-policy\n"
+        "description: Custom policy\n"
+        "---\n\n"
+        "# Custom durable memory policy\n\n"
+        "Prefer deployment and environment facts first.\n",
+        encoding="utf-8",
+    )
+    skill_dir = skills_root / "durable-memory-reviewer"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\n"
+        "name: durable-memory-reviewer\n"
+        "description: Custom reviewer\n"
+        "---\n\n"
+        "# Custom durable reviewer\n\n"
+        "Use the override instructions from this skill.\n",
+        encoding="utf-8",
+    )
+
+    class CapturingApiClient:
+        def __init__(self) -> None:
+            self.requests = []
+            self._calls = 0
+
+        async def stream_message(self, request):
+            self.requests.append(request)
+            self._calls += 1
+            if self._calls == 1:
+                yield ApiMessageCompleteEvent(
+                    message=ConversationMessage(
+                        role="assistant",
+                        content=[TextBlock(text="No durable memory this turn.")],
+                    ),
+                    usage=UsageSnapshot(input_tokens=1, output_tokens=1),
+                    stop_reason=None,
+                )
+                return
+            yield ApiMessageCompleteEvent(
+                message=ConversationMessage(role="assistant", content=[TextBlock(text="NO_MEMORY_UPDATE")]),
+                usage=UsageSnapshot(input_tokens=1, output_tokens=1),
+                stop_reason=None,
+            )
+
+    api_client = CapturingApiClient()
+    engine = QueryEngine(
+        api_client=api_client,
+        tool_registry=create_default_tool_registry(),
+        permission_checker=PermissionChecker(PermissionSettings()),
+        cwd=tmp_path,
+        model="claude-test",
+        system_prompt="system",
+        memory_review_interval_turns=1,
+        tool_metadata={"extra_skill_dirs": (str(skills_root),)},
+    )
+
+    events = [event async for event in engine.submit_message("Do the thing.")]
+
+    assert isinstance(events[-1], AssistantTurnComplete)
+    assert len(api_client.requests) == 2
+    review_request = api_client.requests[1]
+    assert "# Custom durable memory policy" in review_request.messages[0].text
+    assert "# Custom durable reviewer" in review_request.messages[1].text
+    assert "# Completed Conversation Turn" in review_request.messages[2].text
 
 
 @pytest.mark.asyncio

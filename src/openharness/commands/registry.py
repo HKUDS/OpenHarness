@@ -23,18 +23,28 @@ from openharness.config.paths import (
     get_project_config_dir,
     get_project_issue_file,
     get_project_pr_comments_file,
+    get_project_settings_file,
 )
 from openharness.bridge import get_bridge_manager
 from openharness.bridge.types import WorkSecret
 from openharness.bridge.work_secret import build_sdk_url, decode_work_secret, encode_work_secret
 from openharness.api.provider import auth_status, detect_provider
-from openharness.config.settings import Settings, display_model_setting, load_settings, save_settings
+from openharness.config.settings import (
+    Settings,
+    display_model_setting,
+    load_project_settings_overrides,
+    load_settings,
+    load_settings_for_project,
+    save_settings,
+    set_project_memory_provider,
+)
 from openharness.engine.messages import ConversationMessage, sanitize_conversation_messages
 from openharness.engine.query_engine import QueryEngine
 from openharness.memory import (
     add_memory_entry,
     get_memory_entrypoint,
     get_project_memory_dir,
+    list_memory_provider_names,
     list_memory_files,
     remove_memory_entry,
 )
@@ -646,15 +656,92 @@ def create_default_command_registry(
         backend = _memory_backend_for_context(context)
         tokens = args.split(maxsplit=1)
         if not tokens:
+            settings = load_settings_for_project(context.cwd)
+            overrides = load_project_settings_overrides(context.cwd)
+            memory_overrides = overrides.get("memory")
+            provider_source = "project" if isinstance(memory_overrides, dict) and memory_overrides.get("provider") else "global/default"
             return CommandResult(
                 message=(
                     f"Memory store: {backend.label}\n"
                     f"Memory directory: {backend.get_memory_dir()}\n"
-                    f"Entrypoint: {backend.get_entrypoint()}"
+                    f"Entrypoint: {backend.get_entrypoint()}\n"
+                    f"Backend: {settings.memory.provider} [{provider_source}]"
                 )
             )
         action = tokens[0]
         rest = tokens[1] if len(tokens) == 2 else ""
+        if action == "backend":
+            settings = load_settings_for_project(context.cwd)
+            overrides = load_project_settings_overrides(context.cwd)
+            memory_overrides = overrides.get("memory")
+            project_provider = (
+                str(memory_overrides.get("provider", "")).strip()
+                if isinstance(memory_overrides, dict)
+                else ""
+            )
+            backend_tokens = rest.split(maxsplit=1)
+            backend_action = backend_tokens[0] if backend_tokens else "show"
+            backend_arg = backend_tokens[1].strip() if len(backend_tokens) == 2 else ""
+            project_settings_path = get_project_settings_file(context.cwd)
+            available = list_memory_provider_names()
+
+            if backend_action in {"show", "status"}:
+                source = "project" if project_provider else "global/default"
+                return CommandResult(
+                    message=(
+                        f"Memory backend: {settings.memory.provider}\n"
+                        f"Source: {source}\n"
+                        f"Project settings: {project_settings_path}"
+                    )
+                )
+            if backend_action == "list":
+                lines = ["Available memory backends:"]
+                for name in available:
+                    labels: list[str] = []
+                    if name == settings.memory.provider:
+                        labels.append("active")
+                    if name == project_provider:
+                        labels.append("project")
+                    suffix = f" [{' '.join(labels)}]" if labels else ""
+                    lines.append(f"- {name}{suffix}")
+                return CommandResult(message="\n".join(lines))
+
+            target = ""
+            if backend_action == "set" and backend_arg:
+                target = backend_arg
+            elif backend_action in {"default", "reset", "clear"} and not backend_arg:
+                target = ""
+            elif backend_action not in {"set", "default", "reset", "clear"} and not backend_arg:
+                target = backend_action
+            else:
+                return CommandResult(message="Usage: /memory backend [show|list|set NAME|default]")
+
+            if not target:
+                if not project_provider:
+                    return CommandResult(
+                        message=f"Memory backend already using {settings.memory.provider} [global/default]."
+                    )
+                set_project_memory_provider(context.cwd, None)
+                effective = load_settings_for_project(context.cwd).memory.provider
+                return CommandResult(
+                    message=f"Reset project memory backend override. Effective backend: {effective}",
+                    refresh_runtime=True,
+                )
+
+            if target not in available:
+                return CommandResult(
+                    message=(
+                        f"Unknown memory backend: {target}\n"
+                        f"Available: {', '.join(available)}"
+                    )
+                )
+            if project_provider == target:
+                return CommandResult(message=f"Project memory backend already set to {target}.")
+            set_project_memory_provider(context.cwd, target)
+            return CommandResult(
+                message=f"Project memory backend set to {target}",
+                refresh_runtime=True,
+            )
         if action == "list":
             memory_files = backend.list_files()
             if not memory_files:
@@ -680,7 +767,9 @@ def create_default_command_registry(
             if backend.remove_entry(rest.strip()):
                 return CommandResult(message=f"Removed memory entry {rest.strip()}")
             return CommandResult(message=f"Memory entry not found: {rest.strip()}")
-        return CommandResult(message="Usage: /memory [list|show NAME|add TITLE :: CONTENT|remove NAME]")
+        return CommandResult(
+            message="Usage: /memory [backend ...|list|show NAME|add TITLE :: CONTENT|remove NAME]"
+        )
 
     async def _hooks_handler(_: str, context: CommandContext) -> CommandResult:
         return CommandResult(message=context.hooks_summary or "No hooks configured.")
@@ -912,6 +1001,10 @@ def create_default_command_registry(
             (
                 project_dir / "memory" / "MEMORY.md",
                 "# Project Memory\n\nAdd reusable project knowledge here.\n",
+            ),
+            (
+                project_dir / "memory" / "entries" / ".gitkeep",
+                "",
             ),
             (
                 project_dir / "plugins" / ".gitkeep",
@@ -2418,23 +2511,26 @@ def _resolve_memory_entry_path(memory_dir: Path, candidate: str) -> tuple[Path |
     """Resolve a memory entry path while enforcing containment under ``memory_dir``."""
 
     base = memory_dir.resolve()
-    resolved, invalid = _resolve_memory_candidate(base, candidate)
-    if invalid:
-        return None, True
-    if resolved is not None and resolved.exists():
-        return resolved, False
-    fallback, invalid = _resolve_memory_candidate(base, f"{candidate}.md")
-    if invalid:
-        return None, True
-    if fallback is not None and fallback.exists():
-        return fallback, False
-    slug = re.sub(r"[^a-zA-Z0-9]+", "_", candidate.strip().lower()).strip("_")
-    if slug and slug != candidate:
-        slugged, invalid = _resolve_memory_candidate(base, f"{slug}.md")
+    search_roots = (base, base / "entries")
+    for root in search_roots:
+        resolved, invalid = _resolve_memory_candidate(root, candidate)
         if invalid:
             return None, True
-        if slugged is not None and slugged.exists():
-            return slugged, False
+        if resolved is not None and resolved.exists():
+            return resolved, False
+        fallback, invalid = _resolve_memory_candidate(root, f"{candidate}.md")
+        if invalid:
+            return None, True
+        if fallback is not None and fallback.exists():
+            return fallback, False
+    slug = re.sub(r"[^a-zA-Z0-9]+", "_", candidate.strip().lower()).strip("_")
+    if slug and slug != candidate:
+        for root in search_roots:
+            slugged, invalid = _resolve_memory_candidate(root, f"{slug}.md")
+            if invalid:
+                return None, True
+            if slugged is not None and slugged.exists():
+                return slugged, False
     return None, False
 
 

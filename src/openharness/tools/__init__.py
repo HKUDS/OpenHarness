@@ -23,6 +23,7 @@ from openharness.tools.image_generation_tool import ImageGenerationTool
 from openharness.tools.image_to_text_tool import ImageToTextTool
 from openharness.tools.list_mcp_resources_tool import ListMcpResourcesTool
 from openharness.tools.lsp_tool import LspTool
+from openharness.tools.memory_write_tool import MemoryWriteTool
 from openharness.tools.mcp_auth_tool import McpAuthTool
 from openharness.tools.mcp_tool import McpToolAdapter
 from openharness.tools.notebook_edit_tool import NotebookEditTool
@@ -56,6 +57,7 @@ def create_default_tool_registry(mcp_manager=None) -> ToolRegistry:
         FileEditTool(),
         NotebookEditTool(),
         LspTool(),
+        MemoryWriteTool(),
         McpAuthTool(),
         GlobTool(),
         GrepTool(),

@@ -27,6 +27,15 @@ _USER_COMPAT_SKILL_DIRS = (
 _DEFAULT_PROJECT_SKILL_DIRS = (".openharness/skills", ".agents/skills", ".claude/skills")
 
 
+def strip_skill_frontmatter(content: str) -> str:
+    """Return skill markdown without YAML frontmatter."""
+    if content.startswith("---\n"):
+        end_index = content.find("\n---\n", 4)
+        if end_index != -1:
+            return content[end_index + 5 :].lstrip()
+    return content.strip()
+
+
 def get_user_skills_dir() -> Path:
     """Return the OpenHarness user skills directory."""
     path = get_config_dir() / "skills"

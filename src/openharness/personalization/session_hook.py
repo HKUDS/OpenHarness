@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 
 from openharness.engine.messages import ConversationMessage
+from openharness.memory.auto_write import sync_fact_memories
 from openharness.personalization.extractor import (
     extract_facts_from_text,
     facts_to_rules_markdown,
@@ -19,7 +20,7 @@ from openharness.personalization.rules import (
 log = logging.getLogger(__name__)
 
 
-def update_rules_from_session(messages: list[ConversationMessage]) -> int:
+def update_rules_from_session(messages: list[ConversationMessage], cwd: str | None = None, *, sync_memory: bool = True) -> int:
     """Extract local facts from session messages and update rules.
 
     Called at session end. Returns the number of new facts extracted.
@@ -56,10 +57,18 @@ def update_rules_from_session(messages: list[ConversationMessage]) -> int:
     if rules_md:
         save_local_rules(rules_md)
 
+    memory_updates = 0
+    if cwd and sync_memory:
+        try:
+            memory_updates = sync_fact_memories(cwd, new_facts)
+        except Exception:
+            log.exception("Failed to sync extracted session facts into durable memory for %s", cwd)
+
     new_count = len(merged["facts"]) - len(existing.get("facts", []))
     log.info(
-        "Personalization: %d new facts extracted (%d total)",
+        "Personalization: %d new facts extracted (%d total, %d memory updates)",
         max(new_count, 0),
         len(merged["facts"]),
+        memory_updates,
     )
     return max(new_count, 0)

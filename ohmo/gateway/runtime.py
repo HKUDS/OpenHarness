@@ -13,6 +13,7 @@ import string
 
 from openharness.channels.bus.events import InboundMessage
 from openharness.commands import CommandContext, CommandResult, lookup_skill_slash_command
+from openharness.config.paths import use_memory_store_dir
 from openharness.engine.messages import (
     ConversationMessage,
     ImageBlock,
@@ -152,172 +153,174 @@ class OhmoSessionRuntimePool:
     ) -> RuntimeBundle:
         """Return an existing bundle or create a new one."""
         session_cwd = str(Path(cwd or self._cwd).expanduser().resolve())
-        bundle = self._bundles.get(session_key)
-        if bundle is not None:
-            bundle_cwd = str(Path(getattr(bundle, "cwd", self._cwd)).resolve())
-            if bundle_cwd != session_cwd:
-                logger.info(
-                    "ohmo runtime recreating session for cwd change session_key=%s old_cwd=%s new_cwd=%s",
-                    session_key,
-                    bundle_cwd,
-                    session_cwd,
-                )
-                await close_runtime(bundle)
-                self._bundles.pop(session_key, None)
-            else:
-                logger.info(
-                    "ohmo runtime reusing session session_key=%s session_id=%s prompt=%r",
-                    session_key,
-                    bundle.session_id,
-                    _content_snippet(latest_user_prompt or ""),
-                )
-                bundle.engine.set_system_prompt(self._runtime_system_prompt(bundle, latest_user_prompt))
-                return bundle
+        with use_memory_store_dir(get_memory_dir(self._workspace), shared_root=True):
+            bundle = self._bundles.get(session_key)
+            if bundle is not None:
+                bundle_cwd = str(Path(getattr(bundle, "cwd", self._cwd)).resolve())
+                if bundle_cwd != session_cwd:
+                    logger.info(
+                        "ohmo runtime recreating session for cwd change session_key=%s old_cwd=%s new_cwd=%s",
+                        session_key,
+                        bundle_cwd,
+                        session_cwd,
+                    )
+                    await close_runtime(bundle)
+                    self._bundles.pop(session_key, None)
+                else:
+                    logger.info(
+                        "ohmo runtime reusing session session_key=%s session_id=%s prompt=%r",
+                        session_key,
+                        bundle.session_id,
+                        _content_snippet(latest_user_prompt or ""),
+                    )
+                    bundle.engine.set_system_prompt(self._runtime_system_prompt(bundle, latest_user_prompt))
+                    return bundle
 
-        snapshot = self._session_backend.load_latest_for_session_key(session_key)
-        logger.info(
-            "ohmo runtime creating session session_key=%s restored=%s prompt=%r",
-            session_key,
-            bool(snapshot),
-            _content_snippet(latest_user_prompt or ""),
-        )
-        bundle = await build_runtime(
-            cwd=session_cwd,
-            model=self._model,
-            max_turns=self._max_turns,
-            system_prompt=build_ohmo_system_prompt(session_cwd, workspace=self._workspace, extra_prompt=None),
-            active_profile=self._provider_profile,
-            session_backend=self._session_backend,
-            enforce_max_turns=self._max_turns is not None,
-            restore_messages=_sanitize_snapshot_messages(snapshot.get("messages") if snapshot else None),
-            restore_tool_metadata=_sanitize_group_command_metadata(snapshot.get("tool_metadata") if snapshot else None),
-            extra_skill_dirs=(str(get_skills_dir(self._workspace)),),
-            extra_plugin_roots=(str(get_plugins_dir(self._workspace)),),
-            memory_backend=create_memory_command_backend(self._workspace),
-            include_project_memory=False,
-            autodream_context={
-                "memory_dir": str(get_memory_dir(self._workspace)),
-                "session_dir": str(get_sessions_dir(self._workspace)),
-                "app_label": "ohmo personal memory",
-                "runner_module": "ohmo",
-            },
-        )
-        if snapshot and snapshot.get("session_id"):
-            bundle.session_id = str(snapshot["session_id"])
-        self._register_gateway_tools(bundle)
-        await start_runtime(bundle)
-        bundle.engine.set_system_prompt(self._runtime_system_prompt(bundle, latest_user_prompt))
-        logger.info(
-            "ohmo runtime started session_key=%s session_id=%s restored_messages=%s",
-            session_key,
-            bundle.session_id,
-            len(snapshot.get("messages") or []) if snapshot else 0,
-        )
-        self._bundles[session_key] = bundle
-        return bundle
+            snapshot = self._session_backend.load_latest_for_session_key(session_key)
+            logger.info(
+                "ohmo runtime creating session session_key=%s restored=%s prompt=%r",
+                session_key,
+                bool(snapshot),
+                _content_snippet(latest_user_prompt or ""),
+            )
+            bundle = await build_runtime(
+                cwd=session_cwd,
+                model=self._model,
+                max_turns=self._max_turns,
+                system_prompt=build_ohmo_system_prompt(session_cwd, workspace=self._workspace, extra_prompt=None),
+                active_profile=self._provider_profile,
+                session_backend=self._session_backend,
+                enforce_max_turns=self._max_turns is not None,
+                restore_messages=_sanitize_snapshot_messages(snapshot.get("messages") if snapshot else None),
+                restore_tool_metadata=_sanitize_group_command_metadata(snapshot.get("tool_metadata") if snapshot else None),
+                extra_skill_dirs=(str(get_skills_dir(self._workspace)),),
+                extra_plugin_roots=(str(get_plugins_dir(self._workspace)),),
+                memory_backend=create_memory_command_backend(self._workspace),
+                include_project_memory=False,
+                autodream_context={
+                    "memory_dir": str(get_memory_dir(self._workspace)),
+                    "session_dir": str(get_sessions_dir(self._workspace)),
+                    "app_label": "ohmo personal memory",
+                    "runner_module": "ohmo",
+                },
+            )
+            if snapshot and snapshot.get("session_id"):
+                bundle.session_id = str(snapshot["session_id"])
+            self._register_gateway_tools(bundle)
+            await start_runtime(bundle)
+            bundle.engine.set_system_prompt(self._runtime_system_prompt(bundle, latest_user_prompt))
+            logger.info(
+                "ohmo runtime started session_key=%s session_id=%s restored_messages=%s",
+                session_key,
+                bundle.session_id,
+                len(snapshot.get("messages") or []) if snapshot else 0,
+            )
+            self._bundles[session_key] = bundle
+            return bundle
 
     async def stream_message(self, message: InboundMessage, session_key: str):
         """Submit an inbound channel message and yield progress + final reply updates."""
-        user_message = _build_inbound_user_message(message)
-        user_prompt = user_message.text
-        command_prompt = (message.content or "").strip()
-        session_cwd = self._cwd_for_message(message)
-        bundle = await self.get_bundle(session_key, latest_user_prompt=user_prompt, cwd=session_cwd)
-        logger.info(
-            "ohmo runtime processing start channel=%s chat_id=%s session_key=%s session_id=%s content=%r",
-            message.channel,
-            message.chat_id,
-            session_key,
-            bundle.session_id,
-            _content_snippet(user_prompt),
-        )
-
-        command_context: CommandContext | None = None
-
-        def get_command_context() -> CommandContext:
-            nonlocal command_context
-            if command_context is None:
-                command_context = CommandContext(
-                    engine=bundle.engine,
-                    hooks_summary=getattr(bundle, "hook_summary", lambda: "")(),
-                    mcp_summary=getattr(bundle, "mcp_summary", lambda: "")(),
-                    plugin_summary=getattr(bundle, "plugin_summary", lambda: "")(),
-                    cwd=getattr(bundle, "cwd", str(self._cwd)),
-                    tool_registry=getattr(bundle, "tool_registry", None),
-                    app_state=getattr(bundle, "app_state", None),
-                    session_backend=getattr(bundle, "session_backend", self._session_backend),
-                    session_id=getattr(bundle, "session_id", None),
-                    extra_skill_dirs=getattr(bundle, "extra_skill_dirs", ()),
-                    extra_plugin_roots=getattr(bundle, "extra_plugin_roots", ()),
-                    memory_backend=create_memory_command_backend(self._workspace),
-                    include_project_memory=False,
-                )
-            return command_context
-
-        parsed = bundle.commands.lookup(command_prompt)
-        if parsed is None and not message.media:
-            parsed = lookup_skill_slash_command(command_prompt, get_command_context())
-        if parsed is not None and not message.media:
-            command, args = parsed
-            command_name = str(getattr(command, "name", "") or "")
-            gateway_result = self._handle_gateway_scoped_command(command_name, args)
-            if gateway_result is not None:
-                message_text, refresh_runtime = gateway_result
-                result = CommandResult(message=message_text, refresh_runtime=refresh_runtime)
-                async for update in self._stream_command_result(
-                    bundle=bundle,
-                    message=message,
-                    session_key=session_key,
-                    user_prompt=user_prompt,
-                    result=result,
-                ):
-                    yield update
-                return
-            remote_allowed = getattr(command, "remote_invocable", True)
-            if not remote_allowed and self._remote_admin_allowed(command):
-                remote_allowed = True
-                logger.warning(
-                    "ohmo gateway remote administrative command accepted channel=%s chat_id=%s sender_id=%s command=%s",
-                    message.channel,
-                    message.chat_id,
-                    message.sender_id,
-                    command_name,
-                )
-            if not remote_allowed:
-                result = CommandResult(
-                    message=f"/{command_name} is only available in the local OpenHarness UI."
-                )
-                async for update in self._stream_command_result(
-                    bundle=bundle,
-                    message=message,
-                    session_key=session_key,
-                    user_prompt=user_prompt,
-                    result=result,
-                ):
-                    yield update
-                return
-            result = await command.handler(
-                args,
-                get_command_context(),
+        with use_memory_store_dir(get_memory_dir(self._workspace), shared_root=True):
+            user_message = _build_inbound_user_message(message)
+            user_prompt = user_message.text
+            command_prompt = (message.content or "").strip()
+            session_cwd = self._cwd_for_message(message)
+            bundle = await self.get_bundle(session_key, latest_user_prompt=user_prompt, cwd=session_cwd)
+            logger.info(
+                "ohmo runtime processing start channel=%s chat_id=%s session_key=%s session_id=%s content=%r",
+                message.channel,
+                message.chat_id,
+                session_key,
+                bundle.session_id,
+                _content_snippet(user_prompt),
             )
-            async for update in self._stream_command_result(
+
+            command_context: CommandContext | None = None
+
+            def get_command_context() -> CommandContext:
+                nonlocal command_context
+                if command_context is None:
+                    command_context = CommandContext(
+                        engine=bundle.engine,
+                        hooks_summary=getattr(bundle, "hook_summary", lambda: "")(),
+                        mcp_summary=getattr(bundle, "mcp_summary", lambda: "")(),
+                        plugin_summary=getattr(bundle, "plugin_summary", lambda: "")(),
+                        cwd=getattr(bundle, "cwd", str(self._cwd)),
+                        tool_registry=getattr(bundle, "tool_registry", None),
+                        app_state=getattr(bundle, "app_state", None),
+                        session_backend=getattr(bundle, "session_backend", self._session_backend),
+                        session_id=getattr(bundle, "session_id", None),
+                        extra_skill_dirs=getattr(bundle, "extra_skill_dirs", ()),
+                        extra_plugin_roots=getattr(bundle, "extra_plugin_roots", ()),
+                        memory_backend=create_memory_command_backend(self._workspace),
+                        include_project_memory=False,
+                    )
+                return command_context
+
+            parsed = bundle.commands.lookup(command_prompt)
+            if parsed is None and not message.media:
+                parsed = lookup_skill_slash_command(command_prompt, get_command_context())
+            if parsed is not None and not message.media:
+                command, args = parsed
+                command_name = str(getattr(command, "name", "") or "")
+                gateway_result = self._handle_gateway_scoped_command(command_name, args)
+                if gateway_result is not None:
+                    message_text, refresh_runtime = gateway_result
+                    result = CommandResult(message=message_text, refresh_runtime=refresh_runtime)
+                    async for update in self._stream_command_result(
+                        bundle=bundle,
+                        message=message,
+                        session_key=session_key,
+                        user_prompt=user_prompt,
+                        result=result,
+                    ):
+                        yield update
+                    return
+                remote_allowed = getattr(command, "remote_invocable", True)
+                if not remote_allowed and self._remote_admin_allowed(command):
+                    remote_allowed = True
+                    logger.warning(
+                        "ohmo gateway remote administrative command accepted channel=%s chat_id=%s sender_id=%s command=%s",
+                        message.channel,
+                        message.chat_id,
+                        message.sender_id,
+                        command_name,
+                    )
+                if not remote_allowed:
+                    result = CommandResult(
+                        message=f"/{command_name} is only available in the local OpenHarness UI."
+                    )
+                    async for update in self._stream_command_result(
+                        bundle=bundle,
+                        message=message,
+                        session_key=session_key,
+                        user_prompt=user_prompt,
+                        result=result,
+                    ):
+                        yield update
+                    return
+                result = await command.handler(
+                    args,
+                    get_command_context(),
+                )
+                async for update in self._stream_command_result(
+                    bundle=bundle,
+                    message=message,
+                    session_key=session_key,
+                    user_prompt=user_prompt,
+                    result=result,
+                ):
+                    yield update
+                return
+
+            async for update in self._stream_engine_message(
                 bundle=bundle,
                 message=message,
                 session_key=session_key,
                 user_prompt=user_prompt,
-                result=result,
+                user_message=user_message,
             ):
                 yield update
-            return
-
-        async for update in self._stream_engine_message(
-            bundle=bundle,
-            message=message,
-            session_key=session_key,
-            user_prompt=user_prompt,
-            user_message=user_message,
-        ):
-            yield update
 
     async def _stream_command_result(
         self,
@@ -640,43 +643,44 @@ class OhmoSessionRuntimePool:
         bundle: RuntimeBundle,
         latest_user_prompt: str | None,
     ) -> RuntimeBundle:
-        snapshot = sanitize_conversation_messages(list(bundle.engine.messages))
-        prior_session_id = bundle.session_id
-        bundle_cwd = str(Path(getattr(bundle, "cwd", self._cwd)).resolve())
-        await close_runtime(bundle)
-        refreshed = await build_runtime(
-            cwd=bundle_cwd,
-            model=self._model,
-            max_turns=self._max_turns,
-            system_prompt=build_ohmo_system_prompt(bundle_cwd, workspace=self._workspace, extra_prompt=None),
-            active_profile=self._provider_profile,
-            session_backend=self._session_backend,
-            enforce_max_turns=self._max_turns is not None,
-            restore_messages=[message.model_dump(mode="json") for message in _sanitize_group_command_prompts(snapshot)],
-            restore_tool_metadata=_sanitize_group_command_metadata(getattr(bundle.engine, "tool_metadata", {}) or {}),
-            extra_skill_dirs=(str(get_skills_dir(self._workspace)),),
-            extra_plugin_roots=(str(get_plugins_dir(self._workspace)),),
-            memory_backend=create_memory_command_backend(self._workspace),
-            include_project_memory=False,
-            autodream_context={
-                "memory_dir": str(get_memory_dir(self._workspace)),
-                "session_dir": str(get_sessions_dir(self._workspace)),
-                "app_label": "ohmo personal memory",
-                "runner_module": "ohmo",
-            },
-        )
-        refreshed.session_id = prior_session_id
-        self._register_gateway_tools(refreshed)
-        await start_runtime(refreshed)
-        refreshed.engine.set_system_prompt(self._runtime_system_prompt(refreshed, latest_user_prompt))
-        self._bundles[session_key] = refreshed
-        logger.info(
-            "ohmo runtime refreshed session_key=%s session_id=%s message_count=%s",
-            session_key,
-            refreshed.session_id,
-            len(refreshed.engine.messages),
-        )
-        return refreshed
+        with use_memory_store_dir(get_memory_dir(self._workspace), shared_root=True):
+            snapshot = sanitize_conversation_messages(list(bundle.engine.messages))
+            prior_session_id = bundle.session_id
+            bundle_cwd = str(Path(getattr(bundle, "cwd", self._cwd)).resolve())
+            await close_runtime(bundle)
+            refreshed = await build_runtime(
+                cwd=bundle_cwd,
+                model=self._model,
+                max_turns=self._max_turns,
+                system_prompt=build_ohmo_system_prompt(bundle_cwd, workspace=self._workspace, extra_prompt=None),
+                active_profile=self._provider_profile,
+                session_backend=self._session_backend,
+                enforce_max_turns=self._max_turns is not None,
+                restore_messages=[message.model_dump(mode="json") for message in _sanitize_group_command_prompts(snapshot)],
+                restore_tool_metadata=_sanitize_group_command_metadata(getattr(bundle.engine, "tool_metadata", {}) or {}),
+                extra_skill_dirs=(str(get_skills_dir(self._workspace)),),
+                extra_plugin_roots=(str(get_plugins_dir(self._workspace)),),
+                memory_backend=create_memory_command_backend(self._workspace),
+                include_project_memory=False,
+                autodream_context={
+                    "memory_dir": str(get_memory_dir(self._workspace)),
+                    "session_dir": str(get_sessions_dir(self._workspace)),
+                    "app_label": "ohmo personal memory",
+                    "runner_module": "ohmo",
+                },
+            )
+            refreshed.session_id = prior_session_id
+            self._register_gateway_tools(refreshed)
+            await start_runtime(refreshed)
+            refreshed.engine.set_system_prompt(self._runtime_system_prompt(refreshed, latest_user_prompt))
+            self._bundles[session_key] = refreshed
+            logger.info(
+                "ohmo runtime refreshed session_key=%s session_id=%s message_count=%s",
+                session_key,
+                refreshed.session_id,
+                len(refreshed.engine.messages),
+            )
+            return refreshed
 
     def _runtime_system_prompt(self, bundle: RuntimeBundle, latest_user_prompt: str | None) -> str:
         bundle_cwd = str(Path(getattr(bundle, "cwd", self._cwd)).resolve())

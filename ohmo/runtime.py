@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 
 from openharness.api.client import SupportsStreamingMessages
+from openharness.config.paths import use_memory_store_dir
 from openharness.engine.stream_events import AssistantTextDelta, AssistantTurnComplete, CompactProgressEvent, ErrorEvent, StatusEvent
 from openharness.ui.backend_host import run_backend_host
 from openharness.ui.runtime import build_runtime, close_runtime, handle_line, start_runtime
@@ -42,28 +43,29 @@ async def run_ohmo_backend(
     cwd_path = str(Path(cwd or Path.cwd()).resolve())
     workspace_root = initialize_workspace(workspace)
     extra_skill_dirs, extra_plugin_roots = _ohmo_extra_roots(workspace_root)
-    return await run_backend_host(
-        cwd=cwd_path,
-        model=model,
-        max_turns=max_turns,
-        system_prompt=build_ohmo_system_prompt(cwd_path, workspace=workspace_root),
-        active_profile=provider_profile,
-        api_client=api_client,
-        restore_messages=restore_messages,
-        restore_tool_metadata=restore_tool_metadata,
-        enforce_max_turns=max_turns is not None,
-        session_backend=OhmoSessionBackend(workspace_root),
-        extra_skill_dirs=extra_skill_dirs,
-        extra_plugin_roots=extra_plugin_roots,
-        memory_backend=create_memory_command_backend(workspace_root),
-        include_project_memory=False,
-        autodream_context={
-            "memory_dir": str(get_memory_dir(workspace_root)),
-            "session_dir": str(get_sessions_dir(workspace_root)),
-            "app_label": "ohmo personal memory",
-            "runner_module": "ohmo",
-        },
-    )
+    with use_memory_store_dir(get_memory_dir(workspace_root), shared_root=True):
+        return await run_backend_host(
+            cwd=cwd_path,
+            model=model,
+            max_turns=max_turns,
+            system_prompt=build_ohmo_system_prompt(cwd_path, workspace=workspace_root),
+            active_profile=provider_profile,
+            api_client=api_client,
+            restore_messages=restore_messages,
+            restore_tool_metadata=restore_tool_metadata,
+            enforce_max_turns=max_turns is not None,
+            session_backend=OhmoSessionBackend(workspace_root),
+            extra_skill_dirs=extra_skill_dirs,
+            extra_plugin_roots=extra_plugin_roots,
+            memory_backend=create_memory_command_backend(workspace_root),
+            include_project_memory=False,
+            autodream_context={
+                "memory_dir": str(get_memory_dir(workspace_root)),
+                "session_dir": str(get_sessions_dir(workspace_root)),
+                "app_label": "ohmo personal memory",
+                "runner_module": "ohmo",
+            },
+        )
 
 
 def build_ohmo_backend_command(
@@ -160,59 +162,60 @@ async def run_ohmo_print_mode(
     previous_cwd = Path.cwd()
     os.chdir(cwd_path)
     try:
-        bundle = await build_runtime(
-            model=model,
-            max_turns=max_turns,
-            system_prompt=build_ohmo_system_prompt(cwd_path, workspace=workspace_root),
-            active_profile=provider_profile,
-            session_backend=OhmoSessionBackend(workspace_root),
-            enforce_max_turns=max_turns is not None,
-            extra_skill_dirs=extra_skill_dirs,
-            extra_plugin_roots=extra_plugin_roots,
-            memory_backend=create_memory_command_backend(workspace_root),
-            include_project_memory=False,
-            autodream_context={
-                "memory_dir": str(get_memory_dir(workspace_root)),
-                "session_dir": str(get_sessions_dir(workspace_root)),
-                "app_label": "ohmo personal memory",
-                "runner_module": "ohmo",
-            },
-        )
-        await start_runtime(bundle)
+        with use_memory_store_dir(get_memory_dir(workspace_root), shared_root=True):
+            bundle = await build_runtime(
+                model=model,
+                max_turns=max_turns,
+                system_prompt=build_ohmo_system_prompt(cwd_path, workspace=workspace_root),
+                active_profile=provider_profile,
+                session_backend=OhmoSessionBackend(workspace_root),
+                enforce_max_turns=max_turns is not None,
+                extra_skill_dirs=extra_skill_dirs,
+                extra_plugin_roots=extra_plugin_roots,
+                memory_backend=create_memory_command_backend(workspace_root),
+                include_project_memory=False,
+                autodream_context={
+                    "memory_dir": str(get_memory_dir(workspace_root)),
+                    "session_dir": str(get_sessions_dir(workspace_root)),
+                    "app_label": "ohmo personal memory",
+                    "runner_module": "ohmo",
+                },
+            )
+            await start_runtime(bundle)
 
-        async def _print_system(message: str) -> None:
-            print(message, file=sys.stderr)
+            async def _print_system(message: str) -> None:
+                print(message, file=sys.stderr)
 
-        saw_error = False
+            saw_error = False
 
-        async def _render_event(event) -> None:
-            nonlocal saw_error
-            if isinstance(event, AssistantTextDelta):
-                sys.stdout.write(event.text)
-                sys.stdout.flush()
-            elif isinstance(event, AssistantTurnComplete):
-                sys.stdout.write("\n")
-                sys.stdout.flush()
-            elif isinstance(event, ErrorEvent):
-                saw_error = True
-                print(event.message, file=sys.stderr)
-            elif isinstance(event, CompactProgressEvent):
-                if event.message:
+            async def _render_event(event) -> None:
+                nonlocal saw_error
+                if isinstance(event, AssistantTextDelta):
+                    sys.stdout.write(event.text)
+                    sys.stdout.flush()
+                elif isinstance(event, AssistantTurnComplete):
+                    sys.stdout.write("\n")
+                    sys.stdout.flush()
+                elif isinstance(event, ErrorEvent):
+                    saw_error = True
                     print(event.message, file=sys.stderr)
-            elif isinstance(event, StatusEvent):
-                print(event.message, file=sys.stderr)
+                elif isinstance(event, CompactProgressEvent):
+                    if event.message:
+                        print(event.message, file=sys.stderr)
+                elif isinstance(event, StatusEvent):
+                    print(event.message, file=sys.stderr)
 
-        async def _clear_output() -> None:
-            return None
+            async def _clear_output() -> None:
+                return None
 
-        await handle_line(
-            bundle,
-            prompt,
-            print_system=_print_system,
-            render_event=_render_event,
-            clear_output=_clear_output,
-        )
-        await close_runtime(bundle)
-        return 1 if saw_error else 0
+            await handle_line(
+                bundle,
+                prompt,
+                print_system=_print_system,
+                render_event=_render_event,
+                clear_output=_clear_output,
+            )
+            await close_runtime(bundle)
+            return 1 if saw_error else 0
     finally:
         os.chdir(previous_cwd)
