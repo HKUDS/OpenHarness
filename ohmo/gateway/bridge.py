@@ -308,6 +308,7 @@ class OhmoGatewayBridge:
                         channel=message.channel,
                         chat_id=message.chat_id,
                         content=update.text,
+                        media=list(getattr(update, "media", None) or (update.metadata or {}).get("_media") or []),
                         metadata={**inbound_meta, **(update.metadata or {})},
                     )
                 )

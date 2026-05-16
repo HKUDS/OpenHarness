@@ -432,6 +432,25 @@ class FeishuChannel(BaseChannel):
         self._sender_cache: OrderedDict[str, _FeishuSenderInfo] = OrderedDict()
         self._loop: asyncio.AbstractEventLoop | None = None
 
+    def _ensure_rest_client(self) -> bool:
+        """Initialize the Feishu REST client without starting the WebSocket receiver."""
+        if self._client is not None:
+            return True
+        if not FEISHU_AVAILABLE:
+            logger.error("Feishu SDK not installed. Run: pip install lark-oapi")
+            return False
+        if not self.config.app_id or not self.config.app_secret:
+            logger.error("Feishu app_id and app_secret not configured")
+            return False
+        import lark_oapi as lark
+
+        self._client = lark.Client.builder() \
+            .app_id(self.config.app_id) \
+            .app_secret(self.config.app_secret) \
+            .log_level(lark.LogLevel.INFO) \
+            .build()
+        return True
+
     async def start(self) -> None:
         """Start the Feishu bot with WebSocket long connection."""
         if not FEISHU_AVAILABLE:
@@ -446,12 +465,8 @@ class FeishuChannel(BaseChannel):
         self._running = True
         self._loop = asyncio.get_running_loop()
 
-        # Create Lark client for sending messages
-        self._client = lark.Client.builder() \
-            .app_id(self.config.app_id) \
-            .app_secret(self.config.app_secret) \
-            .log_level(lark.LogLevel.INFO) \
-            .build()
+        if not self._ensure_rest_client():
+            return
 
         # Create event handler (only register message receive, ignore other events)
         event_handler = lark.EventDispatcherHandler.builder(
@@ -1046,7 +1061,7 @@ class FeishuChannel(BaseChannel):
 
     async def send(self, msg: OutboundMessage) -> None:
         """Send a message through Feishu, including media (images/files) if present."""
-        if not self._client:
+        if not self._ensure_rest_client():
             logger.warning("Feishu client not initialized")
             return
 
@@ -1060,19 +1075,28 @@ class FeishuChannel(BaseChannel):
                 else None
             )
 
+            failed_media: list[str] = []
+            sent_media: list[str] = []
             for file_path in msg.media:
                 if not os.path.isfile(file_path):
                     logger.warning("Media file not found: %s", file_path)
+                    failed_media.append(file_path)
                     continue
                 ext = os.path.splitext(file_path)[1].lower()
                 if ext in self._IMAGE_EXTS:
                     key = await loop.run_in_executor(None, self._upload_image_sync, file_path)
                     if key:
-                        await loop.run_in_executor(
+                        ok = await loop.run_in_executor(
                             None, self._send_message_sync,
                             receive_id_type, msg.chat_id, "image", json.dumps({"image_key": key}, ensure_ascii=False),
                             reply_mid,
                         )
+                        if ok:
+                            sent_media.append(file_path)
+                        else:
+                            failed_media.append(file_path)
+                    else:
+                        failed_media.append(file_path)
                 else:
                     key = await loop.run_in_executor(None, self._upload_file_sync, file_path)
                     if key:
@@ -1082,11 +1106,26 @@ class FeishuChannel(BaseChannel):
                             media_type = "media"
                         else:
                             media_type = "file"
-                        await loop.run_in_executor(
+                        ok = await loop.run_in_executor(
                             None, self._send_message_sync,
                             receive_id_type, msg.chat_id, media_type, json.dumps({"file_key": key}, ensure_ascii=False),
                             reply_mid,
                         )
+                        if ok:
+                            sent_media.append(file_path)
+                        else:
+                            failed_media.append(file_path)
+                    else:
+                        failed_media.append(file_path)
+
+            if failed_media:
+                names = ", ".join(os.path.basename(path) for path in failed_media)
+                failure_body = json.dumps({"text": f"文件发送失败：{names}"}, ensure_ascii=False)
+                await loop.run_in_executor(
+                    None, self._send_message_sync,
+                    receive_id_type, msg.chat_id, "text", failure_body,
+                    reply_mid,
+                )
 
             if msg.content and msg.content.strip():
                 fmt = self._detect_msg_format(msg.content)

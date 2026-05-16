@@ -1182,7 +1182,7 @@ class _OkTool(BaseTool):
 
     async def execute(self, arguments: BaseModel, context: ToolExecutionContext) -> ToolResult:
         del arguments, context
-        return ToolResult(output="ok")
+        return ToolResult(output="ok", metadata={"sentinel": "metadata"})
 
 
 class _BoomTool(BaseTool):
@@ -1340,6 +1340,7 @@ async def test_query_engine_synthesizes_tool_result_when_parallel_tool_raises(tm
     assert set(completed_by_name) == {"ok_tool", "boom_tool"}
     assert completed_by_name["ok_tool"].is_error is False
     assert completed_by_name["ok_tool"].output == "ok"
+    assert completed_by_name["ok_tool"].metadata == {"sentinel": "metadata"}
     assert completed_by_name["boom_tool"].is_error is True
     assert "RuntimeError" in completed_by_name["boom_tool"].output
     assert "boom" in completed_by_name["boom_tool"].output
@@ -1353,6 +1354,35 @@ async def test_query_engine_synthesizes_tool_result_when_parallel_tool_raises(tm
 
     assert isinstance(events[-1], AssistantTurnComplete)
     assert events[-1].message.text == "Recovered from the failure."
+
+
+@pytest.mark.asyncio
+async def test_query_engine_sanitizes_dangling_tool_use_before_new_prompt(tmp_path: Path):
+    engine = QueryEngine(
+        api_client=StaticApiClient("fresh reply"),
+        tool_registry=ToolRegistry(),
+        permission_checker=PermissionChecker(PermissionSettings(mode=PermissionMode.FULL_AUTO)),
+        cwd=tmp_path,
+        model="claude-test",
+        system_prompt="system",
+    )
+    engine.load_messages([
+        ConversationMessage.from_user_text("previous request"),
+        ConversationMessage(
+            role="assistant",
+            content=[ToolUseBlock(id="call_missing_output", name="ok_tool", input={})],
+        ),
+    ])
+
+    events = [event async for event in engine.submit_message("new prompt")]
+
+    assert isinstance(events[-1], AssistantTurnComplete)
+    assert events[-1].message.text == "fresh reply"
+    assert not any(
+        isinstance(block, ToolUseBlock) and block.id == "call_missing_output"
+        for message in engine.messages
+        for block in message.content
+    )
 
 
 @pytest.mark.asyncio

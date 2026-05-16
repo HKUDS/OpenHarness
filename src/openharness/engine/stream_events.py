@@ -39,6 +39,7 @@ class ToolExecutionCompleted:
     tool_name: str
     output: str
     is_error: bool = False
+    metadata: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)

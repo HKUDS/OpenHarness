@@ -53,6 +53,7 @@ class ToolResultBlock(BaseModel):
     tool_use_id: str
     content: str
     is_error: bool = False
+    result_metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 ContentBlock = Annotated[

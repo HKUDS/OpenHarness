@@ -18,7 +18,7 @@ class SkillTool(BaseTool):
     """Return the content of a loaded skill."""
 
     name = "skill"
-    description = "Read a bundled, user, or plugin skill by name."
+    description = "Read a bundled, user, project, or plugin skill by name."
     input_model = SkillToolInput
 
     def is_read_only(self, arguments: SkillToolInput) -> bool:

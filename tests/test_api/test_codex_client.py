@@ -100,6 +100,26 @@ def test_convert_messages_to_codex():
     }
 
 
+def test_convert_user_message_with_tool_result_before_text_to_codex():
+    messages = [
+        ConversationMessage(
+            role="user",
+            content=[
+                ToolResultBlock(tool_use_id="call_123", content="done", is_error=False),
+                TextBlock(text="next request"),
+            ],
+        )
+    ]
+
+    converted = _convert_messages_to_codex(messages)
+
+    assert converted == [
+        {"type": "function_call_output", "call_id": "call_123", "output": "done"},
+        {"role": "user", "content": [{"type": "input_text", "text": "next request"}]},
+    ]
+
+
+
 def test_convert_multimodal_user_message_to_codex():
     messages = [
         ConversationMessage(

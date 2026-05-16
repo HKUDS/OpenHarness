@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Literal
 
 
-TaskType = Literal["local_bash", "local_agent", "remote_agent", "in_process_teammate"]
+TaskType = Literal["local_bash", "local_agent", "remote_agent", "in_process_teammate", "dream"]
 TaskStatus = Literal["pending", "running", "completed", "failed", "killed"]
 
 

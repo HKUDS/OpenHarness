@@ -403,6 +403,55 @@ async def test_runtime_pool_stream_message_emits_progress_and_tool_hint(tmp_path
 
 
 @pytest.mark.asyncio
+@pytest.mark.asyncio
+async def test_runtime_pool_stream_message_emits_media_for_generated_tool_paths(tmp_path, monkeypatch):
+    workspace = tmp_path / ".ohmo-home"
+    initialize_workspace(workspace)
+    image_path = tmp_path / "generated.png"
+    image_path.write_bytes(b"png")
+
+    async def fake_build_runtime(**kwargs):
+        class FakeEngine:
+            messages = []
+            total_usage = UsageSnapshot()
+
+            def set_system_prompt(self, prompt):
+                return None
+
+            async def submit_message(self, content):
+                yield ToolExecutionCompleted(
+                    tool_name="image_generation",
+                    output=f"Wrote {image_path}",
+                    metadata={"paths": [str(image_path)], "provider": "codex"},
+                )
+                yield AssistantTextDelta(text="done")
+
+        return SimpleNamespace(
+            engine=FakeEngine(),
+            cwd=str(tmp_path),
+            session_id="sess123",
+            current_settings=lambda: SimpleNamespace(model="gpt-5.4"),
+            commands=SimpleNamespace(lookup=lambda raw: None),
+        )
+
+    async def fake_start_runtime(bundle):
+        return None
+
+    monkeypatch.setattr("ohmo.gateway.runtime.build_runtime", fake_build_runtime)
+    monkeypatch.setattr("ohmo.gateway.runtime.start_runtime", fake_start_runtime)
+
+    pool = OhmoSessionRuntimePool(cwd=tmp_path, workspace=workspace, provider_profile="codex")
+    message = InboundMessage(channel="feishu", sender_id="u1", chat_id="c1", content="draw")
+    updates = [u async for u in pool.stream_message(message, "feishu:c1")]
+
+    media_updates = [u for u in updates if u.kind == "media"]
+    assert len(media_updates) == 1
+    assert media_updates[0].media == [str(image_path)]
+    assert media_updates[0].metadata["_media"] == [str(image_path)]
+    assert "已生成图片 via codex" in media_updates[0].text
+
+
+@pytest.mark.asyncio
 async def test_runtime_pool_stream_message_formats_auto_compact_status_for_feishu(tmp_path, monkeypatch):
     workspace = tmp_path / ".ohmo-home"
     initialize_workspace(workspace)
@@ -1086,6 +1135,36 @@ def test_runtime_pool_includes_group_speaker_context():
     assert "Tang Jiabin" in text
     assert "Sender id: ou_123" in text
     assert "请帮我看一下" in text
+
+
+@pytest.mark.asyncio
+async def test_gateway_bridge_publishes_media_updates():
+    bus = MessageBus()
+
+    class FakeRuntimePool:
+        async def stream_message(self, message, session_key):
+            yield SimpleNamespace(
+                kind="media",
+                text="已生成图片：generated.png",
+                media=["/tmp/generated.png"],
+                metadata={"_session_key": session_key, "_media": ["/tmp/generated.png"]},
+            )
+
+    bridge = OhmoGatewayBridge(bus=bus, runtime_pool=FakeRuntimePool())
+    task = asyncio.create_task(bridge.run())
+    try:
+        await bus.publish_inbound(InboundMessage(channel="feishu", sender_id="u1", chat_id="c1", content="draw"))
+        outbound = await asyncio.wait_for(bus.consume_outbound(), timeout=1.0)
+    finally:
+        bridge.stop()
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+    assert outbound.content == "已生成图片：generated.png"
+    assert outbound.media == ["/tmp/generated.png"]
 
 
 @pytest.mark.asyncio

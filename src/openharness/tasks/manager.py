@@ -209,6 +209,7 @@ class BackgroundTaskManager:
 
         task.status = "killed"
         task.ended_at = time.time()
+        await self._notify_completion_listeners(task)
         return task
 
     async def write_to_task(self, task_id: str, data: str) -> None:
@@ -458,6 +459,7 @@ def _task_id(task_type: TaskType) -> str:
         "local_agent": "a",
         "remote_agent": "r",
         "in_process_teammate": "t",
+        "dream": "d",
     }
     return f"{prefixes[task_type]}{uuid4().hex[:8]}"
 

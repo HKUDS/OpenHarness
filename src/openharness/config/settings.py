@@ -74,6 +74,9 @@ class MemorySettings(BaseModel):
     max_entrypoint_lines: int = 200
     context_window_tokens: int | None = None
     auto_compact_threshold_tokens: int | None = None
+    auto_dream_enabled: bool = False
+    auto_dream_min_hours: float = 24.0
+    auto_dream_min_sessions: int = 5
 
 
 class SandboxNetworkSettings(BaseModel):
@@ -476,6 +479,37 @@ def _profile_from_flat_settings(settings: "Settings") -> tuple[str, ProviderProf
     return name, profile
 
 
+class ImageGenerationConfig(BaseModel):
+    """Configuration for the image_generation tool."""
+
+    provider: str = "auto"
+    model: str = "gpt-image-2"
+    api_key: str = ""
+    base_url: str = ""
+    codex_model: str = "gpt-5.4"
+    codex_base_url: str = ""
+
+    @classmethod
+    def from_env(cls) -> "ImageGenerationConfig":
+        """Load image generation config from environment variables."""
+        return cls(
+            provider=os.environ.get("OPENHARNESS_IMAGE_GENERATION_PROVIDER", "auto").strip()
+            or "auto",
+            model=os.environ.get("OPENHARNESS_IMAGE_GENERATION_MODEL", "gpt-image-2").strip()
+            or "gpt-image-2",
+            api_key=os.environ.get("OPENHARNESS_IMAGE_GENERATION_API_KEY", "").strip(),
+            base_url=os.environ.get("OPENHARNESS_IMAGE_GENERATION_BASE_URL", "").strip(),
+            codex_model=os.environ.get("OPENHARNESS_IMAGE_GENERATION_CODEX_MODEL", "gpt-5.4").strip()
+            or "gpt-5.4",
+            codex_base_url=os.environ.get("OPENHARNESS_IMAGE_GENERATION_CODEX_BASE_URL", "").strip(),
+        )
+
+    @property
+    def is_configured(self) -> bool:
+        """Return True when either a key provider or Codex provider is selected."""
+        return bool(self.api_key or self.provider in {"auto", "codex"})
+
+
 class VisionModelConfig(BaseModel):
     """Configuration for the vision model used by the image_to_text tool.
 
@@ -527,6 +561,10 @@ class Settings(BaseModel):
     sandbox: SandboxSettings = Field(default_factory=SandboxSettings)
     enabled_plugins: dict[str, bool] = Field(default_factory=dict)
     allow_project_plugins: bool = False
+    allow_project_skills: bool = True
+    project_skill_dirs: list[str] = Field(
+        default_factory=lambda: [".openharness/skills", ".agents/skills", ".claude/skills"]
+    )
     mcp_servers: dict[str, McpServerConfig] = Field(default_factory=dict)
 
     # UI
@@ -541,6 +579,9 @@ class Settings(BaseModel):
 
     # Vision model (image-to-text fallback)
     vision: VisionModelConfig = Field(default_factory=VisionModelConfig)
+
+    # Image generation model
+    image_generation: ImageGenerationConfig = Field(default_factory=ImageGenerationConfig)
 
     def merged_profiles(self) -> dict[str, ProviderProfile]:
         """Return the saved profiles merged over the built-in catalog."""
@@ -560,7 +601,7 @@ class Settings(BaseModel):
     def resolve_profile(self, name: str | None = None) -> tuple[str, ProviderProfile]:
         """Return the active provider profile."""
         profiles = self.merged_profiles()
-        profile_name = (name or self.active_profile or "").strip() or "claude-api"
+        profile_name = (name or self.active_profile or os.environ.get("OPENHARNESS_PROFILE") or "").strip() or "claude-api"
         if profile_name not in profiles:
             fallback_name, fallback = _profile_from_flat_settings(self)
             profiles[fallback_name] = fallback
@@ -597,9 +638,15 @@ class Settings(BaseModel):
         directly before the profile layer is used everywhere.
         """
         profile_name, profile = self.resolve_profile()
-        next_provider = (self.provider or "").strip() or profile.provider
-        next_api_format = (self.api_format or "").strip() or profile.api_format
-        next_base_url = self.base_url if self.base_url is not None else profile.base_url
+        profile_from_env = bool(os.environ.get("OPENHARNESS_PROFILE"))
+        flat_profile_fields_match_profile = profile_from_env or (
+            (self.provider or "").strip() == profile.provider
+            and (self.api_format or "").strip() == profile.api_format
+            and self.base_url == profile.base_url
+        )
+        next_provider = profile.provider if flat_profile_fields_match_profile else (self.provider or "").strip() or profile.provider
+        next_api_format = profile.api_format if flat_profile_fields_match_profile else (self.api_format or "").strip() or profile.api_format
+        next_base_url = profile.base_url if flat_profile_fields_match_profile else (self.base_url if self.base_url is not None else profile.base_url)
         next_context_window_tokens = (
             self.context_window_tokens
             if self.context_window_tokens is not None
@@ -691,6 +738,15 @@ class Settings(BaseModel):
         provider = profile.provider.strip()
         auth_source = profile.auth_source.strip() or default_auth_source_for_provider(provider, profile.api_format)
         if auth_source in {"codex_subscription", "claude_subscription"}:
+            env_auth_token = os.environ.get("ANTHROPIC_AUTH_TOKEN", "").strip()
+            if auth_source == "claude_subscription" and env_auth_token:
+                return ResolvedAuth(
+                    provider=provider,
+                    auth_kind="oauth",
+                    value=env_auth_token,
+                    source="env:ANTHROPIC_AUTH_TOKEN",
+                    state="configured",
+                )
             from openharness.auth.external import (
                 is_third_party_anthropic_endpoint,
                 load_external_credential,
@@ -953,6 +1009,9 @@ def load_settings(config_path: Path | None = None) -> Settings:
                 pass
             return _apply_env_overrides(Settings().materialize_active_profile())
         settings = Settings.model_validate(raw)
+        env_profile = os.environ.get("OPENHARNESS_PROFILE")
+        if env_profile:
+            settings = settings.model_copy(update={"active_profile": env_profile.strip()})
         if "profiles" not in raw or "active_profile" not in raw:
             profile_name, profile = _profile_from_flat_settings(settings)
             merged_profiles = settings.merged_profiles()
@@ -965,7 +1024,11 @@ def load_settings(config_path: Path | None = None) -> Settings:
             )
         return _apply_env_overrides(settings.materialize_active_profile())
 
-    return _apply_env_overrides(Settings().materialize_active_profile())
+    settings = Settings()
+    env_profile = os.environ.get("OPENHARNESS_PROFILE")
+    if env_profile:
+        settings = settings.model_copy(update={"active_profile": env_profile.strip()})
+    return _apply_env_overrides(settings.materialize_active_profile())
 
 
 def save_settings(settings: Settings, config_path: Path | None = None) -> None:

@@ -1,4 +1,4 @@
-"""Skill loading from bundled and user directories."""
+"""Skill loading from bundled, user, compatibility, and project directories."""
 
 from __future__ import annotations
 
@@ -20,12 +20,23 @@ from openharness.skills.types import SkillDefinition
 
 logger = logging.getLogger(__name__)
 
+_USER_COMPAT_SKILL_DIRS = (
+    (".claude", "skills"),
+    (".agents", "skills"),
+)
+_DEFAULT_PROJECT_SKILL_DIRS = (".openharness/skills", ".agents/skills", ".claude/skills")
+
 
 def get_user_skills_dir() -> Path:
-    """Return the user skills directory."""
+    """Return the OpenHarness user skills directory."""
     path = get_config_dir() / "skills"
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def get_user_skill_dirs() -> list[Path]:
+    """Return user-level skill directories loaded by default."""
+    return [get_user_skills_dir(), *(Path.home().joinpath(*parts) for parts in _USER_COMPAT_SKILL_DIRS)]
 
 
 def load_skill_registry(
@@ -35,18 +46,27 @@ def load_skill_registry(
     extra_plugin_roots: Iterable[str | Path] | None = None,
     settings=None,
 ) -> SkillRegistry:
-    """Load bundled and user-defined skills."""
+    """Load bundled, user-defined, project, and plugin skills."""
     registry = SkillRegistry()
     for skill in get_bundled_skills():
         registry.register(skill)
     for skill in load_user_skills():
         registry.register(skill)
-    for skill in load_skills_from_dirs(extra_skill_dirs):
+    for skill in load_skills_from_dirs(extra_skill_dirs, source="user"):
         registry.register(skill)
+
+    resolved_settings = settings or load_settings()
+    if cwd is not None and getattr(resolved_settings, "allow_project_skills", True):
+        project_dirs = discover_project_skill_dirs(
+            cwd,
+            getattr(resolved_settings, "project_skill_dirs", list(_DEFAULT_PROJECT_SKILL_DIRS)),
+        )
+        for skill in load_skills_from_dirs(project_dirs, source="project", create_missing=False):
+            registry.register(skill)
+
     if cwd is not None:
         from openharness.plugins.loader import load_plugins
 
-        resolved_settings = settings or load_settings()
         for plugin in load_plugins(resolved_settings, cwd, extra_roots=extra_plugin_roots):
             if not plugin.enabled:
                 continue
@@ -56,14 +76,85 @@ def load_skill_registry(
 
 
 def load_user_skills() -> list[SkillDefinition]:
-    """Load markdown skills from the user config directory."""
-    return load_skills_from_dirs([get_user_skills_dir()], source="user")
+    """Load markdown skills from user-level OpenHarness and compatibility directories."""
+    return load_skills_from_dirs(get_user_skill_dirs(), source="user")
+
+
+def discover_project_skill_dirs(
+    cwd: str | Path,
+    project_skill_dirs: Iterable[str] | None = None,
+) -> list[Path]:
+    """Return existing project skill directories from cwd up to the git root.
+
+    Directories are ordered from least-specific to most-specific so later registry
+    entries can override broader project or user skills deterministically.
+    """
+    start = Path(cwd).expanduser().resolve()
+    if not start.exists():
+        start = start.parent
+    if start.is_file():
+        start = start.parent
+
+    relative_dirs = _valid_project_skill_dirs(project_skill_dirs or _DEFAULT_PROJECT_SKILL_DIRS)
+    git_root = _find_git_root(start)
+    home = Path.home().resolve()
+    current = start
+    levels: list[Path] = []
+    while True:
+        levels.append(current)
+        if git_root is not None and current == git_root:
+            break
+        if git_root is None and current == home:
+            break
+        parent = current.parent
+        if parent == current:
+            break
+        current = parent
+
+    roots: list[Path] = []
+    seen: set[Path] = set()
+    for base in reversed(levels):
+        for rel in relative_dirs:
+            candidate = (base / rel).resolve()
+            if candidate in seen or not candidate.is_dir():
+                continue
+            seen.add(candidate)
+            roots.append(candidate)
+    return roots
+
+
+def _valid_project_skill_dirs(project_skill_dirs: Iterable[str]) -> list[Path]:
+    """Return safe relative project skill paths."""
+    paths: list[Path] = []
+    for raw in project_skill_dirs:
+        value = str(raw).strip()
+        if not value:
+            continue
+        rel = Path(value)
+        if rel.is_absolute() or ".." in rel.parts:
+            logger.warning("Ignoring unsafe project skill dir: %s", raw)
+            continue
+        paths.append(rel)
+    return paths
+
+
+def _find_git_root(start: Path) -> Path | None:
+    """Find the nearest git root containing start, if any."""
+    current = start
+    while True:
+        if (current / ".git").exists():
+            return current
+        parent = current.parent
+        if parent == current:
+            return None
+        current = parent
 
 
 def load_skills_from_dirs(
     directories: Iterable[str | Path] | None,
     *,
     source: str = "user",
+    create_missing: bool = True,
 ) -> list[SkillDefinition]:
     """Load markdown skills from one or more directories.
 
@@ -76,7 +167,10 @@ def load_skills_from_dirs(
     seen: set[Path] = set()
     for directory in directories:
         root = Path(directory).expanduser().resolve()
-        root.mkdir(parents=True, exist_ok=True)
+        if create_missing:
+            root.mkdir(parents=True, exist_ok=True)
+        elif not root.is_dir():
+            continue
         candidates: list[Path] = []
         for child in sorted(root.iterdir()):
             if child.is_dir():

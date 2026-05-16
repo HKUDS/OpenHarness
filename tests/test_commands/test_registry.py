@@ -698,6 +698,51 @@ async def test_user_invocable_false_skill_is_not_slash_resolved(tmp_path: Path, 
 
 
 @pytest.mark.asyncio
+async def test_project_skill_registers_as_context_slash_command(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    skill_dir = repo / ".claude" / "skills" / "shipit"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\n"
+        "description: Project ship workflow.\n"
+        "---\n\n"
+        "# Shipit\n\nShip this repo.\n",
+        encoding="utf-8",
+    )
+    context = _make_context(repo)
+
+    parsed = lookup_skill_slash_command("/shipit now", context)
+    assert parsed is not None
+    command, args = parsed
+    result = await command.handler(args, context)
+
+    assert command.name == "shipit"
+    assert result.submit_prompt is not None
+    assert f"Base directory for this skill: {skill_dir.resolve()}" in result.submit_prompt
+    assert "Arguments: now" in result.submit_prompt
+
+
+@pytest.mark.asyncio
+async def test_skills_command_lists_project_skill_path(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    skill_dir = repo / ".agents" / "skills" / "triage"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text("# Triage\nTriage workflow.\n", encoding="utf-8")
+    registry = create_default_command_registry()
+    command, args = registry.lookup("/skills")
+    assert command is not None
+
+    result = await command.handler(args, _make_context(repo))
+
+    assert "triage (Triage) [project]" in result.message
+    assert str((skill_dir / "SKILL.md").resolve()) in result.message
+
+
+@pytest.mark.asyncio
 async def test_disable_model_invocation_skill_still_allows_user_slash(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
     extra_root = tmp_path / "skills"

@@ -5,7 +5,9 @@ from __future__ import annotations
 import textwrap
 from pathlib import Path
 
+from openharness.config.settings import Settings
 from openharness.skills import get_user_skills_dir, load_skill_registry
+from openharness.skills.loader import discover_project_skill_dirs, get_user_skill_dirs
 from openharness.skills.bundled import _parse_frontmatter as parse_bundled_frontmatter
 from openharness.skills.loader import _parse_skill_markdown as parse_skill_markdown
 
@@ -25,6 +27,14 @@ def test_load_skill_registry_includes_bundled(tmp_path: Path, monkeypatch):
     assert "Create, improve, and verify OpenHarness skills" in skill_creator.description
 
 
+def _write_skill(root: Path, name: str, body: str | None = None) -> Path:
+    skill_dir = root / name
+    skill_dir.mkdir(parents=True, exist_ok=True)
+    skill_file = skill_dir / "SKILL.md"
+    skill_file.write_text(body or f"# {name}\n{name} guidance\n", encoding="utf-8")
+    return skill_file
+
+
 def test_load_skill_registry_includes_user_skills(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
     skills_dir = get_user_skills_dir()
@@ -38,6 +48,33 @@ def test_load_skill_registry_includes_user_skills(tmp_path: Path, monkeypatch):
     assert deploy is not None
     assert deploy.source == "user"
     assert "Deployment workflow guidance" in deploy.content
+
+
+def test_load_skill_registry_includes_user_compat_skill_dirs(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
+    claude_skill = _write_skill(tmp_path / "home" / ".claude" / "skills", "claude-review")
+    agents_skill = _write_skill(tmp_path / "home" / ".agents" / "skills", "agents-plan")
+
+    registry = load_skill_registry()
+
+    assert registry.get("claude-review") is not None
+    assert registry.get("agents-plan") is not None
+    assert registry.get("claude-review").source == "user"  # type: ignore[union-attr]
+    assert registry.get("agents-plan").source == "user"  # type: ignore[union-attr]
+    assert str(claude_skill) in (registry.get("claude-review").path or "")  # type: ignore[union-attr]
+    assert str(agents_skill) in (registry.get("agents-plan").path or "")  # type: ignore[union-attr]
+
+
+def test_get_user_skill_dirs_includes_openharness_claude_and_agents(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
+
+    dirs = get_user_skill_dirs()
+
+    assert tmp_path / "config" / "skills" in dirs
+    assert tmp_path / "home" / ".claude" / "skills" in dirs
+    assert tmp_path / "home" / ".agents" / "skills" in dirs
 
 
 def test_user_skill_metadata_tracks_command_name_and_frontmatter_flags(tmp_path: Path, monkeypatch):
@@ -74,6 +111,85 @@ def test_user_skill_metadata_tracks_command_name_and_frontmatter_flags(tmp_path:
     assert by_command.disable_model_invocation is True
     assert by_command.model == "gpt-5.4"
     assert by_command.argument_hint == "ENV"
+
+
+def test_project_skills_load_by_default_from_supported_dirs(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
+    repo = tmp_path / "repo"
+    (repo / ".git").mkdir(parents=True)
+    _write_skill(repo / ".openharness" / "skills", "oh-project")
+    _write_skill(repo / ".agents" / "skills", "agents-project")
+    _write_skill(repo / ".claude" / "skills", "claude-project")
+
+    registry = load_skill_registry(repo, settings=Settings())
+
+    assert registry.get("oh-project").source == "project"  # type: ignore[union-attr]
+    assert registry.get("agents-project").source == "project"  # type: ignore[union-attr]
+    assert registry.get("claude-project").source == "project"  # type: ignore[union-attr]
+
+
+def test_project_skills_can_be_disabled(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
+    repo = tmp_path / "repo"
+    (repo / ".git").mkdir(parents=True)
+    _write_skill(repo / ".claude" / "skills", "project-only")
+
+    registry = load_skill_registry(repo, settings=Settings(allow_project_skills=False))
+
+    assert registry.get("project-only") is None
+
+
+def test_project_skill_discovery_walks_up_to_git_root(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
+    repo = tmp_path / "repo"
+    cwd = repo / "packages" / "api" / "src"
+    cwd.mkdir(parents=True)
+    (repo / ".git").mkdir()
+    root_skill_dir = repo / ".claude" / "skills"
+    package_skill_dir = repo / "packages" / ".agents" / "skills"
+    outside_skill_dir = tmp_path / ".claude" / "skills"
+    root_skill_dir.mkdir(parents=True)
+    package_skill_dir.mkdir(parents=True)
+    outside_skill_dir.mkdir(parents=True)
+
+    dirs = discover_project_skill_dirs(cwd)
+
+    assert root_skill_dir.resolve() in dirs
+    assert package_skill_dir.resolve() in dirs
+    assert outside_skill_dir.resolve() not in dirs
+    assert dirs.index(root_skill_dir.resolve()) < dirs.index(package_skill_dir.resolve())
+
+
+def test_project_skill_nearer_cwd_overrides_parent_and_user(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
+    _write_skill(tmp_path / "home" / ".claude" / "skills", "deploy", "# user deploy\nuser version\n")
+    repo = tmp_path / "repo"
+    cwd = repo / "services" / "api"
+    cwd.mkdir(parents=True)
+    (repo / ".git").mkdir()
+    _write_skill(repo / ".claude" / "skills", "deploy", "# root deploy\nroot version\n")
+    _write_skill(cwd / ".claude" / "skills", "deploy", "# api deploy\napi version\n")
+
+    registry = load_skill_registry(cwd, settings=Settings())
+    skill = registry.get("deploy")
+
+    assert skill is not None
+    assert skill.source == "project"
+    assert "api version" in skill.content
+
+
+def test_unsafe_project_skill_dirs_are_ignored(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    escaped = tmp_path / "escaped" / "skills"
+    escaped.mkdir(parents=True)
+
+    dirs = discover_project_skill_dirs(repo, ["../escaped/skills", str(escaped), ".claude/skills"])
+
+    assert escaped.resolve() not in dirs
 
 
 # --- parse_skill_markdown unit tests ---
