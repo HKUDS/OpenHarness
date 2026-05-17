@@ -15,6 +15,7 @@ from openharness.coordinator.coordinator_mode import get_coordinator_system_prom
 from openharness.memory import load_memory_prompt
 from openharness.memory.relevance import format_relevant_memories, select_relevant_memories
 from openharness.memory.usage import mark_memory_used
+from openharness.permissions.modes import PermissionMode
 from openharness.personalization.rules import load_local_rules
 from openharness.prompts.claudemd import load_claude_md_prompt
 from openharness.prompts.system_prompt import build_system_prompt
@@ -97,6 +98,16 @@ def build_runtime_system_prompt(
     if settings.fast_mode:
         sections.append(
             "# Session Mode\nFast mode is enabled. Prefer concise replies, minimal tool use, and quicker progress over exhaustive exploration."
+        )
+
+    if settings.permission.mode == PermissionMode.PLAN:
+        sections.append(
+            "# Session Mode\n"
+            "Plan mode is active. You are in a read-only analysis and design phase. "
+            "Do NOT call mutating tools (write_file, edit_file, bash, etc.). "
+            "Instead: read code, explore the codebase, analyze the problem, "
+            "and present a detailed implementation plan to the user. "
+            "The user will exit plan mode when they are ready for you to implement."
         )
 
     sections.append(
