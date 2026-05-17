@@ -13,6 +13,7 @@ from openharness.config.paths import (
 from openharness.config.settings import Settings
 from openharness.coordinator.coordinator_mode import get_coordinator_system_prompt, is_coordinator_mode
 from openharness.memory import find_relevant_memories, load_memory_prompt
+from openharness.memory.usage import mark_memory_used
 from openharness.personalization.rules import load_local_rules
 from openharness.prompts.claudemd import load_claude_md_prompt
 from openharness.prompts.system_prompt import build_system_prompt
@@ -149,6 +150,10 @@ def build_runtime_system_prompt(
                 max_results=settings.memory.max_files,
             )
             if relevant:
+                try:
+                    mark_memory_used(cwd, relevant, memory_dir=relevant[0].path.parent)
+                except OSError:
+                    pass
                 lines = ["# Relevant Memories"]
                 for header in relevant:
                     content = header.path.read_text(encoding="utf-8", errors="replace").strip()

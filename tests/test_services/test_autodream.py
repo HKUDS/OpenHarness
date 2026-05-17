@@ -128,6 +128,26 @@ async def test_start_dream_now_uses_overrides(tmp_path: Path, monkeypatch) -> No
     memory_dir.mkdir(parents=True)
     session_dir.mkdir(parents=True)
     (session_dir / "session-one.json").write_text(json.dumps({"session_id": "one"}), encoding="utf-8")
+    (memory_dir / "old.md").write_text(
+        "---\n"
+        "schema_version: 1\n"
+        "id: \"mem-old\"\n"
+        "name: \"old\"\n"
+        "description: \"old note\"\n"
+        "type: \"project\"\n"
+        "category: \"knowledge\"\n"
+        "importance: 0\n"
+        "source: \"test\"\n"
+        "signature: \"sig-old\"\n"
+        "created_at: \"2020-01-01T00:00:00Z\"\n"
+        "updated_at: \"2020-01-01T00:00:00Z\"\n"
+        "ttl_days: null\n"
+        "disabled: false\n"
+        "supersedes: []\n"
+        "---\n\n"
+        "Old content.\n",
+        encoding="utf-8",
+    )
 
     captured = {}
 
@@ -170,3 +190,5 @@ async def test_start_dream_now_uses_overrides(tmp_path: Path, monkeypatch) -> No
     assert captured["argv"][:3][-1] == "ohmo"
     assert "--workspace" in captured["argv"]
     assert "--dangerously-skip-permissions" not in captured["argv"]
+    assert "Usage-based stale candidates:" in task.prompt
+    assert "old.md" in task.prompt

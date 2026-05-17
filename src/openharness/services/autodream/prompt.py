@@ -60,6 +60,9 @@ Use these categories:
 - Create at most 2 new markdown files in one dream.
 - If a topic is transient, prefer `recent_work.md` or an existing status file over a new topic file.
 - Do not move personal/business context into project memory; keep sensitive personal context in personal memory only.
+- Every top-level memory file must include schema-v1 frontmatter with:
+  `schema_version`, `id`, `name`, `description`, `type`, `category`, `importance`, `source`,
+  `signature`, `created_at`, `updated_at`, `ttl_days`, `disabled`, and `supersedes`.
 
 ---
 
@@ -96,6 +99,8 @@ Update `{ENTRYPOINT_NAME}` so it stays under {MAX_ENTRYPOINT_LINES} lines and re
 
 - Each entry should be one concise line: `- [Title](file.md): one-line hook`.
 - Remove pointers to memories that are stale, wrong, or superseded.
+- For stale, wrong, or superseded memory files, set `disabled: true`; do not delete files.
+- Treat usage-based stale candidates as review candidates, not automatic deletion instructions.
 - Add pointers to newly important memories.
 - Resolve contradictions if multiple files disagree.
 

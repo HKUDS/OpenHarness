@@ -5,12 +5,16 @@ from __future__ import annotations
 from pathlib import Path
 
 from openharness.memory import (
+    add_memory_entry,
     find_relevant_memories,
     get_memory_entrypoint,
     get_project_memory_dir,
     load_memory_prompt,
+    migrate_memory,
+    remove_memory_entry,
 )
 from openharness.memory.scan import _parse_memory_file, scan_memory_files
+from openharness.memory.usage import find_stale_memory_candidates, load_usage_index, mark_memory_used
 
 
 def test_memory_paths_are_stable(tmp_path: Path, monkeypatch):
@@ -51,6 +55,103 @@ def test_find_relevant_memories(tmp_path: Path, monkeypatch):
 
     assert matches
     assert matches[0].path.name == "pytest_tips.md"
+
+
+def test_add_memory_entry_writes_schema_and_dedupes(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("OPENHARNESS_DATA_DIR", str(tmp_path / "data"))
+    project_dir = tmp_path / "repo"
+    project_dir.mkdir()
+
+    first = add_memory_entry(project_dir, "Pytest Tips", "Use fixtures for setup.")
+    second = add_memory_entry(project_dir, "Pytest Tips Copy", "Use fixtures for setup.")
+
+    assert second == first
+    headers = scan_memory_files(project_dir)
+    assert len(headers) == 1
+    assert headers[0].id.startswith("mem-")
+    assert headers[0].schema_version == 1
+    assert headers[0].source == "manual"
+    assert headers[0].importance == 1
+    assert headers[0].signature
+
+
+def test_remove_memory_entry_soft_deletes_and_hides_entry(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("OPENHARNESS_DATA_DIR", str(tmp_path / "data"))
+    project_dir = tmp_path / "repo"
+    project_dir.mkdir()
+
+    path = add_memory_entry(project_dir, "Remove Me", "temporary note")
+
+    assert remove_memory_entry(project_dir, "remove_me") is True
+    assert path.exists()
+    assert scan_memory_files(project_dir) == []
+    headers = scan_memory_files(project_dir, include_disabled=True)
+    assert len(headers) == 1
+    assert headers[0].disabled is True
+
+
+def test_migrate_memory_backfills_schema(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("OPENHARNESS_DATA_DIR", str(tmp_path / "data"))
+    project_dir = tmp_path / "repo"
+    project_dir.mkdir()
+    memory_dir = get_project_memory_dir(project_dir)
+    legacy = memory_dir / "legacy.md"
+    legacy.write_text("Legacy deployment note.\n", encoding="utf-8")
+
+    dry_run = migrate_memory(project_dir, apply=False)
+
+    assert dry_run.dry_run is True
+    assert dry_run.changed == 1
+    assert "schema_version" not in legacy.read_text(encoding="utf-8")
+
+    applied = migrate_memory(project_dir, apply=True)
+
+    assert applied.dry_run is False
+    assert applied.changed == 1
+    assert applied.backup_dir
+    migrated = legacy.read_text(encoding="utf-8")
+    assert "schema_version: 1" in migrated
+    assert "source: \"migration\"" in migrated
+    assert "Legacy deployment note." in migrated
+
+    rerun = migrate_memory(project_dir, apply=False)
+    assert rerun.changed == 0
+
+
+def test_usage_index_marks_recalled_memories_and_stale_candidates(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("OPENHARNESS_DATA_DIR", str(tmp_path / "data"))
+    project_dir = tmp_path / "repo"
+    project_dir.mkdir()
+    memory_dir = get_project_memory_dir(project_dir)
+    (memory_dir / "old.md").write_text(
+        "---\n"
+        "schema_version: 1\n"
+        "id: \"mem-old\"\n"
+        "name: \"old\"\n"
+        "description: \"old note\"\n"
+        "type: \"project\"\n"
+        "category: \"knowledge\"\n"
+        "importance: 1\n"
+        "source: \"test\"\n"
+        "signature: \"sig-old\"\n"
+        "created_at: \"2020-01-01T00:00:00Z\"\n"
+        "updated_at: \"2020-01-01T00:00:00Z\"\n"
+        "ttl_days: null\n"
+        "disabled: false\n"
+        "supersedes: []\n"
+        "---\n\n"
+        "Old content.\n",
+        encoding="utf-8",
+    )
+    header = scan_memory_files(project_dir)[0]
+
+    assert [item.id for item in find_stale_memory_candidates(project_dir)] == ["mem-old"]
+
+    mark_memory_used(project_dir, [header])
+    index = load_usage_index(project_dir)
+
+    assert index["memories"]["mem-old"]["use_count"] == 1
+    assert find_stale_memory_candidates(project_dir) == []
 
 
 # --- Frontmatter parsing tests ---
