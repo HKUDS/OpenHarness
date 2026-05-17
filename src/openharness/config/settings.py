@@ -63,8 +63,12 @@ class MemorySettings(BaseModel):
     enabled: bool = True
     max_files: int = 5
     max_entrypoint_lines: int = 200
+    max_entrypoint_bytes: int = 25_000
     context_window_tokens: int | None = None
     auto_compact_threshold_tokens: int | None = None
+    auto_extract_enabled: bool = False
+    auto_extract_max_records: int = 3
+    session_memory_enabled: bool = True
     auto_dream_enabled: bool = False
     auto_dream_min_hours: float = 24.0
     auto_dream_min_sessions: int = 5

@@ -890,6 +890,28 @@ def _build_session_memory_message(messages: list[ConversationMessage]) -> Conver
     )
 
 
+def _build_file_session_memory_message(metadata: dict[str, Any] | None) -> ConversationMessage | None:
+    """Build a compaction message from the persisted session-memory file."""
+
+    if not metadata:
+        return None
+    path = metadata.get("session_memory_path")
+    if not path:
+        return None
+    try:
+        from openharness.services.session_memory import (
+            get_session_memory_content,
+            session_memory_to_compact_text,
+        )
+
+        text = session_memory_to_compact_text(get_session_memory_content(str(path)))
+    except Exception:
+        return None
+    if not text.strip():
+        return None
+    return ConversationMessage.from_user_text(text)
+
+
 def try_session_memory_compaction(
     messages: list[ConversationMessage],
     *,
@@ -901,7 +923,8 @@ def try_session_memory_compaction(
     if len(messages) <= preserve_recent + 4:
         return None
     older, newer = _split_preserving_tool_pairs(messages, preserve_recent=preserve_recent)
-    summary_message = _build_session_memory_message(older)
+    file_summary_message = _build_file_session_memory_message(metadata)
+    summary_message = file_summary_message or _build_session_memory_message(older)
     if summary_message is None:
         return None
     provisional = [summary_message, *newer]
@@ -917,6 +940,7 @@ def try_session_memory_compaction(
         "pre_compact_token_count": estimate_message_tokens(messages),
         "preserve_recent": preserve_recent,
         "used_session_memory": True,
+        "used_file_session_memory": file_summary_message is not None,
         "pre_compact_discovered_tools": _extract_discovered_tools(older),
         "attachments": _extract_attachment_paths(older),
     }

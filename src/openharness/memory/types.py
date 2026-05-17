@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -27,3 +28,6 @@ class MemoryHeader:
     ttl_days: int | None = None
     disabled: bool = False
     supersedes: tuple[str, ...] = ()
+    relative_path: str = ""
+    tags: tuple[str, ...] = field(default_factory=tuple)
+    frontmatter: dict[str, Any] = field(default_factory=dict)

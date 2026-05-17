@@ -7,13 +7,27 @@ import json
 import re
 import secrets
 import string
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
 
 SCHEMA_VERSION = 1
+
+MemoryType = Literal["user", "feedback", "project", "reference"]
+MemoryScope = Literal["private", "project", "team"]
+
+MEMORY_TYPES: tuple[MemoryType, ...] = ("user", "feedback", "project", "reference")
+MEMORY_SCOPES: tuple[MemoryScope, ...] = ("private", "project", "team")
+
+DEFAULT_MEMORY_TYPE: MemoryType = "project"
+DEFAULT_MEMORY_SCOPE: MemoryScope = "project"
+
+MAX_ENTRYPOINT_LINES = 200
+MAX_ENTRYPOINT_BYTES = 25_000
+MAX_MANIFEST_FILES = 200
 
 FRONTMATTER_FIELDS = (
     "schema_version",
@@ -21,6 +35,7 @@ FRONTMATTER_FIELDS = (
     "name",
     "description",
     "type",
+    "scope",
     "category",
     "importance",
     "source",
@@ -30,7 +45,17 @@ FRONTMATTER_FIELDS = (
     "ttl_days",
     "disabled",
     "supersedes",
+    "tags",
 )
+
+
+@dataclass(frozen=True)
+class EntrypointView:
+    """A bounded view of ``MEMORY.md`` plus truncation diagnostics."""
+
+    content: str
+    was_truncated: bool
+    reason: str = ""
 
 
 def utc_now() -> datetime:
@@ -81,6 +106,121 @@ def compute_memory_signature(content: str, memory_type: str, category: str) -> s
     normalized = normalize_memory_content(content)
     payload = f"{normalized}|{memory_type.strip().lower()}|{category.strip().lower()}"
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def parse_memory_type(raw: Any, *, default: MemoryType | None = None) -> MemoryType | None:
+    """Parse a frontmatter ``type`` value into the canonical runtime taxonomy."""
+
+    if isinstance(raw, str):
+        value = raw.strip().lower()
+        if value in MEMORY_TYPES:
+            return value  # type: ignore[return-value]
+        if value in {"note", "memory", "core", "knowledge"}:
+            return default
+    return default
+
+
+def parse_memory_scope(raw: Any, *, default: MemoryScope | None = None) -> MemoryScope | None:
+    """Parse a frontmatter ``scope`` value into the canonical scope taxonomy."""
+
+    if isinstance(raw, str):
+        value = raw.strip().lower()
+        if value in MEMORY_SCOPES:
+            return value  # type: ignore[return-value]
+        if value in {"personal", "user"}:
+            return "private"
+        if value in {"shared"}:
+            return "team"
+    return default
+
+
+def truncate_entrypoint_content(
+    raw: str,
+    *,
+    max_lines: int = MAX_ENTRYPOINT_LINES,
+    max_bytes: int = MAX_ENTRYPOINT_BYTES,
+) -> EntrypointView:
+    """Bound ``MEMORY.md`` by line count and UTF-8 byte count."""
+
+    lines = raw.splitlines()
+    was_line_truncated = len(lines) > max_lines
+    text = "\n".join(lines[:max_lines])
+    encoded = text.encode("utf-8")
+    was_byte_truncated = len(encoded) > max_bytes
+    if was_byte_truncated:
+        encoded = encoded[:max_bytes]
+        text = encoded.decode("utf-8", errors="ignore")
+        cut_at = text.rfind("\n")
+        if cut_at > 0:
+            text = text[:cut_at]
+    if raw.endswith("\n") and not text.endswith("\n"):
+        text += "\n"
+    if not was_line_truncated and not was_byte_truncated:
+        return EntrypointView(content=text, was_truncated=False)
+    reason = (
+        f"{len(raw.encode('utf-8'))} bytes (limit: {max_bytes})"
+        if was_byte_truncated
+        else f"{len(lines)} lines (limit: {max_lines})"
+    )
+    warning = (
+        f"\n\n> WARNING: MEMORY.md is {reason}. Only part of it was loaded. "
+        "Keep index entries one line and move detail into topic notes.\n"
+    )
+    return EntrypointView(content=text.rstrip() + warning, was_truncated=True, reason=reason)
+
+
+def memory_age_days(mtime: float, *, now: float | None = None) -> int:
+    """Return floor-rounded days elapsed since a file modification time."""
+
+    import time
+
+    current = time.time() if now is None else now
+    return max(0, int((current - mtime) // 86_400))
+
+
+def memory_age_label(mtime: float, *, now: float | None = None) -> str:
+    """Return a model-friendly age label."""
+
+    days = memory_age_days(mtime, now=now)
+    if days == 0:
+        return "today"
+    if days == 1:
+        return "yesterday"
+    return f"{days} days ago"
+
+
+def memory_freshness_text(mtime: float, *, now: float | None = None) -> str:
+    """Return a staleness warning for older memories."""
+
+    days = memory_age_days(mtime, now=now)
+    if days <= 1:
+        return ""
+    return (
+        f"This memory is {days} days old. Memories are point-in-time observations; "
+        "verify claims against the current project state before treating them as facts."
+    )
+
+
+def path_is_relative_to(path: str | Path, root: str | Path) -> bool:
+    """Compatibility helper for containment checks."""
+
+    try:
+        Path(path).resolve().relative_to(Path(root).resolve())
+    except ValueError:
+        return False
+    return True
+
+
+MEMORY_POLICY_LINES: tuple[str, ...] = (
+    "## Durable memory policy",
+    "- Store durable memory only when the information is not cheaply derivable from current files, docs, git history, or tool output.",
+    "- Use `type: user|feedback|project|reference` and optional `scope: private|project|team` frontmatter.",
+    "- `MEMORY.md` is an index, not a memory body. Keep each pointer one line.",
+    "- Update or remove stale contradictions instead of duplicating notes.",
+    "- If the user says to ignore memory, proceed as if no memory was loaded and do not cite, apply, or mention memory contents.",
+    "- Memory can be stale. Verify remembered project/code state against current files before acting on it.",
+    "- Do not save secrets, credentials, private personal context in team memory, or temporary task chatter.",
+)
 
 
 def generate_memory_id(now: datetime | None = None) -> str:

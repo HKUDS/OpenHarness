@@ -7,10 +7,12 @@ from openharness.memory.paths import get_memory_entrypoint, get_project_memory_d
 from openharness.memory.scan import scan_memory_files
 from openharness.memory.search import find_relevant_memories
 from openharness.memory.usage import mark_memory_used
+from openharness.memory.relevance import format_relevant_memories, select_relevant_memories
 
 __all__ = [
     "add_memory_entry",
     "find_relevant_memories",
+    "format_relevant_memories",
     "get_memory_entrypoint",
     "get_project_memory_dir",
     "list_memory_files",
@@ -19,4 +21,5 @@ __all__ = [
     "migrate_memory",
     "remove_memory_entry",
     "scan_memory_files",
+    "select_relevant_memories",
 ]

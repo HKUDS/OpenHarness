@@ -8,6 +8,10 @@ from re import sub
 from openharness.memory.paths import get_memory_entrypoint, get_project_memory_dir
 from openharness.memory.scan import scan_memory_files
 from openharness.memory.schema import (
+    DEFAULT_MEMORY_SCOPE,
+    DEFAULT_MEMORY_TYPE,
+    MemoryScope,
+    MemoryType,
     SCHEMA_VERSION,
     compute_memory_signature,
     first_content_line,
@@ -32,12 +36,28 @@ def list_memory_files(cwd: str | Path) -> list[Path]:
     return sorted(header.path for header in scan_memory_files(cwd, max_files=None))
 
 
-def add_memory_entry(cwd: str | Path, title: str, content: str) -> Path:
+def add_memory_entry(
+    cwd: str | Path,
+    title: str,
+    content: str,
+    *,
+    memory_type: MemoryType = DEFAULT_MEMORY_TYPE,
+    scope: MemoryScope = DEFAULT_MEMORY_SCOPE,
+    description: str = "",
+    tags: tuple[str, ...] = (),
+) -> Path:
     """Create or refresh a memory file and append it to MEMORY.md."""
-    memory_dir = get_project_memory_dir(cwd)
+    if scope == "team":
+        from openharness.memory.team import check_team_memory_secrets, ensure_team_memory_vault
+
+        secret_error = check_team_memory_secrets(content)
+        if secret_error:
+            raise ValueError(secret_error)
+        memory_dir = ensure_team_memory_vault(cwd)
+    else:
+        memory_dir = get_project_memory_dir(cwd)
     slug = sub(r"[^a-zA-Z0-9]+", "_", title.strip().lower()).strip("_") or "memory"
-    with exclusive_file_lock(_memory_lock_path(cwd)):
-        memory_type = "project"
+    with exclusive_file_lock(memory_dir / ".memory.lock"):
         category = "knowledge"
         body = content.strip() + "\n"
         signature = compute_memory_signature(body, memory_type, category)
@@ -46,6 +66,7 @@ def add_memory_entry(cwd: str | Path, title: str, content: str) -> Path:
             max_files=None,
             include_disabled=True,
             include_expired=True,
+            memory_dir=memory_dir,
         )
         duplicate = next(
             (header for header in existing if _effective_signature(header.path, header.signature) == signature),
@@ -75,8 +96,9 @@ def add_memory_entry(cwd: str | Path, title: str, content: str) -> Path:
                 "schema_version": SCHEMA_VERSION,
                 "id": memory_id,
                 "name": title.strip(),
-                "description": first_content_line(body) or title.strip(),
+                "description": description.strip() or first_content_line(body) or title.strip(),
                 "type": str(metadata.get("type") or memory_type),
+                "scope": str(metadata.get("scope") or scope),
                 "category": str(metadata.get("category") or category),
                 "importance": max(coerce_int(metadata.get("importance"), default=0), 1),
                 "source": "manual",
@@ -86,11 +108,12 @@ def add_memory_entry(cwd: str | Path, title: str, content: str) -> Path:
                 "ttl_days": metadata.get("ttl_days"),
                 "disabled": False,
                 "supersedes": metadata.get("supersedes") or [],
+                "tags": list(dict.fromkeys(str(tag).strip() for tag in tags if str(tag).strip())),
             }
         )
         atomic_write_text(path, render_memory_file(metadata, body))
 
-        entrypoint = get_memory_entrypoint(cwd)
+        entrypoint = memory_dir / "MEMORY.md"
         index_text = entrypoint.read_text(encoding="utf-8") if entrypoint.exists() else "# Memory Index\n"
         if path.name not in index_text:
             index_text = index_text.rstrip() + f"\n- [{title}]({path.name})\n"

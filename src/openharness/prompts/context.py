@@ -12,7 +12,8 @@ from openharness.config.paths import (
 )
 from openharness.config.settings import Settings
 from openharness.coordinator.coordinator_mode import get_coordinator_system_prompt, is_coordinator_mode
-from openharness.memory import find_relevant_memories, load_memory_prompt
+from openharness.memory import load_memory_prompt
+from openharness.memory.relevance import format_relevant_memories, select_relevant_memories
 from openharness.memory.usage import mark_memory_used
 from openharness.personalization.rules import load_local_rules
 from openharness.prompts.claudemd import load_claude_md_prompt
@@ -139,33 +140,23 @@ def build_runtime_system_prompt(
         memory_section = load_memory_prompt(
             cwd,
             max_entrypoint_lines=settings.memory.max_entrypoint_lines,
+            max_entrypoint_bytes=settings.memory.max_entrypoint_bytes,
         )
         if memory_section:
             sections.append(memory_section)
 
         if latest_user_prompt:
-            relevant = find_relevant_memories(
+            relevant = select_relevant_memories(
                 latest_user_prompt,
                 cwd,
                 max_results=settings.memory.max_files,
             )
             if relevant:
                 try:
-                    mark_memory_used(cwd, relevant, memory_dir=relevant[0].path.parent)
+                    headers = [item.header for item in relevant]
+                    mark_memory_used(cwd, headers, memory_dir=headers[0].path.parent)
                 except OSError:
                     pass
-                lines = ["# Relevant Memories"]
-                for header in relevant:
-                    content = header.path.read_text(encoding="utf-8", errors="replace").strip()
-                    lines.extend(
-                        [
-                            "",
-                            f"## {header.path.name}",
-                            "```md",
-                            content[:8000],
-                            "```",
-                        ]
-                    )
-                sections.append("\n".join(lines))
+                sections.append(format_relevant_memories(relevant))
 
     return "\n\n".join(section for section in sections if section.strip())

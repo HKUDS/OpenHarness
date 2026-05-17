@@ -102,6 +102,9 @@ def _parse_memory_file(path: Path, content: str) -> MemoryHeader:
         ttl_days=coerce_optional_int(metadata.get("ttl_days")),
         disabled=coerce_bool(metadata.get("disabled"), default=False),
         supersedes=coerce_str_list(metadata.get("supersedes")),
+        relative_path=path.name,
+        tags=coerce_str_list(metadata.get("tags")),
+        frontmatter=metadata,
     )
 
 

@@ -152,6 +152,63 @@ class QueryEngine:
             **kwargs,
         )
 
+    def _prepare_session_memory(self) -> None:
+        """Expose file-backed session memory to compaction when enabled."""
+
+        if self._settings is None or not self._settings.memory.session_memory_enabled:
+            return
+        if not self._settings.memory.enabled:
+            return
+        from openharness.services.session_memory import prepare_session_memory_metadata
+
+        prepare_session_memory_metadata(
+            self._cwd,
+            self._tool_metadata,
+            session_id=str(self._tool_metadata.get("session_id") or "default"),
+        )
+
+    async def _update_session_memory(self) -> None:
+        """Persist a session checkpoint after a user turn."""
+
+        if self._settings is None or not self._settings.memory.session_memory_enabled:
+            return
+        if not self._settings.memory.enabled:
+            return
+        from openharness.services.session_memory import update_session_memory_file
+
+        update_session_memory_file(
+            self._cwd,
+            list(self._messages),
+            tool_metadata=self._tool_metadata,
+            session_id=str(self._tool_metadata.get("session_id") or "default"),
+        )
+
+    async def _extract_durable_memories(self) -> None:
+        """Run the optional durable memory extraction pass."""
+
+        if self._settings is None or not self._settings.memory.auto_extract_enabled:
+            return
+        if not self._settings.memory.enabled:
+            return
+        from openharness.services.memory_extract import extract_memories_from_turn
+
+        try:
+            result = await extract_memories_from_turn(
+                cwd=self._cwd,
+                api_client=self._api_client,
+                model=self._model,
+                messages=list(self._messages),
+                max_records=self._settings.memory.auto_extract_max_records,
+            )
+        except Exception as exc:
+            self._tool_metadata["memory_extract_last_error"] = str(exc)
+            return
+        self._tool_metadata["memory_extract_last"] = {
+            "skipped": result.skipped,
+            "reason": result.reason,
+            "written_paths": [str(path) for path in result.written_paths],
+        }
+
     def has_pending_continuation(self) -> bool:
         """Return True when the conversation ends with tool results awaiting a follow-up model turn."""
         if not self._messages:
@@ -176,6 +233,7 @@ class QueryEngine:
         )
         if user_message.text.strip() and not self._tool_metadata.pop("_suppress_next_user_goal", False):
             remember_user_goal(self._tool_metadata, user_message.text)
+        self._prepare_session_memory()
         self._messages = sanitize_conversation_messages(self._messages)
         self._messages.append(user_message)
         if self._hook_executor is not None:
@@ -215,10 +273,13 @@ class QueryEngine:
                     self._cost_tracker.add(usage)
                 yield event
         finally:
+            await self._update_session_memory()
+            await self._extract_durable_memories()
             self._schedule_auto_dream()
 
     async def continue_pending(self, *, max_turns: int | None = None) -> AsyncIterator[StreamEvent]:
         """Continue an interrupted tool loop without appending a new user message."""
+        self._prepare_session_memory()
         self._messages = sanitize_conversation_messages(self._messages)
         context = QueryContext(
             api_client=self._api_client,
@@ -241,3 +302,5 @@ class QueryEngine:
             if usage is not None:
                 self._cost_tracker.add(usage)
             yield event
+        await self._update_session_memory()
+        await self._extract_durable_memories()
