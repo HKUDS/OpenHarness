@@ -181,6 +181,8 @@ def create_memory_command_backend(workspace: str | Path | None = None) -> Memory
 
     return MemoryCommandBackend(
         label="ohmo personal memory",
+        default_type="personal",
+        default_category="preference",
         get_memory_dir=lambda: get_memory_dir(workspace),
         get_entrypoint=lambda: get_memory_index_path(workspace),
         list_files=lambda: list_memory_files(workspace),

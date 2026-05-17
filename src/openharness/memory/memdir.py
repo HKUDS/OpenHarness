@@ -14,7 +14,7 @@ def load_memory_prompt(cwd: str | Path, *, max_entrypoint_lines: int = 200) -> s
     lines = [
         "# Memory",
         f"- Persistent memory directory: {memory_dir}",
-        "- Use this directory to store durable user or project context that should survive future sessions.",
+        "- Use this directory to store durable project and repository context that should survive future sessions.",
         "- Prefer concise topic files plus an index entry in MEMORY.md.",
     ]
 

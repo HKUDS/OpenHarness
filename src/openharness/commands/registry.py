@@ -92,6 +92,8 @@ class MemoryCommandBackend:
     """Storage backend used by the generic ``/memory`` slash command."""
 
     label: str
+    default_type: str
+    default_category: str
     get_memory_dir: Callable[[], Path]
     get_entrypoint: Callable[[], Path]
     list_files: Callable[[], list[Path]]
@@ -674,8 +676,8 @@ def create_default_command_registry(
             summary = migrate_memory(
                 context.cwd,
                 memory_dir=backend.get_memory_dir(),
-                default_type="personal" if "ohmo" in backend.label.lower() else "project",
-                default_category="preference" if "ohmo" in backend.label.lower() else "knowledge",
+                default_type=backend.default_type,
+                default_category=backend.default_category,
                 apply=rest == "--apply",
             )
             mode = "dry run" if summary.dry_run else "applied"
@@ -2508,6 +2510,8 @@ def _memory_backend_for_context(context: CommandContext) -> MemoryCommandBackend
     cwd = context.cwd
     return MemoryCommandBackend(
         label="OpenHarness project memory",
+        default_type="project",
+        default_category="knowledge",
         get_memory_dir=lambda: get_project_memory_dir(cwd),
         get_entrypoint=lambda: get_memory_entrypoint(cwd),
         list_files=lambda: list_memory_files(cwd),
