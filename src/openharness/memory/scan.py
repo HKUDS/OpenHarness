@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from openharness.memory.paths import get_project_memory_dir
@@ -15,6 +16,18 @@ from openharness.memory.schema import (
     split_memory_file,
 )
 from openharness.memory.types import MemoryHeader
+
+
+def parse_memory_index_titles(index_path: Path) -> dict[str, str]:
+    """Parse MEMORY.md to get {filename: title} mapping from markdown links."""
+    titles: dict[str, str] = {}
+    if not index_path.exists():
+        return titles
+    for line in index_path.read_text(encoding="utf-8").splitlines():
+        m = re.match(r"- \[(.+?)\]\((.+?)\)", line)
+        if m:
+            titles[m.group(2)] = m.group(1)
+    return titles
 
 
 def scan_memory_files(
@@ -35,11 +48,13 @@ def scan_memory_files(
             text = path.read_text(encoding="utf-8")
         except OSError:
             continue
-        header = _parse_memory_file(path, text)
+
+        header = parse_memory_file(path, text)
         if header.disabled and not include_disabled:
             continue
         if is_memory_expired(_metadata_from_header(header)) and not include_expired:
             continue
+
         headers.append(header)
     headers.sort(key=lambda item: item.modified_at, reverse=True)
     if max_files is None:
@@ -47,7 +62,7 @@ def scan_memory_files(
     return headers[:max_files]
 
 
-def _parse_memory_file(path: Path, content: str) -> MemoryHeader:
+def parse_memory_file(path: Path, content: str) -> MemoryHeader:
     """Parse a memory file, extracting YAML frontmatter when present."""
     metadata, body, _, _ = split_memory_file(content)
     lines = body.splitlines()
