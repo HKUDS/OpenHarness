@@ -128,3 +128,7 @@ class CopilotClient:
         )
         async for event in self._inner.stream_message(patched):
             yield event
+
+    async def close(self) -> None:
+        """Close the underlying OpenAI-compatible client."""
+        await self._inner.close()
