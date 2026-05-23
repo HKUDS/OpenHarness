@@ -322,7 +322,10 @@ def test_powershell_image_found(tmp_path: Path):
             return_value=fake_ps,
         ),
         mock.patch("tempfile.mkstemp", return_value=(999, str(tmp_file))),
-        mock.patch(_subprocess.__name__ + ".run", return_value=fake_result),
+        mock.patch(
+            "openharness.tools.clipboard_screenshot_tool.subprocess.run",
+            return_value=fake_result,
+        ),
         mock.patch("os.close"),  # suppress OSError from fd=999 on Linux
     ):
         result = ClipboardScreenshotTool._read_clipboard_powershell()
