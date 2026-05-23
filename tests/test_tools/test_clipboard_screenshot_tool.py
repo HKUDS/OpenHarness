@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import base64
 import io
-import subprocess
 from pathlib import Path
 from unittest import mock
 
@@ -52,7 +51,6 @@ def test_tool_name_and_description():
 
 
 def test_input_model_is_pydantic():
-    tool = ClipboardScreenshotTool()
     inp = ClipboardScreenshotToolInput()
     assert inp.output_format == "base64"
     assert inp.save_path is None
@@ -313,17 +311,20 @@ def test_powershell_image_found(tmp_path: Path):
 
     fake_ps = Path(r"C:\fake\powershell.exe")
 
+    fake_result = mock.MagicMock()
+    fake_result.stdout = "OK"
+    fake_result.stderr = ""
+    fake_result.returncode = 0
+
     with (
         mock.patch(
             "openharness.tools.clipboard_screenshot_tool._find_windows_powershell",
             return_value=fake_ps,
         ),
         mock.patch("tempfile.mkstemp", return_value=(999, str(tmp_file))),
-        mock.patch("subprocess.run") as mock_run,
+        mock.patch("subprocess.run", return_value=fake_result),
+        mock.patch("os.close"),  # suppress OSError from fd=999 on Linux
     ):
-        mock_run.return_value = mock.MagicMock(
-            stdout="OK", stderr="", returncode=0
-        )
         result = ClipboardScreenshotTool._read_clipboard_powershell()
 
     assert result == png
