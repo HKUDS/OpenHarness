@@ -22,13 +22,18 @@ from openharness.tools.clipboard_screenshot_tool import (
 # ---------------------------------------------------------------------------
 
 def _fake_png_bytes() -> bytes:
-    """Return valid minimal PNG bytes for testing."""
-    from PIL import Image  # type: ignore[import-untyped]
+    """Return valid minimal PNG bytes for testing. Skip if Pillow not installed."""
+    try:
+        from PIL import Image as _Image  # type: ignore[import-untyped]
+        import io as _io
 
-    buf = io.BytesIO()
-    img = Image.new("RGB", (10, 10), color="red")
-    img.save(buf, format="PNG")
-    return buf.getvalue()
+        buf = _io.BytesIO()
+        img = _Image.new("RGB", (10, 10), color="red")
+        img.save(buf, format="PNG")
+        return buf.getvalue()
+    except ImportError:
+        pytest.skip("Pillow not installed")
+
 
 
 def _make_ctx(cwd: Path | None = None) -> ToolExecutionContext:
