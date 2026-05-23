@@ -305,16 +305,17 @@ def test_powershell_no_image_in_clipboard():
 
 def test_powershell_image_found(tmp_path: Path):
     """When clipboard has an image, PowerShell saves it and we read it."""
+    import subprocess as _subprocess
+
     png = _fake_png_bytes()
     tmp_file = tmp_path / "test_clip.png"
     tmp_file.write_bytes(png)
 
     fake_ps = Path(r"C:\fake\powershell.exe")
 
-    fake_result = mock.MagicMock()
-    fake_result.stdout = "OK"
-    fake_result.stderr = ""
-    fake_result.returncode = 0
+    fake_result = _subprocess.CompletedProcess(
+        args=[], returncode=0, stdout="OK", stderr=""
+    )
 
     with (
         mock.patch(
@@ -322,7 +323,7 @@ def test_powershell_image_found(tmp_path: Path):
             return_value=fake_ps,
         ),
         mock.patch("tempfile.mkstemp", return_value=(999, str(tmp_file))),
-        mock.patch("subprocess.run", return_value=fake_result),
+        mock.patch(_subprocess.__name__ + ".run", return_value=fake_result),
         mock.patch("os.close"),  # suppress OSError from fd=999 on Linux
     ):
         result = ClipboardScreenshotTool._read_clipboard_powershell()
