@@ -255,7 +255,13 @@ class ClipboardScreenshotTool(BaseTool):
 
             stdout = result.stdout.strip() if result.stdout else ""
             if stdout == "OK" and tmp_path.exists() and tmp_path.stat().st_size > 0:
-                return tmp_path.read_bytes()
+                image_data = tmp_path.read_bytes()
+                try:
+                    tmp_path.unlink(missing_ok=True)
+                except Exception:
+                    pass
+                tmp_path = None  # prevent double-unlink in finally
+                return image_data
 
             if stdout == "NO_IMAGE":
                 log.debug("PowerShell: clipboard contains no image")
