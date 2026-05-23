@@ -5,6 +5,7 @@ from openharness.tools.agent_tool import AgentTool
 from openharness.tools.bash_tool import BashTool
 from openharness.tools.base import BaseTool, ToolExecutionContext, ToolRegistry, ToolResult
 from openharness.tools.brief_tool import BriefTool
+from openharness.tools.clipboard_screenshot_tool import ClipboardScreenshotTool
 from openharness.tools.config_tool import ConfigTool
 from openharness.tools.cron_create_tool import CronCreateTool
 from openharness.tools.cron_delete_tool import CronDeleteTool
@@ -50,6 +51,7 @@ def create_default_tool_registry(mcp_manager=None) -> ToolRegistry:
     registry = ToolRegistry()
     for tool in (
         BashTool(),
+        ClipboardScreenshotTool(),
         AskUserQuestionTool(),
         FileReadTool(),
         FileWriteTool(),

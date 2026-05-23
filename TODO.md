@@ -7,3 +7,6 @@
 - [x] [runtime.py] 在 refresh_runtime_client() 中重建 system prompt — 已完成
 - [x] [runtime.py] 可用性验证 — RuntimeBundle 所有必要属性均已存在 — 已完成
 - [x] [测试] 编写/验证测试用例 — 所有 prompt 相关测试通过，权限模式切换逻辑验证通过
+- [x] 创建 clipboard_screenshot_tool.py 工具实现
+- [x] 在 __init__.py 中注册新工具
+- [x] 创建单元测试 test_clipboard_screenshot_tool.py
