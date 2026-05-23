@@ -304,9 +304,15 @@ def test_powershell_no_image_in_clipboard():
 
 def test_powershell_image_found(tmp_path: Path):
     """When PowerShell saves an image to a temp file, we read it back."""
+    import logging
+    logging.basicConfig(level=logging.DEBUG)
+
     png = _fake_png_bytes()
     tmp_file = tmp_path / "test_clip.png"
     tmp_file.write_bytes(png)
+
+    print(f"[DEBUG-TEST] tmp_file={tmp_file} str={str(tmp_file)}")
+    print(f"[DEBUG-TEST] tmp_file exists={tmp_file.exists()} size={tmp_file.stat().st_size}")
 
     fake_ps = Path(r"C:\fake\powershell.exe")
 
@@ -332,7 +338,20 @@ def test_powershell_image_found(tmp_path: Path):
             "openharness.tools.clipboard_screenshot_tool.os_close_fd",
         ),
     ):
+        # Verify mocks are active
+        from openharness.tools import clipboard_screenshot_tool as _mod
+        print(f"[DEBUG-TEST] tempfile.mkstemp mocked={isinstance(_mod.tempfile.mkstemp, type(mock.MagicMock()))}")
+        print(f"[DEBUG-TEST] subprocess.run mocked={isinstance(_mod.subprocess.run, type(mock.MagicMock()))}")
+        print(f"[DEBUG-TEST] os_close_fd mocked={isinstance(_mod.os_close_fd, type(mock.MagicMock()))}")
+        # Test what tempfile.mkstemp returns inside the mock
+        fd, path = _mod.tempfile.mkstemp()
+        print(f"[DEBUG-TEST] mkstemp returns: fd={fd} path={path}")
+        # Test what subprocess.run returns inside the mock
+        res = _mod.subprocess.run(["test"])
+        print(f"[DEBUG-TEST] subprocess.run returns: stdout={res.stdout!r}")
+
         result = ClipboardScreenshotTool._read_clipboard_powershell()
+        print(f"[DEBUG-TEST] result={result!r}")
 
     assert result == png
 
