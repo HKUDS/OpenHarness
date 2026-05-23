@@ -225,7 +225,6 @@ class ClipboardScreenshotTool(BaseTool):
         """
         ps_exe = _find_windows_powershell()
         if ps_exe is None:
-            log.warning("[DEBUG-PS] ps_exe is None, returning None")
             return None
 
         tmp_path = None
@@ -255,13 +254,7 @@ class ClipboardScreenshotTool(BaseTool):
             )
 
             stdout = result.stdout.strip() if result.stdout else ""
-            exists = tmp_path.exists()
-            size = tmp_path.stat().st_size if exists else -1
-            log.warning(
-                "[DEBUG-PS] stdout=%r exists=%s size=%s tmp_path=%s",
-                stdout, exists, size, tmp_path,
-            )
-            if stdout == "OK" and exists and size > 0:
+            if stdout == "OK" and tmp_path.exists() and tmp_path.stat().st_size > 0:
                 image_data = tmp_path.read_bytes()
                 try:
                     tmp_path.unlink(missing_ok=True)
@@ -281,13 +274,13 @@ class ClipboardScreenshotTool(BaseTool):
             return None
 
         except FileNotFoundError:
-            log.warning("[DEBUG-PS] FileNotFoundError")
+            log.debug("PowerShell executable not found")
             return None
         except subprocess.TimeoutExpired:
-            log.warning("[DEBUG-PS] TimeoutExpired")
+            log.debug("PowerShell clipboard read timed out")
             return None
         except Exception:
-            log.warning("[DEBUG-PS] Exception", exc_info=True)
+            log.debug("PowerShell clipboard read failed", exc_info=True)
             return None
         finally:
             if tmp_path is not None:

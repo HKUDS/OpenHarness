@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import platform
 from pathlib import Path
 from unittest import mock
 
@@ -13,6 +14,9 @@ from openharness.tools.clipboard_screenshot_tool import (
     ClipboardScreenshotTool,
     ClipboardScreenshotToolInput,
 )
+
+_is_win = platform.system() == "Windows"
+_is_mac = platform.system() == "Darwin"
 
 
 # ---------------------------------------------------------------------------
@@ -31,7 +35,6 @@ def _fake_png_bytes() -> bytes:
         return buf.getvalue()
     except ImportError:
         pytest.skip("Pillow not installed")
-
 
 
 def _make_ctx(cwd: Path | None = None) -> ToolExecutionContext:
@@ -268,10 +271,11 @@ def test_read_clipboard_pil_with_image():
 
 
 # ---------------------------------------------------------------------------
-# _read_clipboard_powershell: unit tests
+# _read_clipboard_powershell: unit tests (Windows-only)
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.skipif(not _is_win, reason="PowerShell clipboard is Windows-only")
 def test_powershell_no_powershell_exe():
     """When powershell.exe is not found, return None."""
     with (
@@ -284,6 +288,7 @@ def test_powershell_no_powershell_exe():
         assert result is None
 
 
+@pytest.mark.skipif(not _is_win, reason="PowerShell clipboard is Windows-only")
 def test_powershell_no_image_in_clipboard():
     """When clipboard is empty, PowerShell outputs NO_IMAGE."""
     fake_ps = Path(r"C:\fake\powershell.exe")
@@ -302,71 +307,48 @@ def test_powershell_no_image_in_clipboard():
         assert result is None
 
 
+@pytest.mark.skipif(not _is_win, reason="PowerShell clipboard is Windows-only")
 def test_powershell_image_found(tmp_path: Path):
-    """When PowerShell saves an image to a temp file, we read it back."""
-    import logging
-    logging.basicConfig(level=logging.DEBUG)
+    """When clipboard has an image, PowerShell saves it and we read it."""
+    import subprocess as _subprocess
 
     png = _fake_png_bytes()
     tmp_file = tmp_path / "test_clip.png"
     tmp_file.write_bytes(png)
 
-    print(f"[DEBUG-TEST] tmp_file={tmp_file} str={str(tmp_file)}")
-    print(f"[DEBUG-TEST] tmp_file exists={tmp_file.exists()} size={tmp_file.stat().st_size}")
-
     fake_ps = Path(r"C:\fake\powershell.exe")
 
-    fake_result = mock.MagicMock()
-    fake_result.stdout = "OK"
-    fake_result.stderr = ""
-    fake_result.returncode = 0
+    fake_result = _subprocess.CompletedProcess(
+        args=[], returncode=0, stdout="OK", stderr=""
+    )
 
     with (
         mock.patch(
             "openharness.tools.clipboard_screenshot_tool._find_windows_powershell",
             return_value=fake_ps,
         ),
-        mock.patch(
-            "openharness.tools.clipboard_screenshot_tool.tempfile.mkstemp",
-            return_value=(999, str(tmp_file)),
-        ),
-        mock.patch(
-            "openharness.tools.clipboard_screenshot_tool.subprocess.run",
-            return_value=fake_result,
-        ),
-        mock.patch(
-            "openharness.tools.clipboard_screenshot_tool.os_close_fd",
-        ),
+        mock.patch("tempfile.mkstemp", return_value=(999, str(tmp_file))),
+        mock.patch("os.close"),
+        mock.patch("subprocess.run", return_value=fake_result),
     ):
-        # Verify mocks are active
-        from openharness.tools import clipboard_screenshot_tool as _mod
-        print(f"[DEBUG-TEST] tempfile.mkstemp mocked={isinstance(_mod.tempfile.mkstemp, type(mock.MagicMock()))}")
-        print(f"[DEBUG-TEST] subprocess.run mocked={isinstance(_mod.subprocess.run, type(mock.MagicMock()))}")
-        print(f"[DEBUG-TEST] os_close_fd mocked={isinstance(_mod.os_close_fd, type(mock.MagicMock()))}")
-        # Test what tempfile.mkstemp returns inside the mock
-        fd, path = _mod.tempfile.mkstemp()
-        print(f"[DEBUG-TEST] mkstemp returns: fd={fd} path={path}")
-        # Test what subprocess.run returns inside the mock
-        res = _mod.subprocess.run(["test"])
-        print(f"[DEBUG-TEST] subprocess.run returns: stdout={res.stdout!r}")
-
         result = ClipboardScreenshotTool._read_clipboard_powershell()
-        print(f"[DEBUG-TEST] result={result!r}")
 
     assert result == png
 
 
 # ---------------------------------------------------------------------------
-# macOS osascript: unit tests
+# macOS osascript: unit tests (macOS-only)
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.skipif(not _is_mac, reason="osascript clipboard is macOS-only")
 def test_macos_osascript_not_found():
     with mock.patch("shutil.which", return_value=None):
         result = ClipboardScreenshotTool._read_clipboard_macos_osascript()
         assert result is None
 
 
+@pytest.mark.skipif(not _is_mac, reason="osascript clipboard is macOS-only")
 def test_macos_osascript_no_image():
     with (
         mock.patch("shutil.which", return_value="/usr/bin/osascript"),
