@@ -53,6 +53,7 @@ async def run_repl(
     restore_messages: list[dict] | None = None,
     restore_tool_metadata: dict[str, object] | None = None,
     permission_mode: str | None = None,
+    show_thinking: bool | None = None,
 ) -> None:
     """Run the default OpenHarness interactive application (React TUI)."""
     if backend_only:
@@ -119,9 +120,12 @@ async def run_task_worker(
         print(message, flush=True)
 
     async def _render_event(event: StreamEvent) -> None:
-        from openharness.engine.stream_events import AssistantTextDelta, AssistantTurnComplete, ErrorEvent, StatusEvent
+        from openharness.engine.stream_events import AssistantTextDelta, AssistantThinkingDelta, AssistantTurnComplete, ErrorEvent, StatusEvent
 
         if isinstance(event, AssistantTextDelta):
+            sys.stdout.write(event.text)
+            sys.stdout.flush()
+        elif isinstance(event, AssistantThinkingDelta):
             sys.stdout.write(event.text)
             sys.stdout.flush()
         elif isinstance(event, AssistantTurnComplete):
@@ -149,6 +153,7 @@ async def run_task_worker(
         ask_user_prompt=_noop_ask,
         enforce_max_turns=max_turns is not None,
         permission_mode=permission_mode,
+        show_thinking=show_thinking,
     )
     await start_runtime(bundle)
     try:
@@ -189,10 +194,12 @@ async def run_print_mode(
     api_client: SupportsStreamingMessages | None = None,
     permission_mode: str | None = None,
     max_turns: int | None = None,
+    show_thinking: bool | None = None,
 ) -> None:
     """Non-interactive mode: submit prompt, stream output, exit."""
     from openharness.engine.stream_events import (
         AssistantTextDelta,
+        AssistantThinkingDelta,
         AssistantTurnComplete,
         CompactProgressEvent,
         ErrorEvent,
@@ -221,6 +228,7 @@ async def run_print_mode(
         api_client=api_client,
         permission_prompt=_noop_permission,
         ask_user_prompt=_noop_ask,
+        show_thinking=show_thinking,
     )
     await start_runtime(bundle)
 
@@ -246,6 +254,15 @@ async def run_print_mode(
                     sys.stdout.flush()
                 elif output_format == "stream-json":
                     obj = {"type": "assistant_delta", "text": event.text}
+                    print(json.dumps(obj), flush=True)
+                    events_list.append(obj)
+            elif isinstance(event, AssistantThinkingDelta):
+                collected_text += event.text
+                if output_format == "text":
+                    sys.stderr.write(event.text)
+                    sys.stderr.flush()
+                elif output_format == "stream-json":
+                    obj = {"type": "thinking_delta", "text": event.text}
                     print(json.dumps(obj), flush=True)
                     events_list.append(obj)
             elif isinstance(event, AssistantTurnComplete):

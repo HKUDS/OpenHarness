@@ -1252,6 +1252,26 @@ def create_default_command_registry(
             context.app_state.set(effort=value)
         return CommandResult(message=f"Reasoning effort set to {value}.")
 
+    async def _thinking_handler(args: str, context: CommandContext) -> CommandResult:
+        settings = load_settings()
+        current = settings.show_thinking
+        arg = args.strip().lower()
+        if arg in {"on", "true", "1", "yes"}:
+            new_val = True
+        elif arg in {"off", "false", "0", "no"}:
+            new_val = False
+        elif arg == "show":
+            return CommandResult(message=f"Thinking display: {'on' if current else 'off'}")
+        else:
+            new_val = not current
+        settings = settings.model_copy(update={"show_thinking": new_val})
+        save_settings(settings)
+        context.engine._show_thinking = new_val
+        return CommandResult(
+            message=f"Thinking display: {'on' if new_val else 'off'}",
+            refresh_runtime=True,
+        )
+
     async def _passes_handler(args: str, context: CommandContext) -> CommandResult:
         settings = load_settings()
         current = context.app_state.get().passes if context.app_state is not None else settings.passes
@@ -2429,6 +2449,7 @@ def create_default_command_registry(
     )
     registry.register(SlashCommand("fast", "Show or update fast mode", _fast_handler))
     registry.register(SlashCommand("effort", "Show or update reasoning effort", _effort_handler))
+    registry.register(SlashCommand("thinking", "Toggle thinking/reasoning display", _thinking_handler))
     registry.register(SlashCommand("passes", "Show or update reasoning pass count", _passes_handler))
     registry.register(SlashCommand("turns", "Show or update maximum agentic turn count", _turns_handler))
     registry.register(SlashCommand("continue", "Continue the previous tool loop if it was interrupted", _continue_handler))

@@ -18,6 +18,7 @@ from openharness.api.client import (
     ApiRetryEvent,
     ApiStreamEvent,
     ApiTextDeltaEvent,
+    ApiThinkingDeltaEvent,
 )
 from openharness.api.errors import (
     AuthenticationFailure,
@@ -334,7 +335,7 @@ class OpenAICompatibleClient:
         collected_tool_calls: dict[int, dict[str, Any]] = {}
         finish_reason: str | None = None
         usage_data: dict[str, int] = {}
-        # Buffer to strip inline <think>…</think> blocks across streaming chunks.
+        # Buffer to strip inline  blocks across streaming chunks.
         _think_buf = ""
 
         stream = await self._client.chat.completions.create(**params)
@@ -354,18 +355,32 @@ class OpenAICompatibleClient:
             if chunk_finish:
                 finish_reason = chunk_finish
 
-            # Accumulate reasoning_content from thinking models (not shown to user)
+            # Accumulate reasoning_content from thinking models
             reasoning_piece = getattr(delta, "reasoning_content", None) or ""
             if reasoning_piece:
                 collected_reasoning += reasoning_piece
+                if request.show_thinking:
+                    yield ApiThinkingDeltaEvent(text=reasoning_piece)
 
-            # Stream text content to user, stripping inline <think> blocks
+            # Stream text content to user
             if delta.content:
                 _think_buf += delta.content
-                visible, _think_buf = _strip_think_blocks(_think_buf)
-                if visible:
-                    collected_content += visible
-                    yield ApiTextDeltaEvent(text=visible)
+                if request.show_thinking:
+                    # Convert inline blocks into classified segments
+                    segments, _think_buf = _convert_think_blocks_display(_think_buf)
+                    for text, is_thinking in segments:
+                        if not text:
+                            continue
+                        if is_thinking:
+                            yield ApiThinkingDeltaEvent(text=text)
+                        else:
+                            collected_content += text
+                            yield ApiTextDeltaEvent(text=text)
+                else:
+                    visible, _think_buf = _strip_think_blocks(_think_buf)
+                    if visible:
+                        collected_content += visible
+                        yield ApiTextDeltaEvent(text=visible)
 
             # Accumulate tool calls
             if delta.tool_calls:
@@ -449,32 +464,79 @@ class OpenAICompatibleClient:
         return RequestFailure(msg)
 
 
-# Matches complete <think>…</think> blocks (DOTALL so newlines are included).
-_THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
+# Matches complete  blocks (DOTALL so newlines are included).
+_THINK_RE = re.compile(r"<think>(.*?)</think>", re.DOTALL)
 _THINK_OPEN_TAG = "<think>"
+_THINK_CLOSE_TAG = "</think>"
 
 
 def _strip_think_blocks(buf: str) -> tuple[str, str]:
-    """Strip complete ``<think>…</think>`` blocks and return ``(visible_text, leftover)``.
+    """Strip complete ``...`` blocks and return ``(visible_text, leftover)``.
 
-    Complete pairs are removed via regex.  An unclosed ``<think>`` is held in
+    Complete pairs are removed via regex.  An unclosed ```` is held in
     *leftover* so it can be re-evaluated once the closing tag arrives in the
     next streaming chunk.
     """
     # Remove fully-closed blocks.
     cleaned = _THINK_RE.sub("", buf)
 
-    # Hold back any unclosed <think> for the next chunk.
+    # Hold back any unclosed  for the next chunk.
     open_idx = cleaned.find(_THINK_OPEN_TAG)
     if open_idx != -1:
         return cleaned[:open_idx], cleaned[open_idx:]
 
     # Streaming providers may split the opening tag itself across chunk
     # boundaries (e.g. ``"<thi"`` then ``"nk>..."``). Hold back the longest
-    # suffix that could still become ``<think>`` on the next chunk.
+    # suffix that could still become ```` on the next chunk.
     max_prefix = min(len(cleaned), len(_THINK_OPEN_TAG) - 1)
     for prefix_len in range(max_prefix, 0, -1):
         if _THINK_OPEN_TAG.startswith(cleaned[-prefix_len:]):
             return cleaned[:-prefix_len], cleaned[-prefix_len:]
 
     return cleaned, ""
+
+
+def _convert_think_blocks_display(buf: str) -> tuple[list[tuple[str, bool]], str]:
+    """Convert ``...`` blocks into classified segments.
+
+    Instead of stripping thinking content, this extracts it and classifies
+    each segment as thinking or normal text so the caller can emit the
+    appropriate event type.
+    Returns ``(segments, leftover)`` where each segment is
+    ``(text, is_thinking)`` and *leftover* holds an unclosed ``
+`` for the next streaming chunk.
+    """
+    segments: list[tuple[str, bool]] = []
+    pos = 0
+    while True:
+        open_idx = buf.find(_THINK_OPEN_TAG, pos)
+        if open_idx == -1:
+            # No more opening tags; flush remaining text
+            remaining = buf[pos:]
+            # Check if the tail could be a partial opening tag
+            max_prefix = min(len(remaining), len(_THINK_OPEN_TAG) - 1)
+            for prefix_len in range(max_prefix, 0, -1):
+                if _THINK_OPEN_TAG.startswith(remaining[-prefix_len:]):
+                    if remaining[:-prefix_len]:
+                        segments.append((remaining[:-prefix_len], False))
+                    return segments, remaining[-prefix_len:]
+            if remaining:
+                segments.append((remaining, False))
+            return segments, ""
+
+        # Text before the opening tag
+        if open_idx > pos:
+            segments.append((buf[pos:open_idx], False))
+
+        close_idx = buf.find(_THINK_CLOSE_TAG, open_idx + len(_THINK_OPEN_TAG))
+        if close_idx == -1:
+            # Unclosed block — hold back from the opening tag
+            return segments, buf[open_idx:]
+
+        # Extract thinking content
+        think_content = buf[open_idx + len(_THINK_OPEN_TAG):close_idx].strip()
+        if think_content:
+            segments.append((think_content, True))
+        pos = close_idx + len(_THINK_CLOSE_TAG)
+
+    return segments, ""

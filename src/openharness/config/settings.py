@@ -571,6 +571,7 @@ class Settings(BaseModel):
     effort: str = "medium"
     passes: int = 1
     verbose: bool = False
+    show_thinking: bool = False
 
     # Vision model (image-to-text fallback)
     vision: VisionModelConfig = Field(default_factory=VisionModelConfig)
@@ -920,6 +921,10 @@ def _apply_env_overrides(settings: Settings) -> Settings:
     max_turns = os.environ.get("OPENHARNESS_MAX_TURNS")
     if max_turns:
         updates["max_turns"] = int(max_turns)
+
+    show_thinking = os.environ.get("OPENHARNESS_SHOW_THINKING")
+    if show_thinking:
+        updates["show_thinking"] = _parse_bool_env(show_thinking)
 
     context_window_tokens = os.environ.get("OPENHARNESS_CONTEXT_WINDOW_TOKENS")
     if context_window_tokens:

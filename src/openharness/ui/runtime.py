@@ -269,6 +269,7 @@ async def build_runtime(
     memory_backend: MemoryCommandBackend | None = None,
     include_project_memory: bool = True,
     autodream_context: dict[str, object] | None = None,
+    show_thinking: bool | None = None,
 ) -> RuntimeBundle:
     """Build the shared runtime for an OpenHarness session."""
     settings_overrides: dict[str, Any] = {
@@ -281,6 +282,7 @@ async def build_runtime(
         "api_format": api_format,
         "active_profile": active_profile,
         "permission_mode": permission_mode,
+        "show_thinking": show_thinking,
     }
     settings = load_settings().merge_cli_overrides(**settings_overrides)
     cwd = str(Path(cwd).expanduser().resolve()) if cwd else str(Path.cwd())

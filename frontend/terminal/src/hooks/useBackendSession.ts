@@ -52,6 +52,9 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 	const assistantFlushTimerRef = useRef<NodeJS.Timeout | null>(null);
 	const pendingTranscriptItemsRef = useRef<TranscriptItem[]>([]);
 	const transcriptFlushTimerRef = useRef<NodeJS.Timeout | null>(null);
+	// Thinking content buffer to accumulate chunks into single item
+	const thinkingBufferRef = useRef('');
+	const thinkingActiveRef = useRef(false);
 
 	const flushAssistantDelta = (): void => {
 		const pending = pendingAssistantDeltaRef.current;
@@ -294,10 +297,33 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 			}
 			return;
 		}
+		if (event.type === 'thinking_delta') {
+			const delta = event.message ?? '';
+			if (!delta) {
+				return;
+			}
+			// Accumulate thinking content instead of creating separate items
+			if (!thinkingActiveRef.current) {
+				thinkingActiveRef.current = true;
+				thinkingBufferRef.current = delta;
+			} else {
+				thinkingBufferRef.current += delta;
+			}
+			return;
+		}
 		if (event.type === 'assistant_delta') {
 			const delta = event.message ?? '';
 			if (!delta) {
 				return;
+			}
+			// Flush accumulated thinking content before first assistant delta
+			if (thinkingActiveRef.current) {
+				const thinkingContent = thinkingBufferRef.current.trim();
+				if (thinkingContent) {
+					queueTranscriptItem({role: 'thinking', text: thinkingContent});
+				}
+				thinkingActiveRef.current = false;
+				thinkingBufferRef.current = '';
 			}
 			const isCodexStyle = String(statusRef.current.output_style ?? 'default') === 'codex';
 			if (isCodexStyle) {
@@ -325,6 +351,15 @@ export function useBackendSession(config: FrontendConfig, onExit: (code?: number
 				assistantFlushTimerRef.current = null;
 			}
 			flushTranscriptItems();
+			// Flush any remaining thinking content before assistant_complete
+			if (thinkingActiveRef.current) {
+				const thinkingContent = thinkingBufferRef.current.trim();
+				if (thinkingContent) {
+					pendingTranscriptItemsRef.current.push({role: 'thinking', text: thinkingContent});
+				}
+				thinkingActiveRef.current = false;
+				thinkingBufferRef.current = '';
+			}
 			const isCodexStyle = String(statusRef.current.output_style ?? 'default') === 'codex';
 			if (isCodexStyle) {
 				if (pendingAssistantDeltaRef.current) {
