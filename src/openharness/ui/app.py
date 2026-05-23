@@ -102,6 +102,7 @@ async def run_task_worker(
     api_format: str | None = None,
     api_client: SupportsStreamingMessages | None = None,
     permission_mode: str | None = None,
+    show_thinking: bool = False,
 ) -> None:
     """Run a stdin-driven headless worker for background agent tasks.
 
