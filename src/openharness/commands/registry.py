@@ -867,6 +867,7 @@ def create_default_command_registry(
             latest = session_dir / "latest.json"
             transcript = session_dir / "transcript.md"
             lines = [
+                f"Session ID: {context.session_id or '(none)'}",
                 f"Session directory: {session_dir}",
                 f"Latest snapshot: {'present' if latest.exists() else 'missing'}",
                 f"Transcript export: {'present' if transcript.exists() else 'missing'}",

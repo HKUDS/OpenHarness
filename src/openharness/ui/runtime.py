@@ -463,6 +463,11 @@ async def close_runtime(bundle: RuntimeBundle) -> None:
     except Exception:
         pass  # personalization is best-effort, never block session end
 
+    # Close API client to release HTTP connection pool resources,
+    # avoiding "coroutine method 'aclose' was never awaited" warnings.
+    if hasattr(bundle.api_client, "close"):
+        await bundle.api_client.close()
+
     await bundle.mcp_manager.close()
     await bundle.hook_executor.execute(
         HookEvent.SESSION_END,

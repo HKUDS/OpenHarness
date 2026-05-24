@@ -228,3 +228,57 @@ def export_session_markdown(
                 parts.append(f"\n```tool-result\n{block.content}\n```")
     atomic_write_text(path, "\n".join(parts).strip() + "\n")
     return path
+
+
+def resolve_session_params(
+    *,
+    cwd: str | Path,
+    continue_session: bool = False,
+    resume: str | None = None,
+    model: str | None = None,
+) -> dict[str, Any] | None:
+    """Resolve session parameters for --continue / --resume.
+
+    Consolidates the session-loading logic shared between the CLI and
+    embedded runtimes (e.g. rfmOpenHarness).  Returns a dict with keys
+    ``cwd``, ``model``, ``restore_messages``, ``restore_tool_metadata``,
+    or ``None`` when no session continuation is requested.
+    """
+    if not (continue_session or resume is not None):
+        return None
+
+    session_data = None
+    if continue_session:
+        session_data = load_session_snapshot(cwd)
+    elif resume == "" or resume is None:
+        # --resume with no value: show session picker (requires tty)
+        sessions = list_session_snapshots(cwd, limit=10)
+        if not sessions:
+            return None
+        print("Saved sessions:")
+        for i, s in enumerate(sessions, 1):
+            print(f"  {i}. [{s['session_id']}] {s.get('summary', '?')[:50]} ({s['message_count']} msgs)")
+        try:
+            choice = input("Enter session number or ID: ").strip()
+        except EOFError:
+            return None
+        try:
+            idx = int(choice) - 1
+            if 0 <= idx < len(sessions):
+                session_data = load_session_by_id(cwd, sessions[idx]["session_id"])
+            else:
+                return None
+        except ValueError:
+            session_data = load_session_by_id(cwd, choice)
+    else:
+        session_data = load_session_by_id(cwd, resume)
+
+    if session_data is None:
+        return None
+
+    return {
+        "cwd": session_data.get("cwd") or str(Path(cwd).resolve()),
+        "model": session_data.get("model") or model,
+        "restore_messages": session_data.get("messages"),
+        "restore_tool_metadata": session_data.get("tool_metadata"),
+    }
