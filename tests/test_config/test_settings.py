@@ -38,16 +38,26 @@ class TestSettings:
         assert s.resolve_api_key() == "sk-test-123"
 
     def test_resolve_api_key_from_env(self, monkeypatch):
+        monkeypatch.delenv("OPENHARNESS_ANTHROPIC_API_KEY", raising=False)
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-env-456")
         s = Settings()
         assert s.resolve_api_key() == "sk-env-456"
 
+    def test_resolve_api_key_prefers_openharness_env(self, monkeypatch):
+        monkeypatch.setenv("OPENHARNESS_ANTHROPIC_API_KEY", "sk-oh-456")
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-env-456")
+        s = Settings()
+        assert s.resolve_api_key() == "sk-oh-456"
+
     def test_resolve_api_key_instance_takes_precedence(self, monkeypatch):
+        monkeypatch.delenv("OPENHARNESS_ANTHROPIC_API_KEY", raising=False)
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-env-456")
         s = Settings(api_key="sk-instance-789")
         assert s.resolve_api_key() == "sk-instance-789"
 
     def test_resolve_api_key_missing_raises(self, monkeypatch):
+        monkeypatch.delenv("OPENHARNESS_ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.delenv("OPENHARNESS_OPENAI_API_KEY", raising=False)
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
         s = Settings()
@@ -62,6 +72,12 @@ class TestSettings:
         # api_key=None should not override the default
         assert updated.api_key == ""
 
+    def test_merge_cli_overrides_applies_permission_mode(self):
+        s = Settings()
+        updated = s.merge_cli_overrides(permission_mode="full_auto")
+        assert updated.permission.mode == "full_auto"
+        assert s.permission.mode == "default"
+
     def test_merge_cli_overrides_returns_new_instance(self):
         s = Settings()
         updated = s.merge_cli_overrides(model="claude-opus-4-20250514")
@@ -72,6 +88,7 @@ class TestSettings:
         """When api_format=openai, resolve_auth() should use OPENAI_API_KEY
         from the environment rather than the flat api_key field which may
         contain an Anthropic key from settings.json."""
+        monkeypatch.delenv("OPENHARNESS_OPENAI_API_KEY", raising=False)
         monkeypatch.setenv("OPENAI_API_KEY", "sk-openai-correct")
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         s = Settings(api_key="sk-ant-wrong-provider", api_format="openai")
@@ -80,9 +97,21 @@ class TestSettings:
         assert auth.value == "sk-openai-correct"
         assert "OPENAI" in auth.source
 
+    def test_resolve_auth_prefers_openharness_env_for_openai(self, monkeypatch):
+        monkeypatch.setenv("OPENHARNESS_OPENAI_API_KEY", "sk-oh-openai")
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-openai-correct")
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        s = Settings(api_key="sk-ant-wrong-provider", api_format="openai")
+        s = s.sync_active_profile_from_flat_fields()
+        auth = s.resolve_auth()
+        assert auth.value == "sk-oh-openai"
+        assert auth.source == "env:OPENHARNESS_OPENAI_API_KEY"
+
     def test_resolve_auth_falls_back_to_flat_api_key(self, monkeypatch):
         """When no provider-specific env var is set, resolve_auth() should
         still fall back to the flat api_key field."""
+        monkeypatch.delenv("OPENHARNESS_ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.delenv("OPENHARNESS_OPENAI_API_KEY", raising=False)
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
         s = Settings(api_key="sk-fallback-key")
@@ -102,6 +131,32 @@ class TestSettings:
         path.write_text(json.dumps({}))
         s = load_settings(path)
         assert s.base_url == "https://relay.example.com/v1"
+
+    def test_load_settings_uses_profile_specific_openharness_env_key(self, tmp_path: Path, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-wrong")
+        monkeypatch.setenv("OPENHARNESS_OPENAI_API_KEY", "sk-oh-openai")
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        path = tmp_path / "settings.json"
+        path.write_text(
+            Settings(active_profile="openai-compatible").model_dump_json(),
+            encoding="utf-8",
+        )
+        s = load_settings(path)
+        assert s.active_profile == "openai-compatible"
+        assert s.api_key == "sk-oh-openai"
+
+    def test_load_settings_ignores_wrong_provider_native_env_key(self, tmp_path: Path, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-wrong")
+        monkeypatch.delenv("OPENHARNESS_OPENAI_API_KEY", raising=False)
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        path = tmp_path / "settings.json"
+        path.write_text(
+            Settings(active_profile="openai-compatible").model_dump_json(),
+            encoding="utf-8",
+        )
+        s = load_settings(path)
+        assert s.active_profile == "openai-compatible"
+        assert s.api_key == ""
 
     def test_env_overrides_pick_up_compact_threshold_settings(self, tmp_path: Path, monkeypatch):
         monkeypatch.setenv("OPENHARNESS_CONTEXT_WINDOW_TOKENS", "123456")
@@ -125,6 +180,8 @@ class TestSettings:
 
 class TestLoadSaveSettings:
     def test_load_missing_file_returns_defaults(self, tmp_path: Path, monkeypatch):
+        monkeypatch.delenv("OPENHARNESS_ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.delenv("OPENHARNESS_OPENAI_API_KEY", raising=False)
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
         monkeypatch.delenv("ANTHROPIC_BASE_URL", raising=False)
@@ -137,6 +194,8 @@ class TestLoadSaveSettings:
         assert s == Settings().materialize_active_profile()
 
     def test_load_existing_file(self, tmp_path: Path, monkeypatch):
+        monkeypatch.delenv("OPENHARNESS_ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.delenv("OPENHARNESS_OPENAI_API_KEY", raising=False)
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
         monkeypatch.delenv("ANTHROPIC_BASE_URL", raising=False)
@@ -152,6 +211,8 @@ class TestLoadSaveSettings:
         assert s.api_key == ""  # default preserved
 
     def test_save_and_load_roundtrip(self, tmp_path: Path, monkeypatch):
+        monkeypatch.delenv("OPENHARNESS_ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.delenv("OPENHARNESS_OPENAI_API_KEY", raising=False)
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
         monkeypatch.delenv("ANTHROPIC_BASE_URL", raising=False)

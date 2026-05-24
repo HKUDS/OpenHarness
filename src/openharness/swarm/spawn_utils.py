@@ -60,9 +60,22 @@ _TEAMMATE_ENV_VARS = [
     # --- OpenHarness-native provider settings --------------------------------
     # These are read by settings._apply_env_overrides() and must survive across
     # tmux boundaries so teammates use the same provider as the leader.
+    "OPENHARNESS_CONFIG_DIR",
+    "OPENHARNESS_DATA_DIR",
+    "OPENHARNESS_LOGS_DIR",
+    "OPENHARNESS_PROFILE",
     "OPENHARNESS_API_FORMAT",
+    "OPENHARNESS_PROVIDER",
     "OPENHARNESS_BASE_URL",
     "OPENHARNESS_MODEL",
+    "OPENHARNESS_ANTHROPIC_API_KEY",
+    "OPENHARNESS_OPENAI_API_KEY",
+    "OPENHARNESS_DASHSCOPE_API_KEY",
+    "OPENHARNESS_MOONSHOT_API_KEY",
+    "OPENHARNESS_GEMINI_API_KEY",
+    "OPENHARNESS_MINIMAX_API_KEY",
+    "OPENHARNESS_NVIDIA_API_KEY",
+    "OPENHARNESS_MODELSCOPE_API_KEY",
     "OPENAI_API_KEY",
 ]
 

@@ -59,6 +59,7 @@ class FeishuConfig(BaseChannelConfig):
     group_policy: str = "managed_or_mention"
     bot_open_id: str = ""
     bot_names: list[str] = Field(default_factory=lambda: ["ohmo", "openclaw", "openharness"])
+    domain: str = "https://open.feishu.cn"  # use https://open.larksuite.com for Lark international
 
 
 class DingTalkConfig(BaseChannelConfig):

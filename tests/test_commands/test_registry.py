@@ -204,6 +204,34 @@ async def test_diff_command_supports_explicit_remote_admin_opt_in(tmp_path: Path
 
 
 @pytest.mark.asyncio
+async def test_project_context_commands_are_marked_local_only(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
+    registry = create_default_command_registry()
+
+    for payload in (
+        "/issue set Remote supplied issue :: marker",
+        "/pr_comments add src/app.py:1 :: marker",
+    ):
+        command, _ = registry.lookup(payload)
+        assert command is not None
+        assert command.remote_invocable is False, payload
+
+
+@pytest.mark.asyncio
+async def test_project_context_commands_support_explicit_remote_admin_opt_in(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
+    registry = create_default_command_registry()
+
+    for payload in (
+        "/issue set Remote supplied issue :: marker",
+        "/pr_comments add src/app.py:1 :: marker",
+    ):
+        command, _ = registry.lookup(payload)
+        assert command is not None
+        assert getattr(command, "remote_admin_opt_in", False) is True, payload
+
+
+@pytest.mark.asyncio
 async def test_tasks_command_is_marked_local_only(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
     registry = create_default_command_registry()
@@ -235,6 +263,9 @@ async def test_sensitive_control_plane_commands_are_local_only(tmp_path: Path, m
         "/model show",
         "/commit remote requested commit",
         "/ship",
+        "/resume",
+        "/resume session-from-another-sender",
+        "/summary 10",
     ):
         command, _ = registry.lookup(payload)
         assert command is not None

@@ -370,6 +370,30 @@ def auth_source_uses_api_key(auth_source: str) -> bool:
     return auth_source.endswith("_api_key")
 
 
+def auth_source_env_var_candidates(auth_source: str) -> tuple[str, ...]:
+    """Return env vars to probe for an auth source in precedence order."""
+    mapping = {
+        "anthropic_api_key": ("OPENHARNESS_ANTHROPIC_API_KEY", "ANTHROPIC_API_KEY"),
+        "openai_api_key": ("OPENHARNESS_OPENAI_API_KEY", "OPENAI_API_KEY"),
+        "dashscope_api_key": ("OPENHARNESS_DASHSCOPE_API_KEY", "DASHSCOPE_API_KEY"),
+        "moonshot_api_key": ("OPENHARNESS_MOONSHOT_API_KEY", "MOONSHOT_API_KEY"),
+        "gemini_api_key": ("OPENHARNESS_GEMINI_API_KEY", "GEMINI_API_KEY"),
+        "minimax_api_key": ("OPENHARNESS_MINIMAX_API_KEY", "MINIMAX_API_KEY"),
+        "nvidia_api_key": ("OPENHARNESS_NVIDIA_API_KEY", "NVIDIA_API_KEY"),
+        "modelscope_api_key": ("OPENHARNESS_MODELSCOPE_API_KEY", "MODELSCOPE_API_KEY"),
+    }
+    return mapping.get(auth_source, ())
+
+
+def resolve_auth_env_value(auth_source: str) -> tuple[str, str] | None:
+    """Return the first configured env var/value pair for an auth source."""
+    for env_var in auth_source_env_var_candidates(auth_source):
+        env_value = os.environ.get(env_var, "")
+        if env_value:
+            return env_var, env_value
+    return None
+
+
 def credential_storage_provider_name(profile_name: str, profile: ProviderProfile) -> str:
     """Return the storage namespace used for this profile's credential.
 
@@ -713,19 +737,15 @@ class Settings(BaseModel):
         if self.api_key:
             return self.api_key
 
-        env_key = os.environ.get("ANTHROPIC_API_KEY", "")
-        if env_key:
-            return env_key
-
-        # Also check OPENAI_API_KEY for openai-format providers
-        openai_key = os.environ.get("OPENAI_API_KEY", "")
-        if openai_key:
-            return openai_key
+        env_resolved = resolve_auth_env_value(profile.auth_source)
+        if env_resolved:
+            _, env_value = env_resolved
+            return env_value
 
         raise ValueError(
-            "No API key found. Set ANTHROPIC_API_KEY (or OPENAI_API_KEY for openai-format "
-            "providers) environment variable, or configure api_key in "
-            "~/.openharness/settings.json"
+            "No API key found. Set an OPENHARNESS_* provider API key "
+            "(preferred) or the matching native provider environment variable, "
+            "or configure api_key in ~/.openharness/settings.json"
         )
 
     def resolve_auth(self) -> ResolvedAuth:
@@ -801,25 +821,16 @@ class Settings(BaseModel):
 
         storage_provider = credential_storage_provider_name(profile_name, profile)
 
-        env_var = {
-            "anthropic_api_key": "ANTHROPIC_API_KEY",
-            "openai_api_key": "OPENAI_API_KEY",
-            "dashscope_api_key": "DASHSCOPE_API_KEY",
-            "moonshot_api_key": "MOONSHOT_API_KEY",
-            "minimax_api_key": "MINIMAX_API_KEY",
-            "nvidia_api_key": "NVIDIA_API_KEY",
-            "modelscope_api_key": "MODELSCOPE_API_KEY",
-        }.get(auth_source)
-        if env_var:
-            env_value = os.environ.get(env_var, "")
-            if env_value:
-                return ResolvedAuth(
-                    provider=provider or storage_provider,
-                    auth_kind="api_key",
-                    value=env_value,
-                    source=f"env:{env_var}",
-                    state="configured",
-                )
+        env_resolved = resolve_auth_env_value(auth_source)
+        if env_resolved:
+            env_var, env_value = env_resolved
+            return ResolvedAuth(
+                provider=provider or storage_provider,
+                auth_kind="api_key",
+                value=env_value,
+                source=f"env:{env_var}",
+                state="configured",
+            )
 
         explicit_key = "" if profile.credential_slot else self.api_key
         if explicit_key:
@@ -849,12 +860,21 @@ class Settings(BaseModel):
     def merge_cli_overrides(self, **overrides: Any) -> Settings:
         """Return a new Settings with CLI overrides applied (non-None values only)."""
         updates = {k: v for k, v in overrides.items() if v is not None}
+        permission_mode = updates.pop("permission_mode", None)
         # Strip ANSI escape sequences from model name if present
         if "model" in updates and isinstance(updates["model"], str):
             updates["model"] = strip_ansi_escape_sequences(updates["model"])
         if "effort" in updates and isinstance(updates["effort"], str):
             updates["effort"] = "xhigh" if updates["effort"].strip().lower() == "max" else updates["effort"].strip().lower()
         merged = self.model_copy(update=updates)
+        if permission_mode is not None:
+            merged = merged.model_copy(
+                update={
+                    "permission": merged.permission.model_copy(
+                        update={"mode": PermissionMode(str(permission_mode))}
+                    )
+                }
+            )
         if not updates:
             return merged
         profile_keys = {
@@ -934,15 +954,23 @@ def _apply_env_overrides(settings: Settings) -> Settings:
     if auto_compact_threshold_tokens:
         updates["auto_compact_threshold_tokens"] = int(auto_compact_threshold_tokens)
 
-    api_key = os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("OPENAI_API_KEY")
-    if api_key:
+    provider = os.environ.get("OPENHARNESS_PROVIDER")
+    api_format = os.environ.get("OPENHARNESS_API_FORMAT")
+    env_auth_source = active_profile.auth_source
+    if provider or api_format:
+        env_auth_source = default_auth_source_for_provider(
+            provider or active_profile.provider,
+            api_format or active_profile.api_format,
+        )
+
+    env_resolved = resolve_auth_env_value(env_auth_source)
+    if env_resolved:
+        _, api_key = env_resolved
         updates["api_key"] = api_key
 
-    api_format = os.environ.get("OPENHARNESS_API_FORMAT")
     if api_format:
         updates["api_format"] = api_format
 
-    provider = os.environ.get("OPENHARNESS_PROVIDER")
     if provider:
         updates["provider"] = provider
 

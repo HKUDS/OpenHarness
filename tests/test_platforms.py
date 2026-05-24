@@ -18,6 +18,10 @@ def test_detect_platform_recognizes_windows():
     assert detect_platform(system_name="Windows", release="10", env={}) == "windows"
 
 
+def test_detect_platform_recognizes_win32_alias():
+    assert detect_platform(system_name="win32", release="10", env={}) == "windows"
+
+
 def test_windows_capabilities_disable_swarm_mailbox_and_sandbox():
     capabilities = get_platform_capabilities("windows")
     assert capabilities.supports_native_windows_shell is True

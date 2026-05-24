@@ -46,7 +46,10 @@ def exclusive_file_lock(
 
 @contextmanager
 def _exclusive_posix_lock(lock_path: Path) -> Iterator[None]:
-    import fcntl
+    try:
+        import fcntl
+    except ImportError as exc:
+        raise SwarmLockUnavailableError(f"fcntl not available: {exc}") from exc
 
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     lock_path.touch(exist_ok=True)
@@ -60,7 +63,10 @@ def _exclusive_posix_lock(lock_path: Path) -> Iterator[None]:
 
 @contextmanager
 def _exclusive_windows_lock(lock_path: Path) -> Iterator[None]:
-    import msvcrt
+    try:
+        import msvcrt
+    except ImportError as exc:
+        raise SwarmLockUnavailableError(f"msvcrt not available: {exc}") from exc
 
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     with lock_path.open("a+b") as lock_file:

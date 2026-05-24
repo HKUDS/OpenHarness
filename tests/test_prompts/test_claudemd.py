@@ -58,6 +58,23 @@ def test_build_runtime_system_prompt_combines_sections(tmp_path: Path, monkeypat
     assert "Memory" in prompt
 
 
+def test_build_runtime_system_prompt_includes_plan_mode_guidance(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("OPENHARNESS_DATA_DIR", str(tmp_path / "data"))
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    prompt = build_runtime_system_prompt(
+        Settings(permission={"mode": "plan"}),
+        cwd=repo,
+        latest_user_prompt="inspect only",
+    )
+
+    assert "Current Permission Mode" in prompt
+    assert "Plan mode is enabled" in prompt
+    assert "read-only planning and analysis" in prompt
+    assert "Do not call mutating tools" in prompt
+
+
 def test_build_runtime_system_prompt_includes_project_context_and_fast_mode(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("OPENHARNESS_DATA_DIR", str(tmp_path / "data"))
     repo = tmp_path / "repo"

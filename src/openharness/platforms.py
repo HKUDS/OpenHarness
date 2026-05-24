@@ -37,7 +37,7 @@ def detect_platform(
 
     if system == "darwin":
         return "macos"
-    if system == "windows":
+    if system in {"windows", "win32"}:
         return "windows"
     if system == "linux":
         if "microsoft" in kernel_release or env_map.get("WSL_DISTRO_NAME") or env_map.get("WSL_INTEROP"):
@@ -84,4 +84,3 @@ def get_platform_capabilities(platform_name: PlatformName | None = None) -> Plat
         supports_sandbox_runtime=False,
         supports_docker_sandbox=False,
     )
-

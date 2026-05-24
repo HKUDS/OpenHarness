@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import builtins
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -42,6 +43,36 @@ def test_exclusive_file_lock_routes_windows_branch(monkeypatch, tmp_path: Path):
 def test_exclusive_file_lock_rejects_unknown_platform(tmp_path: Path):
     with pytest.raises(lockfile.SwarmLockUnavailableError, match="not supported"):
         with lockfile.exclusive_file_lock(tmp_path / "unknown.lock", platform_name="unknown"):
+            pass
+
+
+def test_posix_lock_reports_unavailable_when_fcntl_missing(monkeypatch, tmp_path: Path):
+    real_import = builtins.__import__
+
+    def fake_import(name, *args, **kwargs):
+        if name == "fcntl":
+            raise ImportError("missing fcntl")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+
+    with pytest.raises(lockfile.SwarmLockUnavailableError, match="fcntl not available"):
+        with file_lock._exclusive_posix_lock(tmp_path / "posix.lock"):
+            pass
+
+
+def test_windows_lock_reports_unavailable_when_msvcrt_missing(monkeypatch, tmp_path: Path):
+    real_import = builtins.__import__
+
+    def fake_import(name, *args, **kwargs):
+        if name == "msvcrt":
+            raise ImportError("missing msvcrt")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+
+    with pytest.raises(lockfile.SwarmLockUnavailableError, match="msvcrt not available"):
+        with file_lock._exclusive_windows_lock(tmp_path / "windows.lock"):
             pass
 
 

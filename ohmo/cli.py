@@ -269,6 +269,14 @@ def _prompt_channels(existing: GatewayConfig) -> tuple[list[str], dict[str, dict
                 default_value=str(prior.get("group_policy", "mention")),
             )
         elif channel == "feishu":
+            config["domain"] = _select_from_menu(
+                "Feishu domain:",
+                [
+                    ("https://open.feishu.cn", "Feishu (China)"),
+                    ("https://open.larksuite.com", "Lark (International)"),
+                ],
+                default_value=str(prior.get("domain", "https://open.feishu.cn")),
+            )
             config["app_id"] = _text_prompt(
                 "Feishu app id",
                 default=str(prior.get("app_id", "")),
