@@ -17,7 +17,6 @@ from openharness.memory.relevance import format_relevant_memories, select_releva
 from openharness.memory.usage import mark_memory_used
 from openharness.permissions.modes import PermissionMode
 from openharness.personalization.rules import load_local_rules
-from openharness.permissions.modes import PermissionMode
 from openharness.prompts.claudemd import load_claude_md_prompt
 from openharness.prompts.system_prompt import build_system_prompt
 from openharness.skills.loader import load_skill_registry
