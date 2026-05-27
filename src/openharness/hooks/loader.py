@@ -18,8 +18,13 @@ class HookRegistry:
         self._hooks[event].append(hook)
 
     def get(self, event: HookEvent) -> list[HookDefinition]:
-        """Return hooks registered for an event."""
-        return list(self._hooks.get(event, []))
+        """Return hooks registered for an event, ordered by priority.
+
+        Hooks with a higher ``priority`` run first. ``sorted`` is stable, so
+        hooks sharing the same priority keep their registration order.
+        """
+        hooks = self._hooks.get(event, [])
+        return sorted(hooks, key=lambda hook: -getattr(hook, "priority", 0))
 
     def summary(self) -> str:
         """Return a human-readable hook summary."""
@@ -33,6 +38,9 @@ class HookRegistry:
                 matcher = getattr(hook, "matcher", None)
                 detail = getattr(hook, "command", None) or getattr(hook, "prompt", None) or getattr(hook, "url", None) or ""
                 suffix = f" matcher={matcher}" if matcher else ""
+                priority = getattr(hook, "priority", 0)
+                if priority:
+                    suffix += f" priority={priority}"
                 lines.append(f"  - {hook.type}{suffix}: {detail}")
         return "\n".join(lines)
 
