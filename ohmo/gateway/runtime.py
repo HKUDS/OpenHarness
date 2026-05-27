@@ -260,19 +260,6 @@ class OhmoSessionRuntimePool:
         if parsed is not None and not message.media:
             command, args = parsed
             command_name = str(getattr(command, "name", "") or "")
-            gateway_result = self._handle_gateway_scoped_command(command_name, args)
-            if gateway_result is not None:
-                message_text, refresh_runtime = gateway_result
-                result = CommandResult(message=message_text, refresh_runtime=refresh_runtime)
-                async for update in self._stream_command_result(
-                    bundle=bundle,
-                    message=message,
-                    session_key=session_key,
-                    user_prompt=user_prompt,
-                    result=result,
-                ):
-                    yield update
-                return
             remote_allowed = getattr(command, "remote_invocable", True)
             if not remote_allowed and self._remote_admin_allowed(command):
                 remote_allowed = True
@@ -287,6 +274,19 @@ class OhmoSessionRuntimePool:
                 result = CommandResult(
                     message=f"/{command_name} is only available in the local OpenHarness UI."
                 )
+                async for update in self._stream_command_result(
+                    bundle=bundle,
+                    message=message,
+                    session_key=session_key,
+                    user_prompt=user_prompt,
+                    result=result,
+                ):
+                    yield update
+                return
+            gateway_result = self._handle_gateway_scoped_command(command_name, args)
+            if gateway_result is not None:
+                message_text, refresh_runtime = gateway_result
+                result = CommandResult(message=message_text, refresh_runtime=refresh_runtime)
                 async for update in self._stream_command_result(
                     bundle=bundle,
                     message=message,

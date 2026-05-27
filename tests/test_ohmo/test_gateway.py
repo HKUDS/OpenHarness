@@ -2654,7 +2654,14 @@ def test_runtime_pool_sanitizes_internal_group_prompt_metadata():
 async def test_runtime_pool_provider_command_refresh_uses_gateway_profile(tmp_path, monkeypatch):
     workspace = tmp_path / ".ohmo-home"
     initialize_workspace(workspace)
-    save_gateway_config(GatewayConfig(provider_profile="kimi-anthropic"), workspace)
+    save_gateway_config(
+        GatewayConfig(
+            provider_profile="kimi-anthropic",
+            allow_remote_admin_commands=True,
+            allowed_remote_admin_commands=["provider", "model"],
+        ),
+        workspace,
+    )
     build_calls: list[dict[str, object]] = []
 
     statuses = {
@@ -2730,6 +2737,92 @@ async def test_runtime_pool_provider_command_refresh_uses_gateway_profile(tmp_pa
     assert updates[-1].text.startswith("ohmo gateway provider_profile set to codex")
     assert build_calls[0]["active_profile"] == "kimi-anthropic"
     assert build_calls[1]["active_profile"] == "codex"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "command_text,command_name",
+    [("/provider codex", "provider"), ("/model gpt-5.5", "model")],
+)
+async def test_runtime_pool_rejects_gateway_scoped_command_without_admin_opt_in(
+    tmp_path,
+    monkeypatch,
+    command_text,
+    command_name,
+):
+    workspace = tmp_path / ".ohmo-home"
+    initialize_workspace(workspace)
+    save_gateway_config(GatewayConfig(provider_profile="kimi-anthropic"), workspace)
+    build_calls: list[dict[str, object]] = []
+    handler_invocations: list[tuple[str, str]] = []
+
+    def fake_provider_handler(args, **_kwargs):
+        handler_invocations.append(("provider", args))
+        return ("provider switched", True)
+
+    def fake_model_handler(args, **_kwargs):
+        handler_invocations.append(("model", args))
+        return ("model switched", True)
+
+    class FakeEngine:
+        def __init__(self):
+            self.messages = [ConversationMessage.from_user_text("before")]
+            self.total_usage = UsageSnapshot()
+
+        def set_system_prompt(self, prompt):
+            del prompt
+
+        async def submit_message(self, content):
+            del content
+            if False:
+                yield None
+
+    async def fake_build_runtime(**kwargs):
+        build_calls.append(kwargs)
+        return SimpleNamespace(
+            engine=FakeEngine(),
+            session_id="sess123",
+            current_settings=lambda: SimpleNamespace(model="gpt-5.4"),
+            commands=create_default_command_registry(),
+            hook_summary=lambda: "",
+            mcp_summary=lambda: "",
+            plugin_summary=lambda: "",
+            cwd=str(tmp_path),
+            tool_registry=None,
+            app_state=None,
+            session_backend=None,
+            extra_skill_dirs=(),
+            extra_plugin_roots=(),
+            enforce_max_turns=False,
+        )
+
+    async def fake_start_runtime(bundle):
+        del bundle
+
+    async def fake_close_runtime(bundle):
+        del bundle
+
+    monkeypatch.setattr(
+        "ohmo.gateway.runtime.handle_gateway_provider_command", fake_provider_handler
+    )
+    monkeypatch.setattr(
+        "ohmo.gateway.runtime.handle_gateway_model_command", fake_model_handler
+    )
+    monkeypatch.setattr("ohmo.gateway.runtime.build_runtime", fake_build_runtime)
+    monkeypatch.setattr("ohmo.gateway.runtime.start_runtime", fake_start_runtime)
+    monkeypatch.setattr("ohmo.gateway.runtime.close_runtime", fake_close_runtime)
+
+    pool = OhmoSessionRuntimePool(cwd=tmp_path, workspace=workspace, provider_profile="kimi-anthropic")
+    message = InboundMessage(channel="feishu", sender_id="u1", chat_id="c1", content=command_text)
+    updates = [u async for u in pool.stream_message(message, "feishu:c1")]
+
+    assert handler_invocations == []
+    assert any(
+        f"/{command_name} is only available in the local OpenHarness UI." in update.text
+        for update in updates
+    )
+    assert load_gateway_config(workspace).provider_profile == "kimi-anthropic"
+    assert len(build_calls) == 1
 
 
 @pytest.mark.asyncio
