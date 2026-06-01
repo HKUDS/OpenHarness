@@ -604,7 +604,7 @@ class TestMiniMaxProvider:
         assert profile.provider == "minimax"
         assert profile.api_format == "openai"
         assert profile.auth_source == "minimax_api_key"
-        assert profile.default_model == "MiniMax-M2.7"
+        assert profile.default_model == "MiniMax-M3"
         assert profile.base_url == "https://api.minimax.io/v1"
 
     def test_auth_source_provider_name_minimax(self):
@@ -627,7 +627,7 @@ class TestMiniMaxProvider:
                     provider="minimax",
                     api_format="openai",
                     auth_source="minimax_api_key",
-                    default_model="MiniMax-M2.7",
+                    default_model="MiniMax-M3",
                     base_url="https://api.minimax.io/v1",
                 )
             },
@@ -645,13 +645,13 @@ class TestMiniMaxProvider:
                     provider="minimax",
                     api_format="openai",
                     auth_source="minimax_api_key",
-                    default_model="MiniMax-M2.7",
+                    default_model="MiniMax-M3",
                     base_url="https://api.minimax.io/v1",
                 )
             },
         )
         materialized = settings.materialize_active_profile()
-        assert materialized.model == "MiniMax-M2.7"
+        assert materialized.model == "MiniMax-M3"
         assert materialized.provider == "minimax"
         assert materialized.api_format == "openai"
 

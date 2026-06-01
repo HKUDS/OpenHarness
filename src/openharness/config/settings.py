@@ -244,7 +244,7 @@ def default_provider_profiles() -> dict[str, ProviderProfile]:
             provider="minimax",
             api_format="openai",
             auth_source="minimax_api_key",
-            default_model="MiniMax-M2.7",
+            default_model="MiniMax-M3",
             base_url="https://api.minimax.io/v1",
         ),
         "nvidia": ProviderProfile(

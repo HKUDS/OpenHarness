@@ -738,6 +738,7 @@ class ReactBackendHost:
         elif provider_name == "minimax":
             families.extend(
                 [
+                    ("MiniMax-M3", "MiniMax latest"),
                     ("MiniMax-M2.7", "MiniMax flagship"),
                     ("MiniMax-M2.7-highspeed", "MiniMax fast"),
                 ]
