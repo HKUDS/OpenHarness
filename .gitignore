@@ -1,9 +1,45 @@
+# Ignore every new file by default. Re-include only repository-owned sources,
+# docs, config, and public assets below.
+*
+!*/
+
+# Root project metadata
+!.gitignore
+!CHANGELOG.md
+!CONTRIBUTING.md
+!LICENSE
+!pyproject.toml
+!README.md
+!README.zh-CN.md
+!RELEASE_NOTES_*.md
+
+# Source, tests, and project scripts
+!src/**
+!ohmo/**
+!tests/**
+!scripts/**
+
+# Project-owned agent configuration
+!.agents/**
+!.claude/**
+!.github/**
+
+# Public assets and committed documentation surfaces
+!assets/**
+!docs/SHOWCASE.md
+!docs/autopilot/**
+
+# Frontend source projects
+!frontend/**
+!autopilot-dashboard/**
+
+# Dependency, build, cache, and runtime artifacts inside allowed trees
 __pycache__/
 *.py[cod]
 *$py.class
 *.egg-info/
-dist/
-build/
+/dist/
+/build/
 .eggs/
 *.egg
 .pytest_cache/
@@ -16,22 +52,20 @@ env/
 .env
 *.so
 .coverage
-htmlcov/
+/htmlcov/
+node_modules/
+frontend/terminal/node_modules/
+frontend/terminal/dist/
+frontend/terminal/build/
+autopilot-dashboard/node_modules/
+autopilot-dashboard/dist/
+
+# Editors and OS files
 .idea/
 .vscode/
 *.swp
 *.swo
 *~
 .python-version
-
-# React TUI frontend
-frontend/terminal/node_modules/
-
-# User data (never commit API keys or session data)
-.openharness/
-react_tui_smoke.txt
-
-# OS
 .DS_Store
 Thumbs.db
-uv.lock
