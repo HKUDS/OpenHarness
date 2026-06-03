@@ -32,6 +32,8 @@ class TestSettings:
         assert s.permission.mode == "default"
         assert s.sandbox.enabled is False
         assert s.sandbox.filesystem.allow_write == ["."]
+        assert s.web.resolution_mode == "auto"
+        assert s.web.synthetic_dns_cidrs == []
 
     def test_resolve_api_key_from_instance(self):
         s = Settings(api_key="sk-test-123")
@@ -77,6 +79,17 @@ class TestSettings:
         updated = s.merge_cli_overrides(permission_mode="full_auto")
         assert updated.permission.mode == "full_auto"
         assert s.permission.mode == "default"
+
+    def test_web_settings_env_overrides(self, monkeypatch):
+        monkeypatch.setenv("OPENHARNESS_WEB_PROXY", "http://proxy.example.com:7890")
+        monkeypatch.setenv("OPENHARNESS_WEB_RESOLUTION_MODE", "synthetic_dns")
+        monkeypatch.setenv("OPENHARNESS_WEB_SYNTHETIC_DNS_CIDRS", "100.64.0.0/10,203.0.113.0/24")
+
+        updated = _apply_env_overrides(Settings())
+
+        assert updated.web.proxy == "http://proxy.example.com:7890"
+        assert updated.web.resolution_mode == "synthetic_dns"
+        assert updated.web.synthetic_dns_cidrs == ["100.64.0.0/10", "203.0.113.0/24"]
 
     def test_merge_cli_overrides_returns_new_instance(self):
         s = Settings()
