@@ -257,9 +257,13 @@ class OhmoGatewayBridge:
                 inbound_meta["message_id"] = message.metadata["message_id"]
         try:
             reply = ""
+            final_media: list[str] = []
+            final_metadata: dict[str, object] = {}
             async for update in self._runtime_pool.stream_message(message, session_key):
                 if update.kind == "final":
                     reply = update.text
+                    final_media = list(getattr(update, "media", None) or (update.metadata or {}).get("_media") or [])
+                    final_metadata = dict(update.metadata or {})
                     continue
                 if not update.text:
                     continue
@@ -319,7 +323,8 @@ class OhmoGatewayBridge:
                 channel=message.channel,
                 chat_id=message.chat_id,
                 content=reply,
-                metadata={**inbound_meta, "_session_key": session_key},
+                media=final_media,
+                metadata={**inbound_meta, **final_metadata, "_session_key": session_key},
             )
         )
 
