@@ -14,16 +14,44 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from openharness.channels.bus.events import InboundMessage, OutboundMessage
 from openharness.channels.bus.queue import MessageBus
-from openharness.engine.stream_events import AssistantTextDelta, AssistantTurnComplete
+from openharness.engine.stream_events import AssistantTextDelta, AssistantTurnComplete, ToolExecutionCompleted
 
 if TYPE_CHECKING:
     from openharness.engine.query_engine import QueryEngine
 
 logger = logging.getLogger(__name__)
+
+
+def _media_paths_from_tool_event(event: ToolExecutionCompleted) -> list[str]:
+    """Return local media files produced by tools that create sendable assets."""
+    if event.is_error or event.tool_name != "image_generation":
+        return []
+    metadata = event.metadata or {}
+    raw_paths = metadata.get("paths")
+    if isinstance(raw_paths, str):
+        candidates = [raw_paths]
+    elif isinstance(raw_paths, list):
+        candidates = [str(path) for path in raw_paths if isinstance(path, str)]
+    else:
+        return []
+
+    media_paths: list[str] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        path = Path(candidate).expanduser()
+        if not path.is_file():
+            logger.debug("Ignoring image_generation media path that is not a file: %s", candidate)
+            continue
+        resolved = str(path.resolve())
+        if resolved not in seen:
+            seen.add(resolved)
+            media_paths.append(resolved)
+    return media_paths
 
 
 class ChannelBridge:
@@ -96,6 +124,7 @@ class ChannelBridge:
         logger.debug("ChannelBridge received from %s/%s", msg.channel, msg.chat_id)
 
         reply_parts: list[str] = []
+        media_paths: list[str] = []
         try:
             async for event in self._engine.submit_message(msg.content):
                 if isinstance(event, AssistantTextDelta):
@@ -103,6 +132,8 @@ class ChannelBridge:
                 elif isinstance(event, AssistantTurnComplete):
                     # Turn is done; we'll send the accumulated text below
                     pass
+                elif isinstance(event, ToolExecutionCompleted):
+                    media_paths.extend(_media_paths_from_tool_event(event))
         except Exception:
             logger.exception(
                 "ChannelBridge: engine error for message from %s/%s",
@@ -112,14 +143,15 @@ class ChannelBridge:
             reply_parts = ["[Error: failed to process your message]"]
 
         reply_text = "".join(reply_parts).strip()
-        if not reply_text:
-            logger.debug("ChannelBridge: empty reply, skipping publish")
+        if not reply_text and not media_paths:
+            logger.debug("ChannelBridge: empty reply and no media, skipping publish")
             return
 
         outbound = OutboundMessage(
             channel=msg.channel,
             chat_id=msg.chat_id,
             content=reply_text,
+            media=media_paths,
             metadata={"_session_key": msg.session_key},
         )
         await self._bus.publish_outbound(outbound)
