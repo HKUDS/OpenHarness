@@ -2177,6 +2177,92 @@ def provider_remove(
 # Main command
 # ---------------------------------------------------------------------------
 
+@app.command("exec")
+def exec_command(
+    prompt: str = typer.Argument(..., help="The prompt to run non-interactively"),
+    output_format: str = typer.Option(
+        "text",
+        "--output-format",
+        help="Output format: text (default), json, or stream-json",
+    ),
+    model: str | None = typer.Option(
+        None, "--model", "-m", help="Model alias (e.g. 'sonnet', 'opus') or full model ID"
+    ),
+    effort: str | None = typer.Option(
+        None, "--effort", help="Effort level (low, medium, high, xhigh/max)"
+    ),
+    max_turns: int | None = typer.Option(
+        None, "--max-turns", help="Maximum number of agentic turns"
+    ),
+    permission_mode: str | None = typer.Option(
+        None, "--permission-mode", help="Permission mode: default, plan, or full_auto"
+    ),
+    dangerously_skip_permissions: bool = typer.Option(
+        False,
+        "--dangerously-skip-permissions",
+        help="Bypass all permission checks (only for sandboxed environments)",
+    ),
+    system_prompt: str | None = typer.Option(
+        None, "--system-prompt", "-s", help="Override the default system prompt"
+    ),
+    append_system_prompt: str | None = typer.Option(
+        None, "--append-system-prompt", help="Append text to the default system prompt"
+    ),
+    base_url: str | None = typer.Option(
+        None, "--base-url", help="Anthropic-compatible API base URL"
+    ),
+    api_key: str | None = typer.Option(
+        None, "--api-key", "-k", help="API key (overrides config and environment)"
+    ),
+    api_format: str | None = typer.Option(
+        None, "--api-format", help="API format: 'anthropic' (default), 'openai', or 'copilot'"
+    ),
+    cwd: str = typer.Option(str(Path.cwd()), "--cwd", help="Working directory for the session"),
+) -> None:
+    """Run a single prompt non-interactively and exit (scripting / CI).
+
+    The headless counterpart to an interactive `oh` session: takes the prompt as
+    a positional argument and prints the result. Equivalent to `oh -p '<prompt>'`,
+    but discoverable as its own command. Use `--output-format json` (one object)
+    or `--output-format stream-json` (newline-delimited events) for machine-readable
+    output in pipelines.
+    """
+    import asyncio
+
+    from openharness.ui.app import run_print_mode
+
+    if dangerously_skip_permissions:
+        permission_mode = "full_auto"
+
+    prompt = prompt.strip()
+    if not prompt:
+        print("Error: exec requires a non-empty prompt", file=sys.stderr)
+        raise typer.Exit(1)
+    if output_format not in ("text", "json", "stream-json"):
+        print(
+            "Error: --output-format must be text, json, or stream-json",
+            file=sys.stderr,
+        )
+        raise typer.Exit(1)
+
+    asyncio.run(
+        run_print_mode(
+            prompt=prompt,
+            output_format=output_format,
+            cwd=cwd,
+            model=model,
+            base_url=base_url,
+            system_prompt=system_prompt,
+            append_system_prompt=append_system_prompt,
+            api_key=api_key,
+            api_format=api_format,
+            permission_mode=permission_mode,
+            max_turns=max_turns,
+            effort=effort,
+        )
+    )
+
+
 @app.callback(invoke_without_command=True)
 def main(
     ctx: typer.Context,

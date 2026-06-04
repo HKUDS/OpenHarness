@@ -557,3 +557,60 @@ def test_autopilot_export_dashboard_cli(monkeypatch, tmp_path: Path):
 
     assert result.exit_code == 0
     assert "Exported autopilot dashboard" in result.output
+
+
+def test_exec_command_routes_to_run_print_mode(monkeypatch):
+    runner = CliRunner()
+    captured = {}
+
+    async def fake_run_print_mode(**kwargs):
+        captured.update(kwargs)
+
+    monkeypatch.setattr("openharness.ui.app.run_print_mode", fake_run_print_mode)
+
+    result = runner.invoke(
+        app,
+        ["exec", "  ship it  ", "--output-format", "json", "--model", "sonnet"],
+    )
+
+    assert result.exit_code == 0
+    assert captured["prompt"] == "ship it"  # trimmed
+    assert captured["output_format"] == "json"
+    assert captured["model"] == "sonnet"
+
+
+def test_exec_command_skip_permissions_sets_full_auto(monkeypatch):
+    runner = CliRunner()
+    captured = {}
+
+    async def fake_run_print_mode(**kwargs):
+        captured.update(kwargs)
+
+    monkeypatch.setattr("openharness.ui.app.run_print_mode", fake_run_print_mode)
+
+    result = runner.invoke(app, ["exec", "do it", "--dangerously-skip-permissions"])
+
+    assert result.exit_code == 0
+    assert captured["permission_mode"] == "full_auto"
+
+
+def test_exec_command_rejects_invalid_output_format(monkeypatch):
+    runner = CliRunner()
+
+    async def fake_run_print_mode(**kwargs):  # pragma: no cover - must not run
+        raise AssertionError("run_print_mode should not be called on bad input")
+
+    monkeypatch.setattr("openharness.ui.app.run_print_mode", fake_run_print_mode)
+
+    result = runner.invoke(app, ["exec", "hi", "--output-format", "yaml"])
+
+    assert result.exit_code == 1
+    assert "text, json, or stream-json" in result.output
+
+
+def test_exec_command_listed_in_help():
+    runner = CliRunner()
+    result = runner.invoke(app, ["--help"], env={"NO_COLOR": "1", "COLUMNS": "160"})
+    plain_output = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
+    assert result.exit_code == 0
+    assert "exec" in plain_output
