@@ -338,6 +338,15 @@ def _run_gateway_config_wizard(workspace: str | Path) -> GatewayConfig:
         "Send tool hints to channels?",
         default=existing.send_tool_hints,
     )
+    remote_output_mode = _select_from_menu(
+        "Remote channel output mode:",
+        [
+            ("user", "User-facing output (hide raw tool details)"),
+            ("debug", "Debug output (show raw tool details)"),
+            ("silent", "Silent progress (final/media only)"),
+        ],
+        default_value=existing.remote_output_mode,
+    )
     allow_remote_admin_commands = _confirm_prompt(
         "Allow explicitly listed administrative slash commands from remote channels?",
         default=existing.allow_remote_admin_commands,
@@ -361,6 +370,7 @@ def _run_gateway_config_wizard(workspace: str | Path) -> GatewayConfig:
             "channel_configs": channel_configs,
             "send_progress": send_progress,
             "send_tool_hints": send_tool_hints,
+            "remote_output_mode": remote_output_mode,
             "allow_remote_admin_commands": allow_remote_admin_commands,
             "allowed_remote_admin_commands": allowed_remote_admin_commands,
         }

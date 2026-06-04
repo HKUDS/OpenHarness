@@ -124,6 +124,10 @@ class OhmoSessionRuntimePool:
     def active_sessions(self) -> int:
         return len(self._bundles)
 
+    @property
+    def remote_output_mode(self) -> str:
+        return self._gateway_config.remote_output_mode
+
     def _remote_admin_allowed(self, command) -> bool:
         if not getattr(command, "remote_admin_opt_in", False):
             return False
@@ -585,6 +589,8 @@ class OhmoSessionRuntimePool:
                     "_progress": True,
                     "_tool_hint": True,
                     "_session_key": session_key,
+                    "_tool_name": event.tool_name,
+                    "_tool_summary": summary,
                 },
             )
             return
