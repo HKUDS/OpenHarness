@@ -102,6 +102,7 @@ def test_ohmo_init_interactive_writes_gateway_config(tmp_path: Path, monkeypatch
             "n",  # feishu
             "y",  # send_progress
             "y",  # send_tool_hints
+            "1",  # remote_output_mode -> user
             "n",  # allow_remote_admin_commands
         ]
     )
@@ -111,6 +112,7 @@ def test_ohmo_init_interactive_writes_gateway_config(tmp_path: Path, monkeypatch
     assert config["enabled_channels"] == ["telegram"]
     assert config["channel_configs"]["telegram"]["token"] == "telegram-token"
     assert config["channel_configs"]["telegram"]["allow_from"] == ["123456"]
+    assert config["remote_output_mode"] == "user"
 
 
 def test_ohmo_init_interactive_allows_blank_allow_from_for_secure_default(tmp_path: Path, monkeypatch):
@@ -130,6 +132,7 @@ def test_ohmo_init_interactive_allows_blank_allow_from_for_secure_default(tmp_pa
             "n",  # feishu
             "y",  # send_progress
             "y",  # send_tool_hints
+            "1",  # remote_output_mode -> user
             "n",  # allow_remote_admin_commands
         ]
     )
@@ -164,6 +167,7 @@ def test_ohmo_init_interactive_writes_feishu_gateway_config(tmp_path: Path, monk
             "",          # bot_open_id
             "y",         # send_progress
             "n",         # send_tool_hints
+            "1",         # remote_output_mode -> user
             "n",         # allow_remote_admin_commands
         ]
     )
@@ -179,6 +183,7 @@ def test_ohmo_init_interactive_writes_feishu_gateway_config(tmp_path: Path, monk
     assert config["channel_configs"]["feishu"]["react_emoji"] == "OK"
     assert config["channel_configs"]["feishu"]["group_policy"] == "managed_or_mention"
     assert config["channel_configs"]["feishu"]["bot_names"] == ["ohmo", "openclaw"]
+    assert config["remote_output_mode"] == "user"
 
 
 def test_ohmo_config_interactive_can_restart_gateway(tmp_path: Path, monkeypatch):
@@ -209,6 +214,7 @@ def test_ohmo_config_interactive_can_restart_gateway(tmp_path: Path, monkeypatch
             "",           # bot_open_id
             "y",          # send_progress
             "y",          # send_tool_hints
+            "1",          # remote_output_mode -> user
             "n",          # allow_remote_admin_commands
             "y",          # restart gateway
         ]
@@ -251,6 +257,7 @@ def test_ohmo_config_keeps_existing_channel_when_not_reconfigured(tmp_path: Path
             "n",  # reconfigure feishu? keep existing
             "y",  # send_progress
             "y",  # send_tool_hints
+            "1",  # remote_output_mode -> user
             "n",  # allow_remote_admin_commands
         ]
     )

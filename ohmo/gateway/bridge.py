@@ -12,6 +12,7 @@ from openharness.channels.bus.events import OutboundMessage
 from openharness.channels.bus.queue import MessageBus
 
 from ohmo.group_registry import load_managed_group_record
+from ohmo.gateway.output_normalizer import GatewayOutputState, normalize_gateway_update
 from ohmo.gateway.router import session_key_for_message
 from ohmo.gateway.runtime import OhmoSessionRuntimePool
 
@@ -259,31 +260,43 @@ class OhmoGatewayBridge:
             reply = ""
             final_media: list[str] = []
             final_metadata: dict[str, object] = {}
+            output_state = GatewayOutputState()
+            output_mode = str(getattr(self._runtime_pool, "remote_output_mode", "user"))
             async for update in self._runtime_pool.stream_message(message, session_key):
-                if update.kind == "final":
-                    reply = update.text
-                    final_media = list(getattr(update, "media", None) or (update.metadata or {}).get("_media") or [])
-                    final_metadata = dict(update.metadata or {})
-                    continue
-                if not update.text:
-                    continue
-                logger.info(
-                    "ohmo outbound update channel=%s chat_id=%s session_key=%s kind=%s content=%r",
-                    message.channel,
-                    message.chat_id,
-                    session_key,
-                    update.kind,
-                    _content_snippet(update.text),
-                )
-                await self._bus.publish_outbound(
-                    OutboundMessage(
-                        channel=message.channel,
-                        chat_id=message.chat_id,
-                        content=update.text,
-                        media=list(getattr(update, "media", None) or (update.metadata or {}).get("_media") or []),
-                        metadata={**inbound_meta, **(update.metadata or {})},
+                for outgoing in normalize_gateway_update(
+                    update,
+                    channel=message.channel,
+                    content=message.content,
+                    mode=output_mode,
+                    state=output_state,
+                ):
+                    outgoing_media = list(
+                        getattr(outgoing, "media", None) or (outgoing.metadata or {}).get("_media") or []
                     )
-                )
+                    if outgoing.kind == "final":
+                        reply = outgoing.text
+                        final_media = outgoing_media
+                        final_metadata = dict(outgoing.metadata or {})
+                        continue
+                    if not outgoing.text and not outgoing_media:
+                        continue
+                    logger.info(
+                        "ohmo outbound update channel=%s chat_id=%s session_key=%s kind=%s content=%r",
+                        message.channel,
+                        message.chat_id,
+                        session_key,
+                        outgoing.kind,
+                        _content_snippet(outgoing.text),
+                    )
+                    await self._bus.publish_outbound(
+                        OutboundMessage(
+                            channel=message.channel,
+                            chat_id=message.chat_id,
+                            content=outgoing.text,
+                            media=outgoing_media,
+                            metadata={**inbound_meta, **(outgoing.metadata or {})},
+                        )
+                    )
         except asyncio.CancelledError:
             logger.info(
                 "ohmo session interrupted channel=%s chat_id=%s session_key=%s reason=%s",

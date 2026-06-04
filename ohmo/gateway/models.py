@@ -13,6 +13,7 @@ class GatewayConfig(BaseModel):
     session_routing: str = "chat-thread"
     send_progress: bool = True
     send_tool_hints: bool = True
+    remote_output_mode: str = "user"
     permission_mode: str = "default"
     sandbox_enabled: bool = False
     allow_remote_admin_commands: bool = False

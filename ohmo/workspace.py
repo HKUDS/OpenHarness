@@ -286,6 +286,7 @@ def initialize_workspace(workspace: str | Path | None = None) -> Path:
                     "session_routing": "chat-thread",
                     "send_progress": True,
                     "send_tool_hints": True,
+                    "remote_output_mode": "user",
                     "permission_mode": "default",
                     "sandbox_enabled": False,
                     "allow_remote_admin_commands": False,

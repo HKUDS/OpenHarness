@@ -1785,16 +1785,18 @@ def test_runtime_pool_includes_group_speaker_context():
 
 
 @pytest.mark.asyncio
-async def test_gateway_bridge_publishes_media_updates():
+async def test_gateway_bridge_publishes_media_updates(tmp_path):
     bus = MessageBus()
+    image_path = tmp_path / "generated.png"
+    image_path.write_bytes(b"png")
 
     class FakeRuntimePool:
         async def stream_message(self, message, session_key):
             yield SimpleNamespace(
                 kind="media",
                 text="已生成图片：generated.png",
-                media=["/tmp/generated.png"],
-                metadata={"_session_key": session_key, "_media": ["/tmp/generated.png"]},
+                media=[str(image_path)],
+                metadata={"_session_key": session_key, "_media": [str(image_path)]},
             )
 
     bridge = OhmoGatewayBridge(bus=bus, runtime_pool=FakeRuntimePool())
@@ -1810,21 +1812,23 @@ async def test_gateway_bridge_publishes_media_updates():
         except asyncio.CancelledError:
             pass
 
-    assert outbound.content == "已生成图片：generated.png"
-    assert outbound.media == ["/tmp/generated.png"]
+    assert outbound.content == ""
+    assert outbound.media == [str(image_path)]
 
 
 @pytest.mark.asyncio
-async def test_gateway_bridge_publishes_final_media_updates():
+async def test_gateway_bridge_publishes_final_media_updates(tmp_path):
     bus = MessageBus()
+    image_path = tmp_path / "generated.png"
+    image_path.write_bytes(b"png")
 
     class FakeRuntimePool:
         async def stream_message(self, message, session_key):
             yield SimpleNamespace(
                 kind="final",
-                text="已生成图片：generated.png",
-                media=["/tmp/generated.png"],
-                metadata={"_session_key": session_key, "_media": ["/tmp/generated.png"]},
+                text=f"已生成图片：\n```text\n{image_path}\n```",
+                media=[str(image_path)],
+                metadata={"_session_key": session_key, "_media": [str(image_path)]},
             )
 
     bridge = OhmoGatewayBridge(bus=bus, runtime_pool=FakeRuntimePool())
@@ -1840,8 +1844,47 @@ async def test_gateway_bridge_publishes_final_media_updates():
         except asyncio.CancelledError:
             pass
 
-    assert outbound.content == "已生成图片：generated.png"
-    assert outbound.media == ["/tmp/generated.png"]
+    assert outbound.content == "已生成图片。"
+    assert outbound.media == [str(image_path)]
+
+
+@pytest.mark.asyncio
+async def test_gateway_bridge_cleans_local_final_paths_but_keeps_urls(tmp_path):
+    bus = MessageBus()
+    image_path = tmp_path / "generated.png"
+    image_path.write_bytes(b"png")
+
+    class FakeRuntimePool:
+        async def stream_message(self, message, session_key):
+            yield SimpleNamespace(
+                kind="final",
+                text=(
+                    "已生成信息图：\n"
+                    f"{image_path}\n\n"
+                    "参考来源：\n"
+                    "1. https://example.com/articles/ai-trism\n"
+                    "2. Gartner overview"
+                ),
+                media=[str(image_path)],
+                metadata={"_session_key": session_key, "_media": [str(image_path)]},
+            )
+
+    bridge = OhmoGatewayBridge(bus=bus, runtime_pool=FakeRuntimePool())
+    task = asyncio.create_task(bridge.run())
+    try:
+        await bus.publish_inbound(InboundMessage(channel="feishu", sender_id="u1", chat_id="c1", content="请画信息图"))
+        outbound = await asyncio.wait_for(bus.consume_outbound(), timeout=1.0)
+    finally:
+        bridge.stop()
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+    assert str(image_path) not in outbound.content
+    assert "https://example.com/articles/ai-trism" in outbound.content
+    assert "Gartner overview" in outbound.content
 
 
 @pytest.mark.asyncio
@@ -1851,14 +1894,23 @@ async def test_gateway_bridge_publishes_progress_updates():
     class FakeRuntimePool:
         async def stream_message(self, message, session_key):
             yield SimpleNamespace(kind="progress", text="🤔 想一想…", metadata={"_progress": True, "_session_key": session_key})
-            yield SimpleNamespace(kind="tool_hint", text="🛠️ 正在使用 web_fetch: https://example.com", metadata={"_progress": True, "_tool_hint": True, "_session_key": session_key})
+            yield SimpleNamespace(
+                kind="tool_hint",
+                text="🛠️ 正在使用 web_fetch: https://example.com",
+                metadata={
+                    "_progress": True,
+                    "_tool_hint": True,
+                    "_tool_name": "web_fetch",
+                    "_session_key": session_key,
+                },
+            )
             yield SimpleNamespace(kind="final", text="Done", metadata={"_session_key": session_key})
 
     bridge = OhmoGatewayBridge(bus=bus, runtime_pool=FakeRuntimePool())
     task = asyncio.create_task(bridge.run())
     try:
         await bus.publish_inbound(
-            InboundMessage(channel="feishu", sender_id="u1", chat_id="c1", content="hi")
+            InboundMessage(channel="feishu", sender_id="u1", chat_id="c1", content="请查一下")
         )
         first = await asyncio.wait_for(bus.consume_outbound(), timeout=1.0)
         second = await asyncio.wait_for(bus.consume_outbound(), timeout=1.0)
@@ -1871,12 +1923,214 @@ async def test_gateway_bridge_publishes_progress_updates():
         except asyncio.CancelledError:
             pass
 
-    assert first.content.startswith(("🤔", "🧠", "✨", "🔎", "🪄"))
+    assert first.content == "正在处理..."
     assert first.metadata["_progress"] is True
     assert second.metadata["_tool_hint"] is True
-    assert second.content.startswith("🛠️ ")
-    assert "web_fetch" in second.content
+    assert second.content == "正在检索资料..."
     assert third.content == "Done"
+
+
+@pytest.mark.asyncio
+async def test_gateway_bridge_debug_mode_keeps_raw_tool_hints():
+    bus = MessageBus()
+
+    class FakeRuntimePool:
+        remote_output_mode = "debug"
+
+        async def stream_message(self, message, session_key):
+            yield SimpleNamespace(
+                kind="tool_hint",
+                text="🛠️ Using image_generation: {\"background\": null}",
+                metadata={
+                    "_progress": True,
+                    "_tool_hint": True,
+                    "_tool_name": "image_generation",
+                    "_session_key": session_key,
+                },
+            )
+
+    bridge = OhmoGatewayBridge(bus=bus, runtime_pool=FakeRuntimePool())
+    task = asyncio.create_task(bridge.run())
+    try:
+        await bus.publish_inbound(InboundMessage(channel="feishu", sender_id="u1", chat_id="c1", content="draw"))
+        outbound = await asyncio.wait_for(bus.consume_outbound(), timeout=1.0)
+    finally:
+        bridge.stop()
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+    assert "Using image_generation" in outbound.content
+    assert "background" in outbound.content
+
+
+@pytest.mark.asyncio
+async def test_gateway_bridge_user_mode_hides_internal_file_tool_hints(tmp_path):
+    bus = MessageBus()
+    skill_path = tmp_path / "skills" / "pat-infographic" / "SKILL.md"
+
+    class FakeRuntimePool:
+        async def stream_message(self, message, session_key):
+            yield SimpleNamespace(
+                kind="tool_hint",
+                text=f"🛠️ Using read_file: {skill_path}",
+                metadata={
+                    "_progress": True,
+                    "_tool_hint": True,
+                    "_tool_name": "read_file",
+                    "_session_key": session_key,
+                },
+            )
+            yield SimpleNamespace(
+                kind="tool_hint",
+                text=f"🛠️ Using glob: {tmp_path / 'prompts' / 'infographic.md'}",
+                metadata={
+                    "_progress": True,
+                    "_tool_hint": True,
+                    "_tool_name": "glob",
+                    "_session_key": session_key,
+                },
+            )
+            yield SimpleNamespace(kind="final", text="Done", metadata={"_session_key": session_key})
+
+    bridge = OhmoGatewayBridge(bus=bus, runtime_pool=FakeRuntimePool())
+    task = asyncio.create_task(bridge.run())
+    try:
+        await bus.publish_inbound(InboundMessage(channel="feishu", sender_id="u1", chat_id="c1", content="请画图"))
+        outbound = await asyncio.wait_for(bus.consume_outbound(), timeout=1.0)
+    finally:
+        bridge.stop()
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+    assert outbound.content == "Done"
+    assert str(tmp_path) not in outbound.content
+
+
+@pytest.mark.asyncio
+async def test_gateway_bridge_user_mode_deduplicates_search_stage_hints():
+    bus = MessageBus()
+
+    class FakeRuntimePool:
+        async def stream_message(self, message, session_key):
+            yield SimpleNamespace(
+                kind="tool_hint",
+                text="🛠️ Using web_search: Gartner AI TRiSM",
+                metadata={
+                    "_progress": True,
+                    "_tool_hint": True,
+                    "_tool_name": "web_search",
+                    "_session_key": session_key,
+                },
+            )
+            yield SimpleNamespace(
+                kind="tool_hint",
+                text="🛠️ Using web_fetch: https://example.com",
+                metadata={
+                    "_progress": True,
+                    "_tool_hint": True,
+                    "_tool_name": "web_fetch",
+                    "_session_key": session_key,
+                },
+            )
+            yield SimpleNamespace(kind="final", text="Done", metadata={"_session_key": session_key})
+
+    bridge = OhmoGatewayBridge(bus=bus, runtime_pool=FakeRuntimePool())
+    task = asyncio.create_task(bridge.run())
+    try:
+        await bus.publish_inbound(InboundMessage(channel="feishu", sender_id="u1", chat_id="c1", content="查一下"))
+        first = await asyncio.wait_for(bus.consume_outbound(), timeout=1.0)
+        second = await asyncio.wait_for(bus.consume_outbound(), timeout=1.0)
+    finally:
+        bridge.stop()
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+    assert first.content == "正在检索资料..."
+    assert second.content == "Done"
+
+
+@pytest.mark.asyncio
+async def test_gateway_bridge_user_mode_summarizes_image_generation_without_json():
+    bus = MessageBus()
+
+    class FakeRuntimePool:
+        async def stream_message(self, message, session_key):
+            yield SimpleNamespace(
+                kind="tool_hint",
+                text='🛠️ Using image_generation: {"background": null, "image_paths": []}',
+                metadata={
+                    "_progress": True,
+                    "_tool_hint": True,
+                    "_tool_name": "image_generation",
+                    "_session_key": session_key,
+                },
+            )
+            yield SimpleNamespace(kind="final", text="Done", metadata={"_session_key": session_key})
+
+    bridge = OhmoGatewayBridge(bus=bus, runtime_pool=FakeRuntimePool())
+    task = asyncio.create_task(bridge.run())
+    try:
+        await bus.publish_inbound(InboundMessage(channel="feishu", sender_id="u1", chat_id="c1", content="画图"))
+        first = await asyncio.wait_for(bus.consume_outbound(), timeout=1.0)
+        second = await asyncio.wait_for(bus.consume_outbound(), timeout=1.0)
+    finally:
+        bridge.stop()
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+    assert first.content == "正在生成图片..."
+    assert "background" not in first.content
+    assert "image_paths" not in first.content
+    assert second.content == "Done"
+
+
+@pytest.mark.asyncio
+async def test_gateway_bridge_silent_mode_suppresses_progress_and_tool_hints():
+    bus = MessageBus()
+
+    class FakeRuntimePool:
+        remote_output_mode = "silent"
+
+        async def stream_message(self, message, session_key):
+            yield SimpleNamespace(kind="progress", text="Thinking...", metadata={"_progress": True, "_session_key": session_key})
+            yield SimpleNamespace(
+                kind="tool_hint",
+                text="🛠️ Using web_search: Gartner AI TRiSM",
+                metadata={
+                    "_progress": True,
+                    "_tool_hint": True,
+                    "_tool_name": "web_search",
+                    "_session_key": session_key,
+                },
+            )
+            yield SimpleNamespace(kind="final", text="Done", metadata={"_session_key": session_key})
+
+    bridge = OhmoGatewayBridge(bus=bus, runtime_pool=FakeRuntimePool())
+    task = asyncio.create_task(bridge.run())
+    try:
+        await bus.publish_inbound(InboundMessage(channel="feishu", sender_id="u1", chat_id="c1", content="查一下"))
+        outbound = await asyncio.wait_for(bus.consume_outbound(), timeout=1.0)
+    finally:
+        bridge.stop()
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+    assert outbound.content == "Done"
 
 
 @pytest.mark.asyncio
