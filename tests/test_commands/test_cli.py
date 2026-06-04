@@ -557,3 +557,148 @@ def test_autopilot_export_dashboard_cli(monkeypatch, tmp_path: Path):
 
     assert result.exit_code == 0
     assert "Exported autopilot dashboard" in result.output
+
+
+def test_cron_status_json(monkeypatch):
+    runner = CliRunner()
+    monkeypatch.setattr(
+        "openharness.services.cron_scheduler.scheduler_status",
+        lambda: {
+            "running": True,
+            "pid": 4321,
+            "enabled_jobs": 2,
+            "total_jobs": 3,
+            "log_file": Path("/tmp/cron_scheduler.log"),  # Path -> coerced by default=str
+        },
+    )
+
+    result = runner.invoke(app, ["cron", "status", "--json"])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["running"] is True
+    assert payload["enabled_jobs"] == 2
+    assert payload["log_file"] == "/tmp/cron_scheduler.log"
+
+
+def test_cron_list_json(monkeypatch):
+    runner = CliRunner()
+    monkeypatch.setattr(
+        "openharness.services.cron.load_cron_jobs",
+        lambda: [
+            {"name": "nightly", "schedule": "0 2 * * *", "enabled": True, "command": "echo hi"}
+        ],
+    )
+
+    result = runner.invoke(app, ["cron", "list", "--json"])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert isinstance(payload, list)
+    assert payload[0]["name"] == "nightly"
+    assert payload[0]["enabled"] is True
+
+
+def test_cron_list_json_empty_is_array(monkeypatch):
+    runner = CliRunner()
+    monkeypatch.setattr("openharness.services.cron.load_cron_jobs", lambda: [])
+
+    result = runner.invoke(app, ["cron", "list", "--json"])
+
+    assert result.exit_code == 0
+    assert json.loads(result.output) == []  # JSON mode never prints the human "No jobs" line
+
+
+def test_cron_history_json(monkeypatch):
+    runner = CliRunner()
+    monkeypatch.setattr(
+        "openharness.services.cron_scheduler.load_history",
+        lambda limit, job_name: [
+            {"started_at": "2026-06-04T02:00:00", "name": "nightly", "status": "success", "returncode": 0}
+        ],
+    )
+
+    result = runner.invoke(app, ["cron", "history", "--json"])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload[0]["status"] == "success"
+
+
+def test_autopilot_status_json(monkeypatch):
+    runner = CliRunner()
+
+    class FakeStore:
+        def __init__(self, cwd):
+            self.registry_path = Path("/tmp/registry.json")
+            self.journal_path = Path("/tmp/journal.jsonl")
+            self.context_path = Path("/tmp/context.md")
+
+        def stats(self):
+            return {"queued": 2, "completed": 1}
+
+        def pick_next_card(self):
+            return types.SimpleNamespace(id="ap-1", title="Fix flaky test", score=7)
+
+    monkeypatch.setattr("openharness.autopilot.RepoAutopilotStore", FakeStore)
+
+    result = runner.invoke(app, ["autopilot", "status", "--json", "--cwd", "/tmp"])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["counts"]["queued"] == 2
+    assert payload["next"]["id"] == "ap-1"
+    assert payload["registry"] == "/tmp/registry.json"
+
+
+def test_autopilot_status_json_no_next_card(monkeypatch):
+    runner = CliRunner()
+
+    class FakeStore:
+        def __init__(self, cwd):
+            self.registry_path = Path("/tmp/registry.json")
+            self.journal_path = Path("/tmp/journal.jsonl")
+            self.context_path = Path("/tmp/context.md")
+
+        def stats(self):
+            return {}
+
+        def pick_next_card(self):
+            return None
+
+    monkeypatch.setattr("openharness.autopilot.RepoAutopilotStore", FakeStore)
+
+    result = runner.invoke(app, ["autopilot", "status", "--json", "--cwd", "/tmp"])
+
+    assert result.exit_code == 0
+    assert json.loads(result.output)["next"] is None
+
+
+def test_autopilot_list_json(monkeypatch):
+    runner = CliRunner()
+
+    class FakeStore:
+        def __init__(self, cwd):
+            pass
+
+        def list_cards(self, status=None):
+            return [
+                types.SimpleNamespace(
+                    id="ap-1",
+                    status="queued",
+                    score=7,
+                    title="Fix flaky test",
+                    source_kind="manual_idea",
+                    source_ref=None,
+                    body="details",
+                )
+            ]
+
+    monkeypatch.setattr("openharness.autopilot.RepoAutopilotStore", FakeStore)
+
+    result = runner.invoke(app, ["autopilot", "list", "--json", "--cwd", "/tmp"])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload[0]["id"] == "ap-1"
+    assert payload[0]["source_ref"] is None
