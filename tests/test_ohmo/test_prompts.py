@@ -55,6 +55,8 @@ def test_ohmo_runtime_prompt_can_exclude_project_memory(tmp_path: Path, monkeypa
 
     assert "ohmo-only personal fact" in runtime_prompt
     assert "project memory should not leak" not in runtime_prompt
+    assert "./openharness_tmp/" in runtime_prompt
+    assert "Do not write `.tmp*` files" in runtime_prompt
 
 
 def test_ohmo_memory_uses_schema_and_soft_delete(tmp_path: Path):

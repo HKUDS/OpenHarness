@@ -21,6 +21,22 @@ from openharness.prompts.claudemd import load_claude_md_prompt
 from openharness.prompts.system_prompt import build_system_prompt
 from openharness.skills.loader import load_skill_registry
 
+PROJECT_TMP_DIRNAME = "openharness_tmp"
+
+
+def _build_project_scratch_section(_cwd: str | Path) -> str:
+    scratch_dir = f"./{PROJECT_TMP_DIRNAME}/"
+    return "\n".join(
+        [
+            "# Project Scratch Space",
+            "- Put throwaway scripts, query dumps, evidence bundles, scratch outputs, "
+            f"and other temporary artifacts under `{scratch_dir}`.",
+            "- Do not write `.tmp*` files or one-off helper files directly in the project root.",
+            "- Keep durable deliverables in the user-requested or project-conventional location; "
+            "use the scratch directory only for disposable work.",
+        ]
+    )
+
 
 def _build_skills_section(
     cwd: str | Path,
@@ -118,6 +134,7 @@ def build_runtime_system_prompt(
         sections[0] = build_system_prompt(cwd=str(cwd))
 
     sections.append(_build_permission_mode_section(settings))
+    sections.append(_build_project_scratch_section(cwd))
 
     if settings.fast_mode:
         sections.append(
