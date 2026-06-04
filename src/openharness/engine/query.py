@@ -16,6 +16,7 @@ from openharness.api.client import (
     ApiMessageRequest,
     ApiRetryEvent,
     ApiTextDeltaEvent,
+    ApiThinkingDeltaEvent,
     SupportsStreamingMessages,
 )
 from openharness.api.provider import is_model_multimodal
@@ -29,6 +30,7 @@ from openharness.engine.messages import (
 )
 from openharness.engine.stream_events import (
     AssistantTextDelta,
+    AssistantThinkingDelta,
     AssistantTurnComplete,
     CompactProgressEvent,
     ErrorEvent,
@@ -153,6 +155,7 @@ class QueryContext:
     max_turns: int | None = 200
     hook_executor: HookExecutor | None = None
     tool_metadata: dict[str, object] | None = None
+    show_thinking: bool = False
 
 
 def _append_capped_unique(bucket: list[Any], value: Any, *, limit: int) -> None:
@@ -733,10 +736,14 @@ async def run_query(
                     max_tokens=effective_max_tokens,
                     tools=context.tool_registry.to_api_schema(),
                     effort=context.effort,
+                    show_thinking=context.show_thinking,
                 )
             ):
                 if isinstance(event, ApiTextDeltaEvent):
                     yield AssistantTextDelta(text=event.text), None
+                    continue
+                if isinstance(event, ApiThinkingDeltaEvent):
+                    yield AssistantThinkingDelta(text=event.text), None
                     continue
                 if isinstance(event, ApiRetryEvent):
                     yield StatusEvent(

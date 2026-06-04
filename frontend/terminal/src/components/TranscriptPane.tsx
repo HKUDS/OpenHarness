@@ -32,6 +32,8 @@ function labelFor(role: TranscriptItem['role']): string {
 			return 'tool>';
 		case 'tool_result':
 			return 'tool_result>';
+		case 'thinking':
+			return 'Think:';
 		default:
 			return `${role}>`;
 	}
@@ -40,6 +42,9 @@ function labelFor(role: TranscriptItem['role']): string {
 function roleColor(role: TranscriptItem['role']): string | undefined {
 	if (role === 'assistant') {
 		return 'green';
+	}
+	if (role === 'thinking') {
+		return 'gray';
 	}
 	if (role === 'tool') {
 		return 'cyan';

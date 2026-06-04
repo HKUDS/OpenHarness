@@ -19,6 +19,7 @@ from openharness.config.settings import load_settings, save_settings
 from openharness.coordinator.coordinator_mode import is_coordinator_mode
 from openharness.engine.stream_events import (
     AssistantTextDelta,
+    AssistantThinkingDelta,
     AssistantTurnComplete,
     CompactProgressEvent,
     ErrorEvent,
@@ -325,6 +326,10 @@ class OpenHarnessTerminalApp(App[None]):
         self._set_current_response("Ready.")
 
     async def _render_event(self, event: StreamEvent) -> None:
+        if isinstance(event, AssistantThinkingDelta):
+            self._assistant_buffer += event.text
+            self._set_current_response(f"[dim]\u2500\u2500 Thinking \u2500\u2500[/dim] {self._assistant_buffer}")
+            return
         if isinstance(event, AssistantTextDelta):
             self._assistant_buffer += event.text
             self._set_current_response(f"[bold]assistant>[/bold] {self._assistant_buffer}")

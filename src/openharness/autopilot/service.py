@@ -36,7 +36,7 @@ from openharness.config.paths import (
     get_project_repo_journal_path,
     get_project_verification_policy_path,
 )
-from openharness.engine.stream_events import AssistantTextDelta, AssistantTurnComplete, ErrorEvent
+from openharness.engine.stream_events import AssistantTextDelta, AssistantThinkingDelta, AssistantTurnComplete, ErrorEvent
 from openharness.swarm.worktree import WorktreeManager
 from openharness.utils.fs import atomic_write_text
 
@@ -2067,7 +2067,9 @@ class RepoAutopilotStore:
         collected: list[str] = []
         try:
             async for event in bundle.engine.submit_message(prompt):
-                if isinstance(event, AssistantTextDelta):
+                if isinstance(event, AssistantThinkingDelta):
+                    pass
+                elif isinstance(event, AssistantTextDelta):
                     collected.append(event.text)
                 elif isinstance(event, AssistantTurnComplete):
                     text = event.message.text.strip()
