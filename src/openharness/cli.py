@@ -2068,6 +2068,31 @@ def provider_use(
     print(f"Activated provider profile: {name}", flush=True)
 
 
+_VALID_EFFORTS = {"low", "medium", "high", "xhigh", "max"}
+
+
+def _validate_profile_session_defaults(permission_mode: str | None, effort: str | None) -> None:
+    """Validate optional per-profile session defaults; exit(1) on bad input."""
+    if permission_mode is not None:
+        from openharness.permissions.modes import PermissionMode
+
+        try:
+            PermissionMode(permission_mode)
+        except ValueError:
+            valid = ", ".join(m.value for m in PermissionMode)
+            print(
+                f"Error: invalid --permission-mode {permission_mode!r}; choose one of: {valid}",
+                file=sys.stderr,
+            )
+            raise typer.Exit(1)
+    if effort is not None and effort not in _VALID_EFFORTS:
+        print(
+            f"Error: invalid --effort {effort!r}; choose one of: {', '.join(sorted(_VALID_EFFORTS))}",
+            file=sys.stderr,
+        )
+        raise typer.Exit(1)
+
+
 @provider_app.command("add")
 def provider_add(
     name: str = typer.Argument(..., help="Provider profile name"),
@@ -2082,11 +2107,14 @@ def provider_add(
     allowed_models: list[str] | None = typer.Option(None, "--allowed-model", help="Allowed model values for this profile"),
     context_window_tokens: int | None = typer.Option(None, "--context-window-tokens", help="Optional context window override for auto-compact"),
     auto_compact_threshold_tokens: int | None = typer.Option(None, "--auto-compact-threshold-tokens", help="Optional explicit auto-compact threshold override"),
+    permission_mode: str | None = typer.Option(None, "--permission-mode", help="Per-profile default permission mode (default, plan, full_auto)"),
+    effort: str | None = typer.Option(None, "--effort", help="Per-profile default effort (low, medium, high, xhigh/max)"),
 ) -> None:
     """Create a provider profile."""
     from openharness.auth.manager import AuthManager
     from openharness.config.settings import ProviderProfile
 
+    _validate_profile_session_defaults(permission_mode, effort)
     manager = AuthManager()
     manager.upsert_profile(
         name,
@@ -2102,6 +2130,8 @@ def provider_add(
             allowed_models=allowed_models or ([model] if credential_slot or _default_credential_slot_for_profile(name, auth_source) else []),
             context_window_tokens=context_window_tokens,
             auto_compact_threshold_tokens=auto_compact_threshold_tokens,
+            permission_mode=permission_mode,
+            effort=effort,
         ),
     )
     if api_key is not None:
@@ -2126,10 +2156,13 @@ def provider_edit(
     allowed_models: list[str] | None = typer.Option(None, "--allowed-model", help="Allowed model values for this profile"),
     context_window_tokens: int | None = typer.Option(None, "--context-window-tokens", help="Optional context window override for auto-compact"),
     auto_compact_threshold_tokens: int | None = typer.Option(None, "--auto-compact-threshold-tokens", help="Optional explicit auto-compact threshold override"),
+    permission_mode: str | None = typer.Option(None, "--permission-mode", help="Per-profile default permission mode (default, plan, full_auto)"),
+    effort: str | None = typer.Option(None, "--effort", help="Per-profile default effort (low, medium, high, xhigh/max)"),
 ) -> None:
     """Edit a provider profile."""
     from openharness.auth.manager import AuthManager
 
+    _validate_profile_session_defaults(permission_mode, effort)
     manager = AuthManager()
     try:
         manager.update_profile(
@@ -2145,6 +2178,8 @@ def provider_edit(
             allowed_models=allowed_models,
             context_window_tokens=context_window_tokens,
             auto_compact_threshold_tokens=auto_compact_threshold_tokens,
+            permission_mode=permission_mode,
+            effort=effort,
         )
         if api_key is not None:
             manager = AuthManager()

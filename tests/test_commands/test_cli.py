@@ -557,3 +557,48 @@ def test_autopilot_export_dashboard_cli(monkeypatch, tmp_path: Path):
 
     assert result.exit_code == 0
     assert "Exported autopilot dashboard" in result.output
+
+
+def test_provider_add_stores_session_defaults(tmp_path: Path, monkeypatch):
+    runner = CliRunner()
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path))
+
+    result = runner.invoke(
+        app,
+        [
+            "provider", "add", "custom-claude",
+            "--label", "Custom Claude",
+            "--provider", "anthropic",
+            "--api-format", "anthropic",
+            "--auth-source", "anthropic_api_key",
+            "--model", "claude-sonnet-4-6",
+            "--permission-mode", "plan",
+            "--effort", "high",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    profile = load_settings().profiles["custom-claude"]
+    assert profile.permission_mode == "plan"
+    assert profile.effort == "high"
+
+
+def test_provider_add_rejects_invalid_permission_mode(tmp_path: Path, monkeypatch):
+    runner = CliRunner()
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path))
+
+    result = runner.invoke(
+        app,
+        [
+            "provider", "add", "bad",
+            "--label", "Bad",
+            "--provider", "anthropic",
+            "--api-format", "anthropic",
+            "--auth-source", "anthropic_api_key",
+            "--model", "claude-sonnet-4-6",
+            "--permission-mode", "nope",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "invalid --permission-mode" in result.output
