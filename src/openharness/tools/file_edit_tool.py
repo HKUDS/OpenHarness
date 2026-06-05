@@ -33,6 +33,19 @@ class FileEditTool(BaseTool):
     ) -> ToolResult:
         path = _resolve_path(context.cwd, arguments.path)
 
+        # Sandbox layer L1: in-process path policy (no-op when no session policy
+        # is installed). Blocks edits outside the workspace + on sensitive paths.
+        from openharness.permissions.active_policy import get_active_path_policy
+
+        policy = get_active_path_policy()
+        if policy is not None:
+            decision = policy.is_write_allowed(path)
+            if not decision.allowed:
+                return ToolResult(
+                    output=f"Edit blocked by sandbox policy: {decision.reason}",
+                    is_error=True,
+                )
+
         from openharness.sandbox.session import is_docker_sandbox_active
 
         if is_docker_sandbox_active():

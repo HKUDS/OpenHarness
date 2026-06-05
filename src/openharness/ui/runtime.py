@@ -436,6 +436,17 @@ async def build_runtime(
         )
         engine.load_messages(restored)
 
+    # Sandbox layer L1: install the in-process filesystem path policy (on by
+    # default). Confines file-tool writes to the workspace + always blocks
+    # sensitive credential paths, per the active permission mode. The OS bash
+    # sandbox (L2) and Docker backend remain opt-in. See plans/os-sandbox.plan.md.
+    from openharness.permissions.active_policy import set_active_path_policy
+    from openharness.permissions.path_policy import build_path_policy
+
+    set_active_path_policy(
+        build_path_policy(settings.permission.mode, settings.sandbox, cwd)
+    )
+
     # Start Docker sandbox if configured
     if settings.sandbox.enabled and settings.sandbox.backend == "docker":
         from openharness.sandbox.session import start_docker_sandbox
@@ -482,8 +493,10 @@ async def start_runtime(bundle: RuntimeBundle) -> None:
 async def close_runtime(bundle: RuntimeBundle) -> None:
     """Close runtime-owned resources."""
     from openharness.sandbox.session import stop_docker_sandbox
+    from openharness.permissions.active_policy import clear_active_path_policy
 
     await stop_docker_sandbox()
+    clear_active_path_policy()
     # Extract local environment rules from session before closing
     try:
         from openharness.personalization.session_hook import update_rules_from_session
