@@ -356,6 +356,8 @@ class AuthManager:
         allowed_models: list[str] | None = None,
         context_window_tokens: int | None = None,
         auto_compact_threshold_tokens: int | None = None,
+        permission_mode: str | None = None,
+        effort: str | None = None,
     ) -> None:
         """Update a profile in-place."""
         profiles = self.settings.merged_profiles()
@@ -384,6 +386,10 @@ class AuthManager:
                 if auto_compact_threshold_tokens is not None
                 else current.auto_compact_threshold_tokens
             ),
+            "permission_mode": (
+                permission_mode if permission_mode is not None else current.permission_mode
+            ),
+            "effort": effort if effort is not None else current.effort,
         }
         profiles[name] = current.model_copy(update=updates)
         updated = self.settings.model_copy(update={"profiles": profiles})

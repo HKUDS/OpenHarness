@@ -912,3 +912,60 @@ class TestModelScopeProvider:
         assert materialized.model == "deepseek-ai/DeepSeek-V4-Flash"
         assert materialized.provider == "modelscope"
         assert materialized.api_format == "openai"
+
+
+class TestProfileSessionDefaults:
+    """Codex-style per-profile permission_mode / effort defaults (slice #3)."""
+
+    def _profile(self, **overrides) -> ProviderProfile:
+        base = dict(
+            label="Custom",
+            provider="anthropic",
+            api_format="anthropic",
+            auth_source="anthropic_api_key",
+            default_model="claude-sonnet-4-6",
+        )
+        base.update(overrides)
+        return ProviderProfile(**base)
+
+    def test_round_trips_through_json(self):
+        s = Settings(
+            active_profile="custom",
+            profiles={"custom": self._profile(permission_mode="plan", effort="high")},
+        )
+        restored = Settings.model_validate(json.loads(s.model_dump_json()))
+        prof = restored.profiles["custom"]
+        assert prof.permission_mode == "plan"
+        assert prof.effort == "high"
+
+    def test_defaults_are_none(self):
+        prof = self._profile()
+        assert prof.permission_mode is None
+        assert prof.effort is None
+
+    def test_materialize_projects_profile_defaults(self):
+        s = Settings(
+            active_profile="custom",
+            profiles={"custom": self._profile(permission_mode="plan", effort="high")},
+        )
+        materialized = s.materialize_active_profile()
+        assert materialized.permission.mode.value == "plan"
+        assert materialized.effort == "high"
+
+    def test_materialize_leaves_globals_when_profile_unset(self):
+        # Regression guard: a profile that sets neither field must not change
+        # the global permission mode / effort (byte-identical to old behavior).
+        s = Settings(active_profile="custom", profiles={"custom": self._profile()})
+        materialized = s.materialize_active_profile()
+        assert materialized.permission.mode.value == "default"
+        assert materialized.effort == "medium"
+
+    def test_materialize_ignores_invalid_permission_mode(self):
+        # An invalid profile value must never crash load/materialize; the
+        # global default is kept.
+        s = Settings(
+            active_profile="custom",
+            profiles={"custom": self._profile(permission_mode="bogus")},
+        )
+        materialized = s.materialize_active_profile()
+        assert materialized.permission.mode.value == "default"
