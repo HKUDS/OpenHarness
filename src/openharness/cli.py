@@ -907,11 +907,16 @@ def cron_stop() -> None:
 
 
 @cron_app.command("status")
-def cron_status_cmd() -> None:
+def cron_status_cmd(
+    json_output: bool = typer.Option(False, "--json", help="Output as a JSON object"),
+) -> None:
     """Show cron scheduler status and job summary."""
     from openharness.services.cron_scheduler import scheduler_status
 
     status = scheduler_status()
+    if json_output:
+        print(json.dumps(status, ensure_ascii=False, default=str))
+        return
     state = "running" if status["running"] else "stopped"
     print(f"Scheduler: {state}" + (f" (pid={status['pid']})" if status["pid"] else ""))
     print(f"Jobs:      {status['enabled_jobs']} enabled / {status['total_jobs']} total")
@@ -919,11 +924,16 @@ def cron_status_cmd() -> None:
 
 
 @cron_app.command("list")
-def cron_list_cmd() -> None:
+def cron_list_cmd(
+    json_output: bool = typer.Option(False, "--json", help="Output as a JSON array"),
+) -> None:
     """List all registered cron jobs with schedule and status."""
     from openharness.services.cron import load_cron_jobs
 
     jobs = load_cron_jobs()
+    if json_output:
+        print(json.dumps(jobs, ensure_ascii=False, default=str))
+        return
     if not jobs:
         print("No cron jobs configured.")
         return
@@ -970,11 +980,15 @@ def cron_toggle_cmd(
 def cron_history_cmd(
     name: str | None = typer.Argument(None, help="Filter by job name"),
     limit: int = typer.Option(20, "--limit", "-n", help="Number of entries"),
+    json_output: bool = typer.Option(False, "--json", help="Output as a JSON array"),
 ) -> None:
     """Show cron execution history."""
     from openharness.services.cron_scheduler import load_history
 
     entries = load_history(limit=limit, job_name=name)
+    if json_output:
+        print(json.dumps(entries, ensure_ascii=False, default=str))
+        return
     if not entries:
         print("No execution history.")
         return
@@ -1011,12 +1025,28 @@ def cron_logs_cmd(
 @autopilot_app.command("status")
 def autopilot_status_cmd(
     cwd: str = typer.Option(str(Path.cwd()), "--cwd", help="Repository root"),
+    json_output: bool = typer.Option(False, "--json", help="Output as a JSON object"),
 ) -> None:
     """Show repo autopilot queue status."""
     from openharness.autopilot import RepoAutopilotStore
 
     store = RepoAutopilotStore(cwd)
     counts = store.stats()
+    next_card = store.pick_next_card()
+    if json_output:
+        payload = {
+            "counts": counts,
+            "next": (
+                {"id": next_card.id, "title": next_card.title, "score": next_card.score}
+                if next_card is not None
+                else None
+            ),
+            "registry": str(store.registry_path),
+            "journal": str(store.journal_path),
+            "context": str(store.context_path),
+        }
+        print(json.dumps(payload, ensure_ascii=False, default=str))
+        return
     print("Autopilot queue status:")
     for status_name in (
         "queued",
@@ -1034,7 +1064,6 @@ def autopilot_status_cmd(
         "superseded",
     ):
         print(f"  {status_name}: {counts.get(status_name, 0)}")
-    next_card = store.pick_next_card()
     if next_card is not None:
         print(f"  next: {next_card.id} {next_card.title} (score={next_card.score})")
     print(f"  registry: {store.registry_path}")
@@ -1046,12 +1075,33 @@ def autopilot_status_cmd(
 def autopilot_list_cmd(
     status: str | None = typer.Argument(None, help="Optional status filter"),
     cwd: str = typer.Option(str(Path.cwd()), "--cwd", help="Repository root"),
+    json_output: bool = typer.Option(False, "--json", help="Output as a JSON array"),
 ) -> None:
     """List repo autopilot cards."""
     from openharness.autopilot import RepoAutopilotStore
 
     store = RepoAutopilotStore(cwd)
     cards = store.list_cards(status=status) if status else store.list_cards()
+    if json_output:
+        print(
+            json.dumps(
+                [
+                    {
+                        "id": card.id,
+                        "status": card.status,
+                        "score": card.score,
+                        "title": card.title,
+                        "source_kind": card.source_kind,
+                        "source_ref": card.source_ref,
+                        "body": card.body,
+                    }
+                    for card in cards
+                ],
+                ensure_ascii=False,
+                default=str,
+            )
+        )
+        return
     if not cards:
         print("No autopilot cards.")
         return
