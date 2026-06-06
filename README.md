@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/hkuds-openharness-badge.png)](https://mseep.ai/app/hkuds-openharness)
+
 <h1 align="center">
   <img src="assets/logo.png" alt="OpenHarness" width="64" style="vertical-align: middle;">
   &nbsp;&nbsp;
