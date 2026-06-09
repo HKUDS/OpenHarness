@@ -4,7 +4,7 @@
   </a>
 </p>
 
-> 🎁 **[Atlas Cloud](https://www.atlascloud.ai/?utm_source=github&utm_medium=link&utm_campaign=openharness)** is a full-modal AI inference platform — 59 frontier models (DeepSeek-V4, Qwen3, Kimi K2, GPT-5, Gemini 2.5 Pro, Claude, Grok-4…) through a single OpenAI-compatible endpoint. Evaluate agents across all major LLMs with OpenHarness + Atlas Cloud. [View all models](https://www.atlascloud.ai/models) · [Coding Plan](https://www.atlascloud.ai/console/coding-plan)
+> 🎁 **[Atlas Cloud](https://www.atlascloud.ai/?utm_source=github&utm_medium=link&utm_campaign=openharness)** is the full-modal AI inference platform powering OpenHarness evaluations — 59 frontier models (DeepSeek-V4, Qwen3, Kimi K2, GPT-5, Claude, Grok-4) via a unified OpenAI-compatible API. [View all models](https://www.atlascloud.ai/models) · [Coding Plan](https://www.atlascloud.ai/console/coding-plan)
 
 <details>
 <summary>📋 59 models available on Atlas Cloud</summary>
