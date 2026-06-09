@@ -38,6 +38,7 @@ _KNOWN_PROVIDERS = [
     "gemini",
     "minimax",
     "modelscope",
+    "atlascloud",
 ]
 
 _AUTH_SOURCES = [
@@ -53,6 +54,7 @@ _AUTH_SOURCES = [
     "gemini_api_key",
     "minimax_api_key",
     "modelscope_api_key",
+    "atlascloud_api_key",
 ]
 
 _PROFILE_BY_PROVIDER = {
@@ -65,6 +67,7 @@ _PROFILE_BY_PROVIDER = {
     "gemini": "gemini",
     "minimax": "minimax",
     "modelscope": "modelscope",
+    "atlascloud": "atlascloud",
 }
 
 
@@ -270,6 +273,14 @@ class AuthManager:
                     configured = True
                     source = "env"
                 elif load_credential("modelscope", "api_key"):
+                    configured = True
+                    source = "file"
+
+            elif provider == "atlascloud":
+                if os.environ.get("ATLASCLOUD_API_KEY"):
+                    configured = True
+                    source = "env"
+                elif load_credential("atlascloud", "api_key"):
                     configured = True
                     source = "file"
 
