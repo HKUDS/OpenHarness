@@ -4,7 +4,7 @@ import logging
 import subprocess
 import sys
 from types import SimpleNamespace
-from datetime import datetime
+from datetime import UTC, datetime
 import json
 from pathlib import Path
 
@@ -62,7 +62,7 @@ def test_gateway_router_uses_thread_and_sender_for_group_when_present():
         sender_id="u1",
         chat_id="c1",
         content="hello",
-        timestamp=datetime.utcnow(),
+        timestamp=datetime.now(UTC),
         metadata={"thread_ts": "t1", "chat_type": "group"},
     )
     assert session_key_for_message(message) == "slack:c1:t1:u1"
@@ -74,7 +74,7 @@ def test_gateway_router_keeps_private_chat_scope_for_legacy_sessions():
         sender_id="u1",
         chat_id="ou_legacy",
         content="hello",
-        timestamp=datetime.utcnow(),
+        timestamp=datetime.now(UTC),
         metadata={"chat_type": "p2p"},
     )
     assert session_key_for_message(message) == "feishu:ou_legacy"
@@ -86,7 +86,7 @@ def test_gateway_router_falls_back_to_chat_scope_when_chat_type_unknown():
         sender_id="u1",
         chat_id="chat-1",
         content="hello",
-        timestamp=datetime.utcnow(),
+        timestamp=datetime.now(UTC),
     )
     assert session_key_for_message(message) == "telegram:chat-1"
 
@@ -97,7 +97,7 @@ def test_gateway_router_separates_senders_in_same_chat_thread():
         sender_id="alice",
         chat_id="shared-chat",
         content="hello",
-        timestamp=datetime.utcnow(),
+        timestamp=datetime.now(UTC),
         metadata={"thread_ts": "thread-1", "chat_type": "group"},
     )
     second = InboundMessage(
@@ -105,7 +105,7 @@ def test_gateway_router_separates_senders_in_same_chat_thread():
         sender_id="bob",
         chat_id="shared-chat",
         content="hello",
-        timestamp=datetime.utcnow(),
+        timestamp=datetime.now(UTC),
         metadata={"thread_ts": "thread-1", "chat_type": "group"},
     )
     assert session_key_for_message(first) == "slack:shared-chat:thread-1:alice"
@@ -118,7 +118,7 @@ def test_gateway_router_separates_senders_in_same_group_without_thread():
         sender_id="alice",
         chat_id="oc_shared",
         content="hello",
-        timestamp=datetime.utcnow(),
+        timestamp=datetime.now(UTC),
         metadata={"chat_type": "group"},
     )
     second = InboundMessage(
@@ -126,7 +126,7 @@ def test_gateway_router_separates_senders_in_same_group_without_thread():
         sender_id="bob",
         chat_id="oc_shared",
         content="hello",
-        timestamp=datetime.utcnow(),
+        timestamp=datetime.now(UTC),
         metadata={"chat_type": "group"},
     )
     assert session_key_for_message(first) == "feishu:oc_shared:alice"
@@ -229,7 +229,7 @@ async def test_runtime_pool_summary_does_not_restore_other_slack_thread_sender(t
         sender_id="U_ALICE",
         chat_id="C_SHARED",
         content="hello",
-        timestamp=datetime.utcnow(),
+        timestamp=datetime.now(UTC),
         metadata={"thread_ts": "1710000000.000100", "chat_type": "group"},
     )
     bob_message = InboundMessage(
@@ -237,7 +237,7 @@ async def test_runtime_pool_summary_does_not_restore_other_slack_thread_sender(t
         sender_id="U_BOB",
         chat_id="C_SHARED",
         content="/summary 50",
-        timestamp=datetime.utcnow(),
+        timestamp=datetime.now(UTC),
         metadata={"thread_ts": "1710000000.000100", "chat_type": "group"},
     )
     alice_key = session_key_for_message(alice_message)
@@ -366,7 +366,7 @@ async def test_runtime_pool_blocks_registered_resume_without_listing_or_loading_
             sender_id="U_BOB",
             chat_id="C_SHARED",
             content=payload,
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(UTC),
             metadata={"thread_ts": "thread1", "chat_type": "group"},
         )
         updates = [u async for u in pool.stream_message(message, bob_key)]
@@ -460,18 +460,44 @@ def test_stop_gateway_process_kills_matching_workspace_processes(tmp_path, monke
 
     killed: list[int] = []
 
-    def fake_run(*args, **kwargs):
-        class Result:
-            stdout = (
-                f"123 python -m ohmo gateway run --workspace {workspace}\n"
-                f"456 python -m ohmo gateway run --workspace {workspace}\n"
-            )
+    if sys.platform == "win32":
+        # On Windows the implementation uses wmic + taskkill
+        wmic_output = "ProcessId\n123\n456\n"
 
-        return Result()
+        def fake_run(*args, **kwargs):
+            cmd = args[0] if args else kwargs.get("args", [])
+            if cmd and cmd[0] == "wmic":
 
-    monkeypatch.setattr("ohmo.gateway.service.subprocess.run", fake_run)
-    monkeypatch.setattr("ohmo.gateway.service._pid_is_running", lambda pid: True)
-    monkeypatch.setattr("ohmo.gateway.service.os.kill", lambda pid, sig: killed.append(pid))
+                class WmicResult:
+                    stdout = wmic_output
+
+                return WmicResult()
+            # taskkill branch — record the pid being killed
+            if cmd and cmd[0] == "taskkill":
+                pid = int(cmd[cmd.index("/PID") + 1])
+                killed.append(pid)
+
+            class OtherResult:
+                stdout = ""
+
+            return OtherResult()
+
+        monkeypatch.setattr("ohmo.gateway.service.subprocess.run", fake_run)
+        monkeypatch.setattr("ohmo.gateway.service._pid_is_running", lambda pid: True)
+    else:
+        # On POSIX the implementation uses ps + os.kill
+        def fake_run(*args, **kwargs):
+            class Result:
+                stdout = (
+                    f"123 python -m ohmo gateway run --workspace {workspace}\n"
+                    f"456 python -m ohmo gateway run --workspace {workspace}\n"
+                )
+
+            return Result()
+
+        monkeypatch.setattr("ohmo.gateway.service.subprocess.run", fake_run)
+        monkeypatch.setattr("ohmo.gateway.service._pid_is_running", lambda pid: True)
+        monkeypatch.setattr("ohmo.gateway.service.os.kill", lambda pid, sig: killed.append(pid))
 
     assert stop_gateway_process(tmp_path, workspace) is True
     assert killed == [123, 456]
