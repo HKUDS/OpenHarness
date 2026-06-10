@@ -8,13 +8,29 @@ from openharness.swarm.registry import BackendRegistry
 from openharness.swarm.types import TeammateExecutor
 
 
+def _make_registry_with_in_process() -> BackendRegistry:
+    """Create a BackendRegistry ensuring in_process is registered.
+
+    On Windows ``supports_swarm_mailbox`` is False so ``_register_defaults``
+    skips in_process.  Additionally, a prior test (test_imports.py) may evict
+    and reimport swarm modules making monkeypatch unreliable.  We work around
+    both issues by importing and registering the backend explicitly.
+    """
+    registry = BackendRegistry()
+    if "in_process" not in registry.available_backends():
+        from openharness.swarm.in_process import InProcessBackend
+
+        registry.register_backend(InProcessBackend())
+    return registry
+
+
 # ---------------------------------------------------------------------------
 # Default registration
 # ---------------------------------------------------------------------------
 
 
 def test_registry_registers_subprocess_and_in_process():
-    registry = BackendRegistry()
+    registry = _make_registry_with_in_process()
     available = registry.available_backends()
     assert "subprocess" in available
     assert "in_process" in available
@@ -28,7 +44,7 @@ def test_get_executor_subprocess():
 
 
 def test_get_executor_in_process():
-    registry = BackendRegistry()
+    registry = _make_registry_with_in_process()
     executor = registry.get_executor("in_process")
     assert executor.type == "in_process"
 

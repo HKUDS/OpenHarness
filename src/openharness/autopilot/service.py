@@ -183,7 +183,8 @@ def _parse_verification_entry(entry: object) -> _VerificationCommand:
             ),
         )
     try:
-        argv = shlex.split(raw)
+        # Compatible with Windows paths containing the `\` character.
+        argv = [token.strip('"\'') for token in shlex.split(raw, posix=(os.name != "nt"))]
     except ValueError as exc:
         return _VerificationCommand(
             raw=raw,
