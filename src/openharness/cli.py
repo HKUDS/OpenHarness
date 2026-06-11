@@ -1566,7 +1566,7 @@ def _specialize_setup_target(manager, target: str) -> str:
         defaults = {
             "kimi-anthropic": ("Kimi (Anthropic-compatible)", "https://api.moonshot.cn/anthropic", "kimi-k2.5"),
             "glm-anthropic": ("GLM (Anthropic-compatible)", "", "glm-4.5"),
-            "minimax-anthropic": ("MiniMax (Anthropic-compatible)", "", "MiniMax-M2.7"),
+            "minimax-anthropic": ("MiniMax (Anthropic-compatible)", "", "MiniMax-M3"),
         }
         label, suggested_base_url, suggested_model = defaults[choice]
         base_url = _text_prompt("Base URL", default=suggested_base_url).strip()

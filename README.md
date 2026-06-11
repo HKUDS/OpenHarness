@@ -333,7 +333,7 @@ Typical examples:
 | **Claude official** | `https://api.anthropic.com` | `claude-sonnet-4-6`, `claude-opus-4-6` |
 | **Moonshot / Kimi** | `https://api.moonshot.cn/anthropic` | `kimi-k2.5` |
 | **Zhipu / GLM** | custom Anthropic-compatible endpoint | `glm-4.5` |
-| **MiniMax** | custom Anthropic-compatible endpoint | `minimax-m1` |
+| **MiniMax** | custom Anthropic-compatible endpoint | `MiniMax-M3` |
 
 #### OpenAI-Compatible API
 
