@@ -20,6 +20,22 @@ _IPNetwork = ipaddress.IPv4Network | ipaddress.IPv6Network
 _SYNTHETIC_DNS_CIDRS_SETTING = "web.synthetic_dns_cidrs"
 _RESOLUTION_MODE_SETTING = "web.resolution_mode"
 _PROXY_SETTING = "web.proxy"
+
+# Well-known fake-IP ranges used by TUN-mode VPN/proxy clients (e.g. Clash,
+# Surge, sing-box).  These clients intercept DNS queries and return a synthetic
+# address from one of these reserved ranges; the TUN driver then routes the
+# real TCP/UDP flow to the intended remote host.  Python's `ipaddress` library
+# classifies these ranges as non-global / private, which causes the network
+# guard to reject them even though outbound connectivity is perfectly healthy.
+# We surface a targeted error message so users know exactly which setting to
+# configure instead of seeing a cryptic "non-public address" failure.
+_TUN_FAKEIP_CIDRS: tuple[ipaddress.IPv4Network, ...] = (
+    ipaddress.IPv4Network("198.18.0.0/15"),   # IANA benchmarking (Clash / sing-box default)
+    ipaddress.IPv4Network("198.51.100.0/24"),  # TEST-NET-2 (RFC 5737)
+    ipaddress.IPv4Network("203.0.113.0/24"),   # TEST-NET-3 (RFC 5737)
+    ipaddress.IPv4Network("100.64.0.0/10"),    # Shared Address Space (RFC 6598, used by some stacks)
+)
+
 _LOCAL_HOSTNAMES = {
     "localhost",
     "localhost.localdomain",
@@ -333,8 +349,39 @@ def _format_blocked_addresses(
         rendered += ", ..."
     message = f"target resolves to non-public address(es): {rendered}"
     if include_synthetic_dns_hint:
-        message += (
-            "; if this domain intentionally resolves through synthetic DNS, configure "
-            "web.resolution_mode=synthetic_dns and web.synthetic_dns_cidrs=<cidr>"
-        )
+        fakeip_cidrs = _detect_fakeip_cidrs(blocked)
+        if fakeip_cidrs:
+            cidrs_str = ",".join(fakeip_cidrs)
+            message += (
+                "; these addresses look like TUN/fake-IP responses from a local VPN or proxy "
+                "(e.g. Clash, Surge, sing-box). Enable synthetic DNS mode so the guard skips "
+                "the fake address check: set OPENHARNESS_WEB_RESOLUTION_MODE=synthetic_dns "
+                f"and OPENHARNESS_WEB_SYNTHETIC_DNS_CIDRS={cidrs_str}"
+            )
+        else:
+            message += (
+                "; if this domain intentionally resolves through synthetic DNS, configure "
+                "web.resolution_mode=synthetic_dns and web.synthetic_dns_cidrs=<cidr>"
+            )
     return message
+
+
+def _detect_fakeip_cidrs(blocked_addresses: list[str]) -> list[str]:
+    """Return the fake-IP CIDR(s) that cover the given blocked addresses.
+
+    Used to provide a precise, copy-paste-ready configuration hint when a
+    TUN/fake-IP VPN client is detected.
+    """
+    matched: list[str] = []
+    seen: set[str] = set()
+    for addr_str in blocked_addresses:
+        try:
+            addr = ipaddress.ip_address(addr_str)
+        except ValueError:
+            continue
+        for cidr in _TUN_FAKEIP_CIDRS:
+            cidr_str = str(cidr)
+            if cidr_str not in seen and isinstance(addr, ipaddress.IPv4Address) and addr in cidr:
+                matched.append(cidr_str)
+                seen.add(cidr_str)
+    return matched
