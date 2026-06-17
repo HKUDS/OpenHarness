@@ -57,6 +57,21 @@ class PermissionSettings(BaseModel):
     denied_commands: list[str] = Field(default_factory=list)
 
 
+class FilesystemSettings(BaseModel):
+    """Containment policy for the built-in file tools.
+
+    These settings apply to the in-process ``read_file`` / ``write_file`` /
+    ``edit_file`` tools regardless of whether the optional Docker sandbox is
+    active.  By default the tools may only touch paths inside the workspace
+    root; this blocks model-/LLM-directed reads and writes (including via
+    prompt injection) from escaping the project directory through absolute
+    paths, ``..`` traversal, or symlinks.
+    """
+
+    restrict_to_workspace: bool = True
+    allow_paths: list[str] = Field(default_factory=list)
+
+
 class MemorySettings(BaseModel):
     """Memory system configuration."""
 
@@ -585,6 +600,7 @@ class Settings(BaseModel):
     permission: PermissionSettings = Field(default_factory=PermissionSettings)
     hooks: dict[str, list[HookDefinition]] = Field(default_factory=dict)
     memory: MemorySettings = Field(default_factory=MemorySettings)
+    filesystem: FilesystemSettings = Field(default_factory=FilesystemSettings)
     sandbox: SandboxSettings = Field(default_factory=SandboxSettings)
     web: WebSettings = Field(default_factory=WebSettings)
     enabled_plugins: dict[str, bool] = Field(default_factory=dict)
