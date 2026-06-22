@@ -101,11 +101,15 @@ class PermissionChecker:
         if tool_name in self._settings.denied_tools:
             return PermissionDecision(allowed=False, reason=f"{tool_name} is explicitly denied")
 
-        # Explicit tool allow list
-        if tool_name in self._settings.allowed_tools:
-            return PermissionDecision(allowed=True, reason=f"{tool_name} is explicitly allowed")
+        # Deny rules take precedence over the allow list below.  A user who has
+        # allow-listed a broad tool (e.g. ``bash`` or ``write_file``) still
+        # expects an explicit ``denied_commands`` pattern or path deny-rule to
+        # block a dangerous invocation.  Evaluating the deny rules first keeps
+        # the allow list from silently bypassing the user's own deny policy,
+        # mirroring how ``denied_tools`` and built-in sensitive paths are
+        # already checked before the allow list.
 
-        # Check path-level rules
+        # Check path-level deny rules
         if file_path and self._path_rules:
             for candidate_path in _policy_match_paths(file_path):
                 for rule in self._path_rules:
@@ -124,6 +128,10 @@ class PermissionChecker:
                         allowed=False,
                         reason=f"Command matches deny pattern: {pattern}",
                     )
+
+        # Explicit tool allow list
+        if tool_name in self._settings.allowed_tools:
+            return PermissionDecision(allowed=True, reason=f"{tool_name} is explicitly allowed")
 
         # Full auto: allow everything
         if self._settings.mode == PermissionMode.FULL_AUTO:
