@@ -1198,6 +1198,44 @@ class _BoomTool(BaseTool):
         raise RuntimeError("boom")
 
 
+def test_tool_registry_to_api_schema_filters_denied_tools():
+    registry = ToolRegistry()
+    registry.register(_OkTool())
+    registry.register(_BoomTool())
+
+    schemas = registry.to_api_schema(denied_tools=["boom_tool"])
+
+    assert [schema["name"] for schema in schemas] == ["ok_tool"]
+
+
+@pytest.mark.asyncio
+async def test_query_engine_omits_denied_tools_from_api_schema(tmp_path: Path):
+    registry = ToolRegistry()
+    registry.register(_OkTool())
+    registry.register(_BoomTool())
+    api_client = RecordingApiClient()
+
+    engine = QueryEngine(
+        api_client=api_client,
+        tool_registry=registry,
+        permission_checker=PermissionChecker(
+            PermissionSettings(
+                mode=PermissionMode.FULL_AUTO,
+                denied_tools=["boom_tool"],
+            )
+        ),
+        cwd=tmp_path,
+        model="claude-test",
+        system_prompt="system",
+    )
+
+    events = [event async for event in engine.submit_message("hello")]
+
+    assert isinstance(events[-1], AssistantTurnComplete)
+    assert len(api_client.requests) == 1
+    assert [tool["name"] for tool in api_client.requests[0].tools] == ["ok_tool"]
+
+
 @pytest.mark.asyncio
 async def test_query_engine_synthesizes_tool_result_when_single_tool_raises(tmp_path: Path):
     registry = ToolRegistry()

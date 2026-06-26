@@ -72,6 +72,11 @@ class PermissionChecker:
                     rule,
                 )
 
+    @property
+    def denied_tools(self) -> tuple[str, ...]:
+        """Return tool names that should be hidden and blocked."""
+        return tuple(self._settings.denied_tools)
+
     def evaluate(
         self,
         tool_name: str,

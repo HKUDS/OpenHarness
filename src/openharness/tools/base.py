@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Collection
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -75,6 +76,7 @@ class ToolRegistry:
         """Return all registered tools."""
         return list(self._tools.values())
 
-    def to_api_schema(self) -> list[dict[str, Any]]:
-        """Return all tool schemas in API format."""
-        return [tool.to_api_schema() for tool in self._tools.values()]
+    def to_api_schema(self, *, denied_tools: Collection[str] | None = None) -> list[dict[str, Any]]:
+        """Return available tool schemas in API format."""
+        denied = set(denied_tools or ())
+        return [tool.to_api_schema() for tool in self._tools.values() if tool.name not in denied]
