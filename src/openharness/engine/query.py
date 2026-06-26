@@ -731,7 +731,9 @@ async def run_query(
                     messages=messages,
                     system_prompt=context.system_prompt,
                     max_tokens=effective_max_tokens,
-                    tools=context.tool_registry.to_api_schema(),
+                    tools=context.tool_registry.to_api_schema(
+                        denied_tools=context.permission_checker.denied_tools
+                    ),
                     effort=context.effort,
                 )
             ):
