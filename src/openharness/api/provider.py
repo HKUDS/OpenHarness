@@ -136,8 +136,10 @@ _MULTIMODAL_MODEL_PATTERNS: list[re.Pattern[str]] = [
     # Anthropic Claude 3+ (all Claude 3 and later support images)
     re.compile(r"^claude-3(?:\.\d+)?(?:-sonnet|-opus|-haiku)?"),
     re.compile(r"^claude-(?:sonnet|opus|haiku)-\d"),
-    # OpenAI GPT-4o / o-series
+    # OpenAI multimodal GPT / o-series
+    re.compile(r"^gpt-4\.1(?:$|[-.])"),
     re.compile(r"^gpt-4o"),
+    re.compile(r"^gpt-5(?:$|[-.])"),
     re.compile(r"^o[1349]-"),
     # Google Gemini
     re.compile(r"^gemini-(?:pro-)?vision"),

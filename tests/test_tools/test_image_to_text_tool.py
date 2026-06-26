@@ -27,8 +27,14 @@ from openharness.tools.image_to_text_tool import ImageToTextTool, ImageToTextToo
         ("claude-3-opus-20240229", True),
         ("claude-3-haiku-20240307", True),
         # OpenAI multimodal
+        ("gpt-4.1", True),
+        ("gpt-4.1-mini", True),
         ("gpt-4o", True),
         ("gpt-4o-mini", True),
+        ("gpt-5", True),
+        ("gpt-5.4", True),
+        ("gpt-5.5", True),
+        ("gpt-5.5 xhigh", True),
         ("o1-mini", True),
         ("o3-mini", True),
         ("o4-mini", True),
@@ -64,6 +70,7 @@ from openharness.tools.image_to_text_tool import ImageToTextTool, ImageToTextToo
         ("", False),
         # With provider prefix
         ("anthropic/claude-sonnet-4-6", True),
+        ("openai/gpt-5.5", True),
         ("openai/gpt-4o", True),
         ("openai/gpt-4", False),
     ],
