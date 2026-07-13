@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -48,6 +49,44 @@ class ConfigTool(BaseTool):
                 value = int(arguments.value)
             elif isinstance(current, float):
                 value = float(arguments.value)
+            elif isinstance(current, dict):
+                try:
+                    value = json.loads(arguments.value)
+                    if not isinstance(value, dict):
+                        return ToolResult(
+                            output=f"Expected a JSON object for {arguments.key}",
+                            is_error=True,
+                        )
+                except json.JSONDecodeError as exc:
+                    return ToolResult(
+                        output=f"Invalid JSON for {arguments.key}: {exc}",
+                        is_error=True,
+                    )
+            elif isinstance(current, list):
+                raw = arguments.value.strip()
+                if raw.startswith("["):
+                    try:
+                        value = json.loads(raw)
+                        if not isinstance(value, list):
+                            return ToolResult(
+                                output=f"Expected a JSON array for {arguments.key}",
+                                is_error=True,
+                            )
+                    except json.JSONDecodeError as exc:
+                        return ToolResult(
+                            output=f"Invalid JSON for {arguments.key}: {exc}",
+                            is_error=True,
+                        )
+                else:
+                    value = [item.strip() for item in raw.split(",") if item.strip()]
+            elif isinstance(current, BaseModel):
+                try:
+                    value = type(current).model_validate(json.loads(arguments.value))
+                except Exception as exc:
+                    return ToolResult(
+                        output=f"Invalid value for {arguments.key}: {exc}",
+                        is_error=True,
+                    )
             setattr(target, leaf, value)
             save_settings(settings)
             return ToolResult(output=f"Updated {arguments.key}")
