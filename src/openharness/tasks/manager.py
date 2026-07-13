@@ -280,6 +280,7 @@ class BackgroundTaskManager:
             async with self._output_locks[task_id]:
                 with self._tasks[task_id].output_file.open("ab") as handle:
                     handle.write(chunk)
+                    handle.flush()
 
     def _require_task(self, task_id: str) -> TaskRecord:
         task = self._tasks.get(task_id)
