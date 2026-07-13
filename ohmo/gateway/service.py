@@ -11,6 +11,7 @@ import os.path
 import signal
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 if sys.platform == "win32":
@@ -294,7 +295,19 @@ def start_gateway_process(cwd: str | Path | None = None, workspace: str | Path |
             ],
             **popen_kwargs,
         )
-    return process.pid
+
+    # Verify the process actually started rather than crashing immediately.
+    # Poll for up to ~1.5 s in increasing intervals to give the process time
+    # to initialise before declaring it alive.
+    for delay in (0.1, 0.2, 0.4, 0.8):
+        time.sleep(delay)
+        if _pid_is_running(process.pid):
+            return process.pid
+
+    raise RuntimeError(
+        f"Gateway process (pid={process.pid}) exited immediately after start. "
+        f"Check {service.log_file} for details."
+    )
 
 
 def _pid_is_running(pid: int) -> bool:
