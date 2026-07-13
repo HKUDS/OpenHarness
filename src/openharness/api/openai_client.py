@@ -41,6 +41,17 @@ MAX_RETRIES = 3
 BASE_DELAY = 1.0
 MAX_DELAY = 30.0
 _MAX_COMPLETION_TOKEN_MODEL_PREFIXES = ("gpt-5", "o1", "o3", "o4")
+_QWEN3_MODEL_PREFIXES = ("qwen3",)
+
+
+def _is_qwen3_model(model: str) -> bool:
+    """Return True for qwen3-family models (Ollama or HuggingFace naming)."""
+    normalized = model.strip().lower()
+    if "/" in normalized:
+        normalized = normalized.rsplit("/", 1)[-1]
+    # Strip quantisation tag (e.g. "qwen3:14b-64k" → "qwen3")
+    normalized = normalized.split(":")[0]
+    return normalized.startswith(_QWEN3_MODEL_PREFIXES)
 
 
 def _token_limit_param_for_model(model: str, max_tokens: int) -> dict[str, int]:
@@ -331,6 +342,13 @@ class OpenAICompatibleClient:
             # tools are present – avoids triggering model-side thinking mode
             # that requires reasoning_content on every assistant message.
             params.pop("stream_options", None)
+            # qwen3 enables thinking mode via its chat template, not via
+            # stream_options.  With 30+ tools injected the reasoning trace
+            # grows very large and the streaming connection times out before
+            # the final token arrives.  Disable thinking mode explicitly when
+            # tools are in use so the model answers directly.
+            if _is_qwen3_model(request.model):
+                params["chat_template_kwargs"] = {"enable_thinking": False}
 
         # Collect full response while streaming text deltas
         collected_content = ""
