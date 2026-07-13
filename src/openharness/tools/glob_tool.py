@@ -35,6 +35,14 @@ class GlobTool(BaseTool):
 
     async def execute(self, arguments: GlobToolInput, context: ToolExecutionContext) -> ToolResult:
         root, pattern = _resolve_glob_request(context.cwd, arguments.root, arguments.pattern)
+        cwd_resolved = context.cwd.resolve()
+        try:
+            root.relative_to(cwd_resolved)
+        except ValueError:
+            return ToolResult(
+                output=f"Access denied: {root} is outside the workspace root ({cwd_resolved}).",
+                is_error=True,
+            )
         matches = await _glob(root, pattern, limit=arguments.limit)
         if not matches:
             return ToolResult(output="(no matches)")
