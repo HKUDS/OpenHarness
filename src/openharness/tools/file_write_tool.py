@@ -32,6 +32,10 @@ class FileWriteTool(BaseTool):
     ) -> ToolResult:
         path = _resolve_path(context.cwd, arguments.path)
 
+        contained, reason = _check_workspace_containment(path, context.cwd)
+        if not contained:
+            return ToolResult(output=reason, is_error=True)
+
         from openharness.sandbox.session import is_docker_sandbox_active
 
         if is_docker_sandbox_active():
@@ -65,6 +69,19 @@ def _resolve_path(base: Path, candidate: str) -> Path:
     if not path.is_absolute():
         path = base / path
     return path.resolve()
+
+
+def _check_workspace_containment(path: Path, cwd: Path) -> tuple[bool, str]:
+    """Return (True, "") if path is within cwd, or (False, reason) if not."""
+    resolved_cwd = cwd.resolve()
+    try:
+        path.relative_to(resolved_cwd)
+        return True, ""
+    except ValueError:
+        return False, (
+            f"Access denied: {path} is outside the workspace root ({resolved_cwd}). "
+            "Use a path within the project directory."
+        )
 
 
 def _compute_diff(filename: str, original: str, updated: str) -> tuple[str, int, int]:
