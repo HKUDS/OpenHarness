@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 from contextlib import AsyncExitStack
 from typing import Any
 
@@ -20,6 +21,8 @@ from openharness.mcp.types import (
     McpStdioServerConfig,
     McpToolInfo,
 )
+
+log = logging.getLogger(__name__)
 
 
 class McpServerNotConnectedError(Exception):
@@ -45,18 +48,33 @@ class McpClientManager:
     async def connect_all(self) -> None:
         """Connect all configured MCP servers supported by the current build."""
         for name, config in self._server_configs.items():
+            transport = getattr(config, "type", "unknown")
+            log.debug("MCP: connecting to server %r (transport=%s)", name, transport)
             if isinstance(config, McpStdioServerConfig):
                 await self._connect_stdio(name, config)
             elif isinstance(config, McpHttpServerConfig):
                 await self._connect_http(name, config)
             else:
+                detail = f"Unsupported MCP transport in current build: {config.type}"
+                log.warning("MCP: server %r skipped — %s", name, detail)
                 self._statuses[name] = McpConnectionStatus(
                     name=name,
                     state="failed",
                     transport=config.type,
                     auth_configured=bool(getattr(config, "headers", None)),
-                    detail=f"Unsupported MCP transport in current build: {config.type}",
+                    detail=detail,
                 )
+            status = self._statuses.get(name)
+            if status:
+                if status.state == "connected":
+                    log.debug(
+                        "MCP: %r connected — %d tools, %d resources",
+                        name,
+                        len(status.tools),
+                        len(status.resources),
+                    )
+                elif status.state == "failed":
+                    log.warning("MCP: %r failed to connect — %s", name, status.detail)
 
     async def reconnect_all(self) -> None:
         """Reconnect all configured servers."""
@@ -178,6 +196,7 @@ class McpClientManager:
         return "\n".join(parts).strip()
 
     async def _connect_stdio(self, name: str, config: McpStdioServerConfig) -> None:
+        log.debug("MCP: spawning stdio process for %r: %s %s", name, config.command, " ".join(config.args))
         stack = AsyncExitStack()
         try:
             read_stream, write_stream = await stack.enter_async_context(
@@ -216,6 +235,7 @@ class McpClientManager:
             )
 
     async def _connect_http(self, name: str, config: McpHttpServerConfig) -> None:
+        log.debug("MCP: connecting to HTTP server %r at %s", name, config.url)
         stack = AsyncExitStack()
         try:
             http_client = await stack.enter_async_context(
