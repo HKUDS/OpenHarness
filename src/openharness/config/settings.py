@@ -350,7 +350,9 @@ def resolve_model_setting(
     if provider in {"openai", "openai_codex", "copilot"} and normalized in {"default", "best"}:
         return "gpt-5.4"
 
-    return configured
+    # Strip display-only context-window suffixes like [1M] or [750K] that some
+    # model aliases carry in the UI but that external provider APIs reject.
+    return re.sub(r"\[\d+[KMkm]\]$", "", configured).strip()
 
 
 def auth_source_provider_name(auth_source: str) -> str:

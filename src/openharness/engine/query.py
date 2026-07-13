@@ -407,8 +407,8 @@ def _record_tool_carryover(
     if resolved_file_path is not None:
         _remember_active_artifact(context.tool_metadata, resolved_file_path)
     if tool_name == "read_file" and resolved_file_path is not None:
-        offset = int(tool_input.get("offset") or 0)
-        limit = int(tool_input.get("limit") or 200)
+        offset = int(float(tool_input.get("offset") or 0))
+        limit = int(float(tool_input.get("limit") or 200))
         _remember_read_file(
             context.tool_metadata,
             path=resolved_file_path,
