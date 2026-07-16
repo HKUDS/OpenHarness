@@ -154,6 +154,53 @@ def test_setup_flow_creates_kimi_profile_with_profile_scoped_key(tmp_path: Path,
     assert load_credential("profile:kimi-anthropic", "api_key") == "sk-kimi-test"
 
 
+def test_setup_flow_creates_atlascloud_profile_with_profile_scoped_key(tmp_path: Path, monkeypatch):
+    runner = CliRunner()
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path))
+    monkeypatch.delenv("ATLASCLOUD_API_KEY", raising=False)
+    monkeypatch.delenv("OPENHARNESS_ATLASCLOUD_API_KEY", raising=False)
+
+    selections = iter(["openai-compatible", "atlascloud"])
+    prompts = iter(
+        [
+            "https://api.atlascloud.ai/v1",
+            "qwen/qwen3.5-flash",
+        ]
+    )
+
+    monkeypatch.setattr(
+        "openharness.cli._select_setup_workflow",
+        lambda *args, **kwargs: next(selections),
+    )
+    monkeypatch.setattr(
+        "openharness.cli._select_from_menu",
+        lambda *args, **kwargs: next(selections),
+    )
+    monkeypatch.setattr("openharness.cli._text_prompt", lambda *args, **kwargs: next(prompts))
+    monkeypatch.setattr("openharness.auth.flows.ApiKeyFlow.run", lambda self: "apikey-atlas-test")
+    monkeypatch.setattr(
+        "openharness.cli._prompt_model_for_profile",
+        lambda profile: "qwen/qwen3.5-flash",
+    )
+
+    result = runner.invoke(app, ["setup"])
+    assert result.exit_code == 0
+    assert "Setup complete:" in result.output
+    assert "- profile: atlascloud" in result.output
+
+    settings = load_settings()
+    assert settings.active_profile == "atlascloud"
+    profile = settings.resolve_profile()[1]
+    assert profile.provider == "atlascloud"
+    assert profile.base_url == "https://api.atlascloud.ai/v1"
+    assert profile.default_model == "qwen/qwen3.5-flash"
+    assert profile.credential_slot is None
+
+    from openharness.auth.storage import load_credential
+
+    assert load_credential("atlascloud", "api_key") == "apikey-atlas-test"
+
+
 def test_provider_add_can_store_profile_api_key(tmp_path: Path, monkeypatch):
     runner = CliRunner()
     monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path))

@@ -912,3 +912,67 @@ class TestModelScopeProvider:
         assert materialized.model == "deepseek-ai/DeepSeek-V4-Flash"
         assert materialized.provider == "modelscope"
         assert materialized.api_format == "openai"
+
+
+class TestAtlasCloudProvider:
+    """Tests for Atlas Cloud provider profile and auth integration."""
+
+    def test_atlascloud_in_default_provider_profiles(self):
+        from openharness.config.settings import default_provider_profiles
+
+        profiles = default_provider_profiles()
+        assert "atlascloud" in profiles
+        profile = profiles["atlascloud"]
+        assert profile.provider == "atlascloud"
+        assert profile.api_format == "openai"
+        assert profile.auth_source == "atlascloud_api_key"
+        assert profile.default_model == "qwen/qwen3.5-flash"
+        assert profile.base_url == "https://api.atlascloud.ai/v1"
+
+    def test_auth_source_provider_name_atlascloud(self):
+        from openharness.config.settings import auth_source_provider_name
+
+        assert auth_source_provider_name("atlascloud_api_key") == "atlascloud"
+
+    def test_default_auth_source_for_atlascloud_provider(self):
+        from openharness.config.settings import default_auth_source_for_provider
+
+        assert default_auth_source_for_provider("atlascloud") == "atlascloud_api_key"
+
+    def test_resolve_auth_reads_atlascloud_api_key_env(self, monkeypatch):
+        monkeypatch.setenv("ATLASCLOUD_API_KEY", "atlascloud-test-key")
+        settings = Settings(
+            active_profile="atlascloud",
+            profiles={
+                "atlascloud": ProviderProfile(
+                    label="Atlas Cloud",
+                    provider="atlascloud",
+                    api_format="openai",
+                    auth_source="atlascloud_api_key",
+                    default_model="qwen/qwen3.5-flash",
+                    base_url="https://api.atlascloud.ai/v1",
+                )
+            },
+        )
+        resolved = settings.resolve_auth()
+        assert resolved.value == "atlascloud-test-key"
+        assert "ATLASCLOUD_API_KEY" in resolved.source
+
+    def test_atlascloud_profile_materializes_default_model(self):
+        settings = Settings(
+            active_profile="atlascloud",
+            profiles={
+                "atlascloud": ProviderProfile(
+                    label="Atlas Cloud",
+                    provider="atlascloud",
+                    api_format="openai",
+                    auth_source="atlascloud_api_key",
+                    default_model="qwen/qwen3.5-flash",
+                    base_url="https://api.atlascloud.ai/v1",
+                )
+            },
+        )
+        materialized = settings.materialize_active_profile()
+        assert materialized.model == "qwen/qwen3.5-flash"
+        assert materialized.provider == "atlascloud"
+        assert materialized.api_format == "openai"

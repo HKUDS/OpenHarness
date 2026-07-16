@@ -742,6 +742,13 @@ class ReactBackendHost:
                     ("MiniMax-M2.7-highspeed", "MiniMax fast"),
                 ]
             )
+        elif provider_name == "atlascloud":
+            families.extend(
+                [
+                    ("qwen/qwen3.5-flash", "Fast Atlas Cloud model"),
+                    ("deepseek-ai/deepseek-v4-pro", "Atlas Cloud reasoning model"),
+                ]
+            )
 
         seen: set[str] = set()
         options: list[dict[str, object]] = []
