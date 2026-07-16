@@ -37,6 +37,7 @@ _KNOWN_PROVIDERS = [
     "moonshot",
     "gemini",
     "minimax",
+    "atlascloud",
     "modelscope",
 ]
 
@@ -52,6 +53,7 @@ _AUTH_SOURCES = [
     "moonshot_api_key",
     "gemini_api_key",
     "minimax_api_key",
+    "atlascloud_api_key",
     "modelscope_api_key",
 ]
 
@@ -64,6 +66,7 @@ _PROFILE_BY_PROVIDER = {
     "moonshot": "moonshot",
     "gemini": "gemini",
     "minimax": "minimax",
+    "atlascloud": "atlascloud",
     "modelscope": "modelscope",
 }
 
@@ -169,6 +172,17 @@ class AuthManager:
                     configured = True
                     origin = "file"
                     state = "configured"
+            elif source == "atlascloud_api_key":
+                if os.environ.get("OPENHARNESS_ATLASCLOUD_API_KEY") or os.environ.get(
+                    "ATLASCLOUD_API_KEY"
+                ):
+                    configured = True
+                    origin = "env"
+                    state = "configured"
+                elif load_credential(storage_provider, "api_key"):
+                    configured = True
+                    origin = "file"
+                    state = "configured"
             elif load_credential(storage_provider, "api_key"):
                 configured = True
                 origin = "file"
@@ -262,6 +276,16 @@ class AuthManager:
                     configured = True
                     source = "env"
                 elif load_credential("minimax", "api_key"):
+                    configured = True
+                    source = "file"
+
+            elif provider == "atlascloud":
+                if os.environ.get("OPENHARNESS_ATLASCLOUD_API_KEY") or os.environ.get(
+                    "ATLASCLOUD_API_KEY"
+                ):
+                    configured = True
+                    source = "env"
+                elif load_credential("atlascloud", "api_key"):
                     configured = True
                     source = "file"
 

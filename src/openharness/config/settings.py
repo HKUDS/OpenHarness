@@ -263,6 +263,14 @@ def default_provider_profiles() -> dict[str, ProviderProfile]:
             default_model="openai/gpt-oss-120b",
             base_url="https://integrate.api.nvidia.com/v1",
         ),
+        "atlascloud": ProviderProfile(
+            label="Atlas Cloud",
+            provider="atlascloud",
+            api_format="openai",
+            auth_source="atlascloud_api_key",
+            default_model="qwen/qwen3.5-flash",
+            base_url="https://api.atlascloud.ai/v1",
+        ),
         "qwen": ProviderProfile(
             label="Qwen (DashScope)",
             provider="dashscope",
@@ -368,6 +376,7 @@ def auth_source_provider_name(auth_source: str) -> str:
         "gemini_api_key": "gemini",
         "minimax_api_key": "minimax",
         "nvidia_api_key": "nvidia",
+        "atlascloud_api_key": "atlascloud",
         "modelscope_api_key": "modelscope",
     }
     return mapping.get(auth_source, auth_source)
@@ -388,6 +397,7 @@ def auth_source_env_var_candidates(auth_source: str) -> tuple[str, ...]:
         "gemini_api_key": ("OPENHARNESS_GEMINI_API_KEY", "GEMINI_API_KEY"),
         "minimax_api_key": ("OPENHARNESS_MINIMAX_API_KEY", "MINIMAX_API_KEY"),
         "nvidia_api_key": ("OPENHARNESS_NVIDIA_API_KEY", "NVIDIA_API_KEY"),
+        "atlascloud_api_key": ("OPENHARNESS_ATLASCLOUD_API_KEY", "ATLASCLOUD_API_KEY"),
         "modelscope_api_key": ("OPENHARNESS_MODELSCOPE_API_KEY", "MODELSCOPE_API_KEY"),
     }
     return mapping.get(auth_source, ())
@@ -436,6 +446,8 @@ def default_auth_source_for_provider(provider: str, api_format: str | None = Non
         return "minimax_api_key"
     if provider == "nvidia":
         return "nvidia_api_key"
+    if provider == "atlascloud":
+        return "atlascloud_api_key"
     if provider == "modelscope":
         return "modelscope_api_key"
     if provider == "openai" or api_format == "openai":

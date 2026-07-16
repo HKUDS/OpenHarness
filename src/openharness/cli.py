@@ -1247,6 +1247,7 @@ _PROVIDER_LABELS: dict[str, str] = {
     "moonshot": "Moonshot (Kimi)",
     "gemini": "Google Gemini",
     "minimax": "MiniMax",
+    "atlascloud": "Atlas Cloud",
     "modelscope": "ModelScope",
 }
 
@@ -1262,6 +1263,7 @@ _AUTH_SOURCE_LABELS: dict[str, str] = {
     "moonshot_api_key": "Moonshot API key",
     "gemini_api_key": "Gemini API key",
     "minimax_api_key": "MiniMax API key",
+    "atlascloud_api_key": "Atlas Cloud API key",
     "modelscope_api_key": "ModelScope API key",
 }
 
@@ -1593,24 +1595,33 @@ def _specialize_setup_target(manager, target: str) -> str:
             [
                 ("openai-compatible", "OpenAI official"),
                 ("openrouter", "OpenRouter"),
+                ("atlascloud", "Atlas Cloud"),
             ],
             default_value="openai-compatible",
         )
         if choice == "openai-compatible":
             return choice
-        base_url = _text_prompt("Base URL", default="https://openrouter.ai/api/v1").strip()
+        defaults = {
+            "openrouter": ("OpenRouter", "https://openrouter.ai/api/v1", ""),
+            "atlascloud": ("Atlas Cloud", "https://api.atlascloud.ai/v1", "qwen/qwen3.5-flash"),
+        }
+        label, suggested_base_url, suggested_model = defaults[choice]
+        base_url = _text_prompt("Base URL", default=suggested_base_url).strip()
         if not base_url:
             raise typer.BadParameter("Base URL cannot be empty.")
-        model = _text_prompt("Default model", default="").strip()
+        model = _text_prompt("Default model", default=suggested_model).strip()
         if not model:
             raise typer.BadParameter("Default model cannot be empty.")
         return _ensure_preset_profile(
             manager,
-            name="openrouter",
-            label="OpenRouter",
-            provider="openai",
+            name=choice,
+            label=label,
+            provider=choice if choice == "atlascloud" else "openai",
             api_format="openai",
-            auth_source=default_auth_source_for_provider("openai", "openai"),
+            auth_source=default_auth_source_for_provider(
+                choice if choice == "atlascloud" else "openai",
+                "openai",
+            ),
             base_url=base_url,
             model=model,
             lock_model=False,
@@ -1729,7 +1740,19 @@ def _login_provider(provider: str) -> None:
         _bind_external_provider(provider)
         return
 
-    if provider in ("anthropic", "openai", "dashscope", "bedrock", "vertex", "moonshot", "gemini", "minimax", "modelscope"):
+    api_key_providers = {
+        "anthropic",
+        "openai",
+        "dashscope",
+        "bedrock",
+        "vertex",
+        "moonshot",
+        "gemini",
+        "minimax",
+        "atlascloud",
+        "modelscope",
+    }
+    if provider in api_key_providers:
         label = _PROVIDER_LABELS.get(provider, provider)
         flow = ApiKeyFlow(provider=provider, prompt_text=f"Enter your {label} API key")
         try:
@@ -1814,7 +1837,9 @@ def auth_login(
     """Interactively authenticate with a provider.
 
     Run without arguments to choose a provider from a menu.
-    Supported providers: anthropic, anthropic_claude, openai, openai_codex, copilot, dashscope, bedrock, vertex, moonshot, minimax, modelscope.
+    Supported providers include anthropic, anthropic_claude, openai,
+    openai_codex, copilot, dashscope, bedrock, vertex, moonshot,
+    minimax, atlascloud, and modelscope.
     """
     if provider is None:
         print("Select a provider to authenticate:", flush=True)
