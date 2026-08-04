@@ -13,6 +13,7 @@ The format is based on Keep a Changelog, and this project currently tracks chang
 
 ### Fixed
 
+- Bound the `mcp` dependency to `<2.0.0`. MCP SDK 2.0 removed `mcp.server.fastmcp`, which the test suite relies on, so unrestricted `mcp>=1.0.0` resolution can install an incompatible version and break tests.
 - Codex subscription requests now pass reasoning effort separately, enabling `gpt-5.5` with `xhigh` effort instead of treating `gpt-5.5 xhigh` as an unsupported model name.
 - Telegram channel now delivers replies again under `ohmo init --no-interactive` and other configs that do not write a `reply_to_message` field. `TelegramConfig` declares `reply_to_message: bool = True` so the attribute access in `TelegramChannel.send` no longer raises `AttributeError` and outbound progress/tool-hint/final messages are sent as expected. See issue #243.
 
