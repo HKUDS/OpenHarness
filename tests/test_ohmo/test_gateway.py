@@ -1143,9 +1143,19 @@ async def test_runtime_pool_blocks_bridge_spawn_from_remote_messages(tmp_path, m
 
 
 @pytest.mark.asyncio
-async def test_runtime_pool_blocks_registered_bridge_spawn_without_shelling_out(tmp_path, monkeypatch):
+async def test_runtime_pool_blocks_registered_bridge_spawn_when_remote_admin_allows_bridge(
+    tmp_path, monkeypatch
+):
     workspace = tmp_path / ".ohmo-home"
     initialize_workspace(workspace)
+    save_gateway_config(
+        GatewayConfig(
+            provider_profile="codex",
+            allow_remote_admin_commands=True,
+            allowed_remote_admin_commands=["bridge"],
+        ),
+        workspace,
+    )
     marker = tmp_path / "remote-bridge-marker.txt"
     payload = f"/bridge spawn printf REMOTE_BRIDGE_EXEC > {marker}"
     registry = create_default_command_registry()

@@ -2365,7 +2365,6 @@ def create_default_command_registry(
             "Inspect bridge helpers and spawn bridge sessions",
             _bridge_handler,
             remote_invocable=False,
-            remote_admin_opt_in=True,
         )
     )
     registry.register(
