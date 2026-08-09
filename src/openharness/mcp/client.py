@@ -147,8 +147,8 @@ class McpClientManager:
                 parts.append(getattr(item, "text", ""))
             else:
                 parts.append(item.model_dump_json())
-        if result.structuredContent and not parts:
-            parts.append(str(result.structuredContent))
+        if result.structured_content and not parts:
+            parts.append(str(result.structured_content))
         if not parts:
             parts.append("(no output)")
         return "\n".join(parts).strip()
@@ -221,7 +221,7 @@ class McpClientManager:
             http_client = await stack.enter_async_context(
                 httpx.AsyncClient(headers=config.headers or None)
             )
-            read_stream, write_stream, _get_session_id = await stack.enter_async_context(
+            read_stream, write_stream = await stack.enter_async_context(
                 streamable_http_client(config.url, http_client=http_client)
             )
             await self._register_connected_session(
@@ -273,7 +273,7 @@ class McpClientManager:
                 server_name=name,
                 name=tool.name,
                 description=tool.description or "",
-                input_schema=dict(tool.inputSchema or {"type": "object", "properties": {}}),
+                input_schema=dict(tool.input_schema or {"type": "object", "properties": {}}),
             )
             for tool in tool_result.tools
         ]

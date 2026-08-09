@@ -181,7 +181,7 @@ async def test_connect_all_marks_http_server_failed_when_initialize_is_cancelled
     monkeypatch.setattr(
         client_module,
         "streamable_http_client",
-        lambda *args, **kwargs: _AsyncContextManager((object(), object(), AsyncMock())),
+        lambda *args, **kwargs: _AsyncContextManager((object(), object())),
     )
     manager._register_connected_session = AsyncMock(
         side_effect=asyncio.CancelledError("simulated cancellation")
