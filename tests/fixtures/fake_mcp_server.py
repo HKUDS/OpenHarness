@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
-server = FastMCP("fixture-demo")
+server = MCPServer("fixture-demo")
 
 
 @server.tool()
