@@ -343,6 +343,7 @@ Any provider implementing the OpenAI `/v1/chat/completions` style API works:
 |---------|----------|----------------|
 | **OpenAI** | `https://api.openai.com/v1` | `gpt-5.4`, `gpt-4.1` |
 | **OpenRouter** | `https://openrouter.ai/api/v1` | provider-specific |
+| **Gondola** | `https://api.gondola-ai.com/v1` | `claude-opus-5`, `deepseek-v3.2`, `kimi-k2-5` |
 | **Alibaba DashScope** | `https://dashscope.aliyuncs.com/compatible-mode/v1` | `qwen3.5-flash`, `qwen3-max`, `deepseek-r1` |
 | **DeepSeek** | `https://api.deepseek.com` | `deepseek-chat`, `deepseek-reasoner` |
 | **GitHub Models** | `https://models.inference.ai.azure.com` | `gpt-4o`, `Meta-Llama-3.1-405B-Instruct` |
