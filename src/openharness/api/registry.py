@@ -82,6 +82,20 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         is_local=False,
         is_oauth=False,
     ),
+    # Gondola: USDC-paid Venice AI marketplace gateway, keys start with "gnd_"
+    ProviderSpec(
+        name="gondola",
+        keywords=("gondola",),
+        env_key="GONDOLA_API_KEY",
+        display_name="Gondola",
+        backend_type="openai_compat",
+        default_base_url="https://api.gondola-ai.com/v1",
+        detect_by_key_prefix="gnd_",
+        detect_by_base_keyword="gondola",
+        is_gateway=True,
+        is_local=False,
+        is_oauth=False,
+    ),
     # AiHubMix: OpenAI-compatible gateway
     ProviderSpec(
         name="aihubmix",
