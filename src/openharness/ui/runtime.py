@@ -657,6 +657,9 @@ async def handle_line(
             args,
             command_context,
         )
+        if result.resumed_session_id is not None:
+            bundle.session_id = result.resumed_session_id
+            bundle.engine.tool_metadata["session_id"] = result.resumed_session_id
         if result.refresh_runtime:
             refresh_runtime_client(bundle)
         await _render_command_result(result, print_system, clear_output, render_event)
