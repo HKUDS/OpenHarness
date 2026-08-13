@@ -112,6 +112,7 @@ class CommandResult:
     refresh_runtime: bool = False
     submit_prompt: str | None = None
     submit_model: str | None = None
+    resumed_session_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -814,6 +815,7 @@ def create_default_command_registry(
                 message=f"Restored {len(messages)} messages from session {sid}"
                 + (f" ({summary})" if summary else ""),
                 replay_messages=messages,
+                resumed_session_id=str(snapshot.get("session_id") or sid),
             )
 
         # /resume — list sessions (for the TUI to show a picker)
@@ -830,6 +832,7 @@ def create_default_command_registry(
             return CommandResult(
                 message=f"Restored {len(messages)} messages from the latest session.",
                 replay_messages=messages,
+                resumed_session_id=str(snapshot.get("session_id") or "") or None,
             )
 
         # Format session list for display / picker
