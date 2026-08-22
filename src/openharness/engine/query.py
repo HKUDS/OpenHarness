@@ -1023,16 +1023,23 @@ def _resolve_permission_file_path(
     raw_input: dict[str, object],
     parsed_input: object,
 ) -> str | None:
-    for key in ("file_path", "path", "root"):
-        value = raw_input.get(key)
+    # Permission must judge exactly what execution will touch. Execution
+    # receives only the validated model (tool.execute(parsed_input, ...)), so
+    # parsed fields are authoritative. Checking raw keys first lets a decoy
+    # field Pydantic drops during validation (e.g. `file_path` on read_file,
+    # whose schema field is `path`) shadow the real path and bypass deny
+    # rules (issue #348). Raw keys remain a fallback for dynamic-schema tools
+    # (MCP proxies) whose parsed model exposes no path attributes.
+    for attr in ("file_path", "path", "root"):
+        value = getattr(parsed_input, attr, None)
         if isinstance(value, str) and value.strip():
             path = Path(value).expanduser()
             if not path.is_absolute():
                 path = cwd / path
             return str(path.resolve())
 
-    for attr in ("file_path", "path", "root"):
-        value = getattr(parsed_input, attr, None)
+    for key in ("file_path", "path", "root"):
+        value = raw_input.get(key)
         if isinstance(value, str) and value.strip():
             path = Path(value).expanduser()
             if not path.is_absolute():
@@ -1046,11 +1053,13 @@ def _extract_permission_command(
     raw_input: dict[str, object],
     parsed_input: object,
 ) -> str | None:
-    value = raw_input.get("command")
+    # Parsed-first for the same reason as _resolve_permission_file_path: a
+    # raw key the schema dropped must never shadow what execution will run.
+    value = getattr(parsed_input, "command", None)
     if isinstance(value, str) and value.strip():
         return value
 
-    value = getattr(parsed_input, "command", None)
+    value = raw_input.get("command")
     if isinstance(value, str) and value.strip():
         return value
 
