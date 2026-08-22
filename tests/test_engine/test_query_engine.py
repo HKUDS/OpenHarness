@@ -990,6 +990,80 @@ async def test_execute_tool_call_applies_path_rules_to_directory_roots(tmp_path:
 
 
 @pytest.mark.asyncio
+async def test_execute_tool_call_decoy_file_path_cannot_shadow_deny_rule(tmp_path: Path):
+    """Issue #348: a raw `file_path` key that Pydantic drops during validation
+    must not shadow the schema's real `path` field during permission checks."""
+    blocked_dir = tmp_path / "work" / "blocked"
+    blocked_dir.mkdir(parents=True)
+    (blocked_dir / "secret.txt").write_text("top-secret\n", encoding="utf-8")
+    readme = tmp_path / "README.md"
+    readme.write_text("hello\n", encoding="utf-8")
+
+    registry = ToolRegistry()
+    registry.register(create_default_tool_registry().get("read_file"))
+    settings = PermissionSettings(
+        mode=PermissionMode.FULL_AUTO,
+        path_rules=[{"pattern": str(blocked_dir) + "/*", "allow": False}],
+    )
+
+    # The PoC pair: decoy allowed path + real denied path.
+    result = await _execute_tool_call(
+        _tool_context(tmp_path, registry, settings),
+        "read_file",
+        "toolu_read_poc",
+        {"file_path": str(readme), "path": "work/blocked/secret.txt", "offset": 0, "limit": 10},
+    )
+    assert result.is_error is True
+    assert "deny" in result.content.lower() or str(blocked_dir) in result.content
+
+    # Control: the same call without the decoy was already blocked before.
+    control = await _execute_tool_call(
+        _tool_context(tmp_path, registry, settings),
+        "read_file",
+        "toolu_read_control",
+        {"path": "work/blocked/secret.txt", "offset": 0, "limit": 10},
+    )
+    assert control.is_error is True
+
+    # The decoy alone must not grant access either way round: real field
+    # pointing at an allowed file stays allowed (no over-blocking).
+    ok = await _execute_tool_call(
+        _tool_context(tmp_path, registry, settings),
+        "read_file",
+        "toolu_read_ok",
+        {"path": "README.md", "file_path": "work/blocked/secret.txt"},
+    )
+    assert ok.is_error is False
+    assert "hello" in (ok.content or "")
+
+
+@pytest.mark.asyncio
+async def test_execute_tool_call_decoy_file_path_cannot_shadow_write_deny_rule(tmp_path: Path):
+    blocked_dir = tmp_path / "work" / "blocked"
+    blocked_dir.mkdir(parents=True)
+
+    registry = ToolRegistry()
+    registry.register(create_default_tool_registry().get("write_file"))
+
+    result = await _execute_tool_call(
+        _tool_context(
+            tmp_path,
+            registry,
+            PermissionSettings(
+                mode=PermissionMode.FULL_AUTO,
+                path_rules=[{"pattern": str(blocked_dir) + "/*", "allow": False}],
+            ),
+        ),
+        "write_file",
+        "toolu_write_poc",
+        {"file_path": "README.md", "path": "work/blocked/output.txt", "content": "poc"},
+    )
+
+    assert result.is_error is True
+    assert not (blocked_dir / "output.txt").exists()
+
+
+@pytest.mark.asyncio
 async def test_execute_tool_call_returns_actionable_reason_when_user_denies_confirmation(tmp_path: Path):
     async def _deny(_tool_name: str, _reason: str) -> bool:
         return False
