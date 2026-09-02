@@ -94,6 +94,28 @@ async def test_plugin_install_load_and_uninstall_flow(tmp_path: Path, monkeypatc
     assert load_plugins(load_settings(), project) == []
 
 
+def test_install_plugin_from_path_uses_plugin_json_name(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
+    plugin_dir = tmp_path / "src"
+    plugin_dir.mkdir()
+    (plugin_dir / "plugin.json").write_text('{"name": "my-plugin"}', encoding="utf-8")
+
+    dest = install_plugin_from_path(plugin_dir)
+
+    assert dest.name == "my-plugin"
+    assert (dest / "plugin.json").exists()
+
+
+def test_install_plugin_from_path_falls_back_to_dir_name(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
+    plugin_dir = tmp_path / "my-plugin"
+    plugin_dir.mkdir()
+
+    dest = install_plugin_from_path(plugin_dir)
+
+    assert dest.name == "my-plugin"
+
+
 def test_uninstall_plugin_rejects_traversal_name_without_deleting_sibling(
     tmp_path: Path, monkeypatch
 ):

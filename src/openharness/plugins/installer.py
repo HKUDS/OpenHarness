@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import shutil
 from pathlib import Path
 
@@ -23,7 +24,12 @@ def _resolve_user_plugin_dir(name: str) -> Path:
 def install_plugin_from_path(source: str | Path) -> Path:
     """Install a plugin directory into the user plugin directory."""
     src = Path(source).resolve()
-    dest = get_user_plugins_dir() / src.name
+    manifest = src / "plugin.json"
+    if manifest.exists():
+        name = json.loads(manifest.read_text())["name"]
+    else:
+        name = src.name
+    dest = get_user_plugins_dir() / name
     if dest.exists():
         shutil.rmtree(dest)
     shutil.copytree(src, dest)
