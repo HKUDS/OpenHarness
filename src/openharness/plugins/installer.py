@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import shutil
+import subprocess
+import tempfile
 from pathlib import Path
 
 from openharness.plugins.loader import get_user_plugins_dir
@@ -28,6 +31,31 @@ def install_plugin_from_path(source: str | Path) -> Path:
         shutil.rmtree(dest)
     shutil.copytree(src, dest)
     return dest
+
+
+def install_plugin_from_url(url: str) -> Path:
+    """Clone a git URL into a temp directory and install from there."""
+    clone_url = url.removeprefix("git+")
+    with tempfile.TemporaryDirectory() as tmp:
+        cloned = Path(tmp) / "cloned"
+        result = subprocess.run(
+            ["git", "clone", "--depth=1", clone_url, str(cloned)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"git clone failed for {url!r}:\n{result.stderr.strip()}")
+        manifest = cloned / "plugin.json"
+        if manifest.exists():
+            name = json.loads(manifest.read_text())["name"]
+            # Rename so install_plugin_from_path uses the declared name as the
+            # destination directory. Once PR #354 lands (install_plugin_from_path
+            # reads name from plugin.json directly), this rename can be removed.
+            named = Path(tmp) / name
+            cloned.rename(named)
+            return install_plugin_from_path(named)
+        return install_plugin_from_path(cloned)
 
 
 def uninstall_plugin(name: str) -> bool:

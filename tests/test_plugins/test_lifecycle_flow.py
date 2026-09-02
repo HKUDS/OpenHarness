@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -12,7 +13,11 @@ from openharness.config.settings import Settings, load_settings
 from openharness.mcp.client import McpClientManager
 from openharness.mcp.config import load_mcp_server_configs
 from openharness.plugins import load_plugins
-from openharness.plugins.installer import install_plugin_from_path, uninstall_plugin
+from openharness.plugins.installer import (
+    install_plugin_from_path,
+    install_plugin_from_url,
+    uninstall_plugin,
+)
 from openharness.tools import create_default_tool_registry
 from openharness.tools.base import ToolExecutionContext
 
@@ -107,3 +112,48 @@ def test_uninstall_plugin_rejects_traversal_name_without_deleting_sibling(
 
     assert victim.exists()
     assert (victim / "marker.txt").read_text(encoding="utf-8") == "keep"
+
+
+def _make_bare_repo(tmp_path: Path, plugin_name: str) -> Path:
+    src = tmp_path / "plugin_src"
+    src.mkdir()
+    (src / "plugin.json").write_text(f'{{"name": "{plugin_name}"}}', encoding="utf-8")
+    subprocess.run(["git", "init", str(src)], check=True, capture_output=True)
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(src),
+            "commit",
+            "--allow-empty",
+            "-m",
+            "init",
+            "--author=Test <test@example.com>",
+        ],
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(["git", "-C", str(src), "add", "."], check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-C", str(src), "commit", "-m", "add plugin", "--author=Test <test@example.com>"],
+        check=True,
+        capture_output=True,
+    )
+    bare = tmp_path / "remote.git"
+    subprocess.run(["git", "clone", "--bare", str(src), str(bare)], check=True, capture_output=True)
+    return bare
+
+
+def test_install_plugin_from_url_clones_and_installs(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
+    bare = _make_bare_repo(tmp_path, "url-plugin")
+
+    dest = install_plugin_from_url(f"file://{bare}")
+
+    assert dest.name == "url-plugin"
+    assert (dest / "plugin.json").exists()
+
+
+def test_install_plugin_from_url_invalid_raises(tmp_path: Path):
+    with pytest.raises(RuntimeError, match="git clone failed"):
+        install_plugin_from_url(f"file://{tmp_path}/nonexistent")
