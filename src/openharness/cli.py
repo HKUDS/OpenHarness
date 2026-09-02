@@ -858,12 +858,17 @@ def plugin_list() -> None:
 
 @plugin_app.command("install")
 def plugin_install(
-    source: str = typer.Argument(..., help="Plugin source (path or URL)"),
+    source: str = typer.Argument(..., help="Plugin source (local path or git URL)"),
 ) -> None:
-    """Install a plugin from a source path."""
-    from openharness.plugins.installer import install_plugin_from_path
+    """Install a plugin from a local path or git URL."""
+    if source.startswith(("http://", "https://", "git+")):
+        from openharness.plugins.installer import install_plugin_from_url
 
-    result = install_plugin_from_path(source)
+        result = install_plugin_from_url(source)
+    else:
+        from openharness.plugins.installer import install_plugin_from_path
+
+        result = install_plugin_from_path(source)
     print(f"Installed plugin: {result}")
 
 
