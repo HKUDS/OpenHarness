@@ -1514,7 +1514,7 @@ async def test_query_engine_offloads_large_tool_result_outputs(tmp_path: Path, m
 
     completed = [event for event in events if isinstance(event, ToolExecutionCompleted)]
     assert len(completed) == 1
-    assert completed[0].output.startswith("[Tool output truncated]")
+    assert completed[0].output.startswith("[Tool output truncated — the preview below is incomplete]")
     assert "snapshot-line" in completed[0].output
 
     user_tool_messages = [
