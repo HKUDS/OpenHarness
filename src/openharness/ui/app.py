@@ -5,11 +5,13 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
+from pathlib import Path
 
 from openharness.coordinator.coordinator_mode import is_coordinator_mode
 
 from openharness.api.client import SupportsStreamingMessages
 from openharness.engine.stream_events import StreamEvent
+from openharness.goal.store import GoalStore
 from openharness.ui.backend_host import run_backend_host
 from openharness.ui.coordinator_drain import drain_coordinator_async_agents
 from openharness.ui.react_launcher import launch_react_tui
@@ -55,6 +57,14 @@ async def run_repl(
     permission_mode: str | None = None,
 ) -> None:
     """Run the default OpenHarness interactive application (React TUI)."""
+    active_cwd = cwd or str(Path.cwd())
+    leftover_goal = GoalStore(active_cwd).load()
+    if leftover_goal is not None and leftover_goal.status == "active":
+        print(
+            f"[goal] 检测到未完成的目标：{leftover_goal.condition}"
+            f"（已跑 {leftover_goal.turns_run} 轮），输入 /goal resume 继续"
+        )
+
     if backend_only:
         await run_backend_host(
             cwd=cwd,

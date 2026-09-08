@@ -29,9 +29,17 @@ from openharness.bridge import get_bridge_manager
 from openharness.bridge.types import WorkSecret
 from openharness.bridge.work_secret import build_sdk_url, decode_work_secret, encode_work_secret
 from openharness.api.provider import auth_status, detect_provider
-from openharness.config.settings import Settings, display_model_setting, load_settings, save_settings
+from openharness.config.settings import (
+    GoalSettings,
+    Settings,
+    display_model_setting,
+    load_settings,
+    save_settings,
+)
 from openharness.engine.messages import ConversationMessage, sanitize_conversation_messages
 from openharness.engine.query_engine import QueryEngine
+from openharness.goal.store import GoalStore
+from openharness.goal.types import GoalDefinition
 from openharness.memory import (
     add_memory_entry,
     get_memory_entrypoint,
@@ -112,6 +120,7 @@ class CommandResult:
     refresh_runtime: bool = False
     submit_prompt: str | None = None
     submit_model: str | None = None
+    goal: GoalDefinition | None = None
 
 
 @dataclass(frozen=True)
@@ -2318,6 +2327,131 @@ def create_default_command_registry(
             )
         )
 
+    async def _goal_handler(args: str, context: CommandContext) -> CommandResult:
+        goal_store = GoalStore(context.cwd)
+        tokens = args.split()
+        sub = tokens[0].lower() if tokens else ""
+
+        if sub in {"status", "show"}:
+            goal = goal_store.load()
+            if goal is None:
+                return CommandResult(message="No goal set. Use /goal <completion condition>.")
+            verdict_line = ""
+            if goal.last_verdict is not None:
+                verdict_line = (
+                    f"\nLast verdict: done={goal.last_verdict.done} "
+                    f"conf={goal.last_verdict.confidence:.2f} — {goal.last_verdict.rationale}"
+                )
+            budget = f"{goal.max_turns_budget} turns"
+            if goal.max_tokens_budget is not None:
+                budget += f" / {goal.max_tokens_budget} tokens"
+            return CommandResult(
+                message=(
+                    f"Goal [{goal.status}]: {goal.condition}\n"
+                    f"Verifier model: {goal.verifier_model or context.engine.model}\n"
+                    f"Turns: {goal.turns_run} | Tokens used: {goal.tokens_used}\n"
+                    f"Budget: {budget}"
+                    f"{verdict_line}"
+                )
+            )
+
+        if sub == "clear":
+            if goal_store.load() is None:
+                return CommandResult(message="No goal set.")
+            goal_store.clear()
+            return CommandResult(message="Goal cleared.")
+
+        if sub == "pause":
+            goal = goal_store.load()
+            if goal is None:
+                return CommandResult(message="No goal set.")
+            if goal.status != "active":
+                return CommandResult(message=f"Goal is {goal.status}, nothing to pause.")
+            goal.status = "paused"
+            goal_store.save(goal)
+            return CommandResult(message=f"Goal paused after {goal.turns_run} turns.")
+
+        if sub == "resume":
+            goal = goal_store.load()
+            if goal is None:
+                return CommandResult(message="No goal set. Use /goal <completion condition>.")
+            if goal.status in {"completed", "cancelled"}:
+                return CommandResult(
+                    message=f"Goal is {goal.status}; use /goal <completion condition> to start a new one."
+                )
+            goal.status = "active"
+            goal_store.save(goal)
+            return CommandResult(goal=goal, message=f"Resuming goal after {goal.turns_run} turns.")
+
+        # Create a new goal: parse optional flags, then the completion condition.
+        parsed_verifier: str | None = None
+        parsed_max_turns: int | None = None
+        condition_tokens: list[str] = []
+        idx = 0
+        while idx < len(tokens):
+            token = tokens[idx]
+            if token == "--verifier-model" and idx + 1 < len(tokens):
+                parsed_verifier = tokens[idx + 1]
+                idx += 2
+                continue
+            if token == "--max-turns" and idx + 1 < len(tokens):
+                try:
+                    parsed_max_turns = int(tokens[idx + 1])
+                except ValueError:
+                    return CommandResult(
+                        message="Usage: /goal [--verifier-model MODEL] [--max-turns N] <completion condition>"
+                    )
+                idx += 2
+                continue
+            condition_tokens.append(token)
+            idx += 1
+
+        condition = " ".join(condition_tokens).strip()
+        if not condition:
+            return CommandResult(
+                message="Usage: /goal [--verifier-model MODEL] [--max-turns N] <completion condition>"
+            )
+
+        existing = goal_store.load()
+        if existing is not None and existing.status in {"active", "paused"}:
+            return CommandResult(
+                message=f"A goal is already {existing.status}. Run /goal clear first."
+            )
+
+        settings = load_settings()
+        env_goal = GoalSettings.from_env()
+        verifier_model = parsed_verifier or env_goal.verifier_model or settings.goal.verifier_model
+
+        if parsed_max_turns is not None:
+            max_turns = parsed_max_turns
+        else:
+            env_turns = os.environ.get("OPENHARNESS_GOAL_MAX_TURNS", "").strip()
+            max_turns = settings.goal.max_turns
+            if env_turns:
+                try:
+                    max_turns = int(env_turns)
+                except ValueError:
+                    max_turns = settings.goal.max_turns
+
+        max_tokens: int | None = None
+        env_tokens = os.environ.get("OPENHARNESS_GOAL_MAX_TOKENS", "").strip()
+        if env_tokens:
+            try:
+                max_tokens = int(env_tokens)
+            except ValueError:
+                max_tokens = settings.goal.max_tokens
+        else:
+            max_tokens = settings.goal.max_tokens
+
+        goal = GoalDefinition(
+            condition=condition,
+            verifier_model=verifier_model,
+            max_turns_budget=max_turns,
+            max_tokens_budget=max_tokens,
+        )
+        goal_store.save(goal)
+        return CommandResult(message=f"Goal set: {condition}", goal=goal)
+
     registry.register(SlashCommand("help", "Show available commands", _help_handler))
     registry.register(
         SlashCommand("exit", "Exit OpenHarness", _exit_handler, aliases=("quit",))
@@ -2341,6 +2475,14 @@ def create_default_command_registry(
     registry.register(SlashCommand("stats", "Show session statistics", _stats_handler))
     registry.register(SlashCommand("dream", "Consolidate memory", _dream_handler))
     registry.register(SlashCommand("memory", "Inspect and manage project memory", _memory_handler))
+    registry.register(
+        SlashCommand(
+            "goal",
+            "Pursue a goal autonomously until the verifier declares it done",
+            _goal_handler,
+            remote_invocable=False,
+        )
+    )
     registry.register(SlashCommand("hooks", "Show configured hooks", _hooks_handler))
     registry.register(
         SlashCommand(

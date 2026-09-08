@@ -563,6 +563,43 @@ class VisionModelConfig(BaseModel):
         return bool(self.model and self.api_key)
 
 
+class GoalSettings(BaseModel):
+    """Configuration for the /goal autonomous work loop.
+
+    The verifier model judges continue/done after each turn. When unset,
+    the verifier falls back to the active conversation model.
+    """
+
+    verifier_model: str = ""
+    max_turns: int = 100
+    max_tokens: int | None = None
+
+    @classmethod
+    def from_env(cls) -> "GoalSettings":
+        """Load goal config from environment variables."""
+        max_tokens_raw = os.environ.get("OPENHARNESS_GOAL_MAX_TOKENS", "").strip()
+        max_tokens: int | None
+        if max_tokens_raw:
+            try:
+                max_tokens = int(max_tokens_raw)
+            except ValueError:
+                max_tokens = None
+        else:
+            max_tokens = None
+        max_turns_raw = os.environ.get("OPENHARNESS_GOAL_MAX_TURNS", "").strip()
+        max_turns = 100
+        if max_turns_raw:
+            try:
+                max_turns = int(max_turns_raw)
+            except ValueError:
+                max_turns = 100
+        return cls(
+            verifier_model=os.environ.get("OPENHARNESS_GOAL_VERIFIER_MODEL", "").strip(),
+            max_turns=max_turns,
+            max_tokens=max_tokens,
+        )
+
+
 class Settings(BaseModel):
     """Main settings model for OpenHarness."""
 
@@ -584,6 +621,7 @@ class Settings(BaseModel):
     system_prompt: str | None = None
     permission: PermissionSettings = Field(default_factory=PermissionSettings)
     hooks: dict[str, list[HookDefinition]] = Field(default_factory=dict)
+    goal: GoalSettings = Field(default_factory=GoalSettings)
     memory: MemorySettings = Field(default_factory=MemorySettings)
     sandbox: SandboxSettings = Field(default_factory=SandboxSettings)
     web: WebSettings = Field(default_factory=WebSettings)
