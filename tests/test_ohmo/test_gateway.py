@@ -1880,6 +1880,41 @@ async def test_gateway_bridge_publishes_progress_updates():
 
 
 @pytest.mark.asyncio
+async def test_gateway_bridge_suppresses_disabled_tool_hints(caplog):
+    bus = MessageBus()
+
+    class FakeRuntimePool:
+        async def stream_message(self, message, session_key):
+            yield SimpleNamespace(
+                kind="tool_hint",
+                text="🛠️ 正在使用 web_fetch: https://example.com",
+                metadata={"_progress": True, "_tool_hint": True, "_session_key": session_key},
+            )
+            yield SimpleNamespace(kind="final", text="Done", metadata={"_session_key": session_key})
+
+    caplog.set_level(logging.INFO, logger="ohmo.gateway.bridge")
+    bridge = OhmoGatewayBridge(
+        bus=bus,
+        runtime_pool=FakeRuntimePool(),
+        send_tool_hints=False,
+    )
+    task = asyncio.create_task(bridge.run())
+    try:
+        await bus.publish_inbound(
+            InboundMessage(channel="feishu", sender_id="u1", chat_id="c1", content="hi")
+        )
+        outbound = await asyncio.wait_for(bus.consume_outbound(), timeout=1.0)
+    finally:
+        bridge.stop()
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+    assert outbound.content == "Done"
+    assert "kind=tool_hint" not in caplog.text
+
+
+@pytest.mark.asyncio
 async def test_gateway_bridge_does_not_thread_private_feishu_replies():
     bus = MessageBus()
 

@@ -70,6 +70,7 @@ class OhmoGatewayService:
             feishu_group_policy=str(
                 self._config.channel_configs.get("feishu", {}).get("group_policy", "managed_or_mention")
             ),
+            send_tool_hints=self._config.send_tool_hints,
         )
 
     @property

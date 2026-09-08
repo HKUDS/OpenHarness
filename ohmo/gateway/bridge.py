@@ -64,12 +64,14 @@ class OhmoGatewayBridge:
         restart_gateway: Callable[[object, str], Awaitable[None] | None] | None = None,
         workspace: str | Path | None = None,
         feishu_group_policy: str = "open",
+        send_tool_hints: bool = True,
     ) -> None:
         self._bus = bus
         self._runtime_pool = runtime_pool
         self._restart_gateway = restart_gateway
         self._workspace = workspace
         self._feishu_group_policy = _normalize_feishu_group_policy(feishu_group_policy)
+        self._send_tool_hints = send_tool_hints
         self._running = False
         self._session_tasks: dict[str, asyncio.Task[None]] = {}
         self._session_cancel_reasons: dict[str, str] = {}
@@ -266,6 +268,8 @@ class OhmoGatewayBridge:
                     final_metadata = dict(update.metadata or {})
                     continue
                 if not update.text:
+                    continue
+                if update.kind == "tool_hint" and not self._send_tool_hints:
                     continue
                 logger.info(
                     "ohmo outbound update channel=%s chat_id=%s session_key=%s kind=%s content=%r",
