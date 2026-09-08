@@ -660,6 +660,10 @@ async def handle_line(
         if result.refresh_runtime:
             refresh_runtime_client(bundle)
         await _render_command_result(result, print_system, clear_output, render_event)
+        if result.goal is not None:
+            from openharness.goal.runner import run_goal_loop
+
+            await run_goal_loop(bundle, result.goal, render_event, print_system)
         if result.submit_prompt is not None:
             original_model = bundle.engine.model
             if result.submit_model:

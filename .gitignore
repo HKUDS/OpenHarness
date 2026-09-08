@@ -31,6 +31,12 @@ frontend/terminal/node_modules/
 .openharness/
 react_tui_smoke.txt
 
+# Qoder IDE
+.qoder/
+
+# Local learning notes
+learn/
+
 # OS
 .DS_Store
 Thumbs.db
