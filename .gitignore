@@ -35,3 +35,9 @@ react_tui_smoke.txt
 .DS_Store
 Thumbs.db
 uv.lock
+
+# Generated OrcaRouter GUI evidence (screenshots + manifest are build products
+# of scripts/gui_evidence.py and must be regenerated per revision, never
+# committed) and the scratch tree that run creates.
+orca-evidence/
+.orca-evidence-runtime/

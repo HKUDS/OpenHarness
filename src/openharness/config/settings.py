@@ -279,6 +279,22 @@ def default_provider_profiles() -> dict[str, ProviderProfile]:
             default_model="deepseek-ai/DeepSeek-V4-Flash",
             base_url="https://api-inference.modelscope.cn/v1",
         ),
+        "orcarouter": ProviderProfile(
+            label="OrcaRouter - API",
+            provider="orcarouter",
+            api_format="openai",
+            auth_source="orcarouter_api_key",
+            default_model="orcarouter/auto",
+            base_url="https://api.orcarouter.ai/v1",
+        ),
+        "orcarouter-oauth": ProviderProfile(
+            label="OrcaRouter - Auth",
+            provider="orcarouter",
+            api_format="openai",
+            auth_source="orcarouter_oauth",
+            default_model="orcarouter/auto",
+            base_url="https://api.orcarouter.ai/v1",
+        ),
     }
 
 
@@ -369,6 +385,8 @@ def auth_source_provider_name(auth_source: str) -> str:
         "minimax_api_key": "minimax",
         "nvidia_api_key": "nvidia",
         "modelscope_api_key": "modelscope",
+        "orcarouter_api_key": "orcarouter",
+        "orcarouter_oauth": "orcarouter",
     }
     return mapping.get(auth_source, auth_source)
 
@@ -389,6 +407,7 @@ def auth_source_env_var_candidates(auth_source: str) -> tuple[str, ...]:
         "minimax_api_key": ("OPENHARNESS_MINIMAX_API_KEY", "MINIMAX_API_KEY"),
         "nvidia_api_key": ("OPENHARNESS_NVIDIA_API_KEY", "NVIDIA_API_KEY"),
         "modelscope_api_key": ("OPENHARNESS_MODELSCOPE_API_KEY", "MODELSCOPE_API_KEY"),
+        "orcarouter_api_key": ("OPENHARNESS_ORCAROUTER_API_KEY", "ORCAROUTER_API_KEY"),
     }
     return mapping.get(auth_source, ())
 
@@ -438,6 +457,10 @@ def default_auth_source_for_provider(provider: str, api_format: str | None = Non
         return "nvidia_api_key"
     if provider == "modelscope":
         return "modelscope_api_key"
+    if provider == "orcarouter":
+        # Both OrcaRouter entry points share one registry entry and one
+        # inference path; the auth source only decides how a key is obtained.
+        return "orcarouter_oauth" if api_format == "orcarouter_oauth" else "orcarouter_api_key"
     if provider == "openai" or api_format == "openai":
         return "openai_api_key"
     return "anthropic_api_key"
@@ -829,6 +852,43 @@ class Settings(BaseModel):
 
         storage_provider = credential_storage_provider_name(profile_name, profile)
 
+        # Both OrcaRouter entry points land on the same durable key.  An
+        # already-connected credential is reused rather than re-authorizing:
+        # each user may only issue 10 PKCE keys per 24 hours, so a client that
+        # re-authorizes on every launch locks its own users out.
+        if provider == "orcarouter":
+            from openharness.api.orcarouter import api_key_env_value
+
+            env_resolved = api_key_env_value()
+            if env_resolved:
+                env_var, env_value = env_resolved
+                return ResolvedAuth(
+                    provider="orcarouter",
+                    auth_kind="api_key",
+                    value=env_value,
+                    source=f"env:{env_var}",
+                    state="configured",
+                )
+            if not profile.credential_slot and self.api_key:
+                return ResolvedAuth(
+                    provider="orcarouter",
+                    auth_kind="api_key",
+                    value=self.api_key,
+                    source="settings_or_env",
+                    state="configured",
+                )
+            stored_orcarouter = load_credential("orcarouter", "api_key", use_keyring=False)
+            if stored_orcarouter is None:
+                stored_orcarouter = load_credential("orcarouter", "api_key")
+            if stored_orcarouter:
+                return ResolvedAuth(
+                    provider="orcarouter",
+                    auth_kind="api_key",
+                    value=stored_orcarouter,
+                    source="file:orcarouter",
+                    state="configured",
+                )
+
         env_resolved = resolve_auth_env_value(auth_source)
         if env_resolved:
             env_var, env_value = env_resolved
@@ -838,6 +898,12 @@ class Settings(BaseModel):
                 value=env_value,
                 source=f"env:{env_var}",
                 state="configured",
+            )
+
+        if auth_source == "orcarouter_oauth":
+            raise ValueError(
+                "No OrcaRouter credential found. Run 'oh auth orcarouter' to connect with "
+                "your OrcaRouter account, or run 'oh auth orcarouter-api-key' to paste a key."
             )
 
         explicit_key = "" if profile.credential_slot else self.api_key

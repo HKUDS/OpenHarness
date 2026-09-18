@@ -1248,6 +1248,7 @@ _PROVIDER_LABELS: dict[str, str] = {
     "gemini": "Google Gemini",
     "minimax": "MiniMax",
     "modelscope": "ModelScope",
+    "orcarouter": "OrcaRouter",
 }
 
 _AUTH_SOURCE_LABELS: dict[str, str] = {
@@ -1263,6 +1264,8 @@ _AUTH_SOURCE_LABELS: dict[str, str] = {
     "gemini_api_key": "Gemini API key",
     "minimax_api_key": "MiniMax API key",
     "modelscope_api_key": "ModelScope API key",
+    "orcarouter_api_key": "OrcaRouter API key",
+    "orcarouter_oauth": "OrcaRouter account (OAuth 2.0 + PKCE)",
 }
 
 
@@ -1677,6 +1680,25 @@ def _maybe_update_default_model_for_provider(provider: str) -> None:
     manager.update_profile(profile_name, default_model=target_model, last_model=target_model)
 
 
+def _orcarouter_connect(flow: str) -> None:
+    """Connect OrcaRouter through OAuth 2.0 + PKCE and store the issued key."""
+    from openharness.api.orcarouter import (
+        OrcaRouterAuthError,
+        PkceCredentialProvider,
+        mask_api_key,
+    )
+
+    provider = PkceCredentialProvider(flow=flow)
+    try:
+        credential = provider.acquire()
+    except OrcaRouterAuthError as exc:
+        print(f"Error: {exc}", file=sys.stderr, flush=True)
+        raise typer.Exit(1)
+
+    print(f"OrcaRouter connected as {mask_api_key(credential.api_key)} (scope {credential.scope}).", flush=True)
+    print("Run `oh provider use orcarouter-oauth` to activate it.", flush=True)
+
+
 def _bind_external_provider(provider: str) -> None:
     """Bind a provider to credentials managed by an external CLI."""
     from openharness.auth.external import default_binding_for_provider, load_external_credential
@@ -1729,7 +1751,7 @@ def _login_provider(provider: str) -> None:
         _bind_external_provider(provider)
         return
 
-    if provider in ("anthropic", "openai", "dashscope", "bedrock", "vertex", "moonshot", "gemini", "minimax", "modelscope"):
+    if provider in ("anthropic", "openai", "dashscope", "bedrock", "vertex", "moonshot", "gemini", "minimax", "modelscope", "orcarouter"):
         label = _PROVIDER_LABELS.get(provider, provider)
         flow = ApiKeyFlow(provider=provider, prompt_text=f"Enter your {label} API key")
         try:
@@ -1952,6 +1974,40 @@ def auth_copilot_login() -> None:
 def auth_codex_login() -> None:
     """Bind OpenHarness to a local Codex CLI subscription session."""
     _bind_external_provider("openai_codex")
+
+
+@auth_app.command("orcarouter")
+def auth_orcarouter_connect(
+    oob: bool = typer.Option(
+        False,
+        "--oob",
+        help="Use the out-of-band code flow instead of a loopback redirect.",
+    ),
+) -> None:
+    """Connect an OrcaRouter account with OAuth 2.0 + PKCE and store the issued API key."""
+    _orcarouter_connect("oob" if oob else "loopback")
+
+
+@auth_app.command("orcarouter-api-key")
+def auth_orcarouter_api_key() -> None:
+    """Store an existing OrcaRouter API key (sk-orca-...) without a browser login."""
+    from openharness.api.orcarouter import looks_like_orcarouter_key
+    from openharness.auth.storage import store_credential as store_raw
+
+    key = _secret_prompt("Enter your OrcaRouter API key").strip()
+    if not key:
+        print("Error: API key cannot be empty.", file=sys.stderr, flush=True)
+        raise typer.Exit(1)
+    if not looks_like_orcarouter_key(key):
+        # A shape check only: the prefix proves nothing about validity.
+        print(
+            "Warning: that does not look like an OrcaRouter key (expected an sk-orca- prefix).",
+            file=sys.stderr,
+            flush=True,
+        )
+    store_raw("orcarouter", "api_key", key, use_keyring=False)
+    print("OrcaRouter API key saved.", flush=True)
+    print("Run `oh provider use orcarouter` to activate it.", flush=True)
 
 
 @auth_app.command("claude-login")
