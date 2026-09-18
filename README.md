@@ -343,6 +343,7 @@ Any provider implementing the OpenAI `/v1/chat/completions` style API works:
 |---------|----------|----------------|
 | **OpenAI** | `https://api.openai.com/v1` | `gpt-5.4`, `gpt-4.1` |
 | **OpenRouter** | `https://openrouter.ai/api/v1` | provider-specific |
+| **OrcaRouter** | `https://api.orcarouter.ai/v1` | `openai/gpt-5.5`, `anthropic/claude-opus-4.8` |
 | **Alibaba DashScope** | `https://dashscope.aliyuncs.com/compatible-mode/v1` | `qwen3.5-flash`, `qwen3-max`, `deepseek-r1` |
 | **DeepSeek** | `https://api.deepseek.com` | `deepseek-chat`, `deepseek-reasoner` |
 | **GitHub Models** | `https://models.inference.ai.azure.com` | `gpt-4o`, `Meta-Llama-3.1-405B-Instruct` |
@@ -351,6 +352,42 @@ Any provider implementing the OpenAI `/v1/chat/completions` style API works:
 | **Google Gemini** | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-2.5-flash`, `gemini-2.5-pro` |
 | **Groq** | `https://api.groq.com/openai/v1` | `llama-3.3-70b-versatile` |
 | **Ollama (local)** | `http://localhost:11434/v1` | any local model |
+
+### OrcaRouter
+
+[OrcaRouter](https://www.orcarouter.ai) is an OpenAI-compatible AI gateway that routes many
+providers behind one endpoint. OrcaRouter is available as a first-class provider with two
+authentication choices.
+
+**API key** — store an existing `sk-orca-…` key with your usual secret mechanism:
+
+```bash
+export ORCAROUTER_API_KEY=sk-orca-...
+oh provider use orcarouter
+```
+
+**Account login** — OAuth 2.0 + PKCE issues a key to your OrcaRouter account, so nothing has
+to be copied by hand:
+
+```bash
+oh auth orcarouter           # browser opens; loopback redirect returns the code
+oh auth orcarouter --oob     # no callback reachable? paste the code instead
+oh provider use orcarouter-oauth
+```
+
+Both paths produce the same durable `sk-orca-…` key, stored in the harness credential store
+(`~/.openharness/credentials.json`, mode 600, or your system keyring) and billed to your own
+account. Revoke it any time from the
+[OrcaRouter console](https://www.orcarouter.ai/console/authorized-apps).
+
+Authentication uses `https://www.orcarouter.ai`; inference and model discovery use
+`https://api.orcarouter.ai/v1`. Both are configurable with `ORCA_AUTH_BASE_URL`,
+`ORCA_API_BASE_URL`, or a shared `ORCA_BASE_URL` for self-hosted deployments.
+
+When the OrcaRouter profile is active, `/model` is populated from the live
+`GET /v1/models` catalog rather than a hand-written list, filtered to models that can serve
+the capability in question (chat, embeddings, image, video, rerank) and, when an image is
+attached, to models that declare image input.
 
 ### Advanced Profile Management
 

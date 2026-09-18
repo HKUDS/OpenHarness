@@ -45,6 +45,7 @@ const SELECTABLE_COMMANDS = new Set([
 
 type SelectModalState = {
 	title: string;
+	command: string;
 	options: SelectOption[];
 	onSelect: (value: string) => void;
 } | null;
@@ -174,6 +175,7 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 		setSelectIndex(initialIndex >= 0 ? initialIndex : 0);
 		setSelectModal({
 			title: req.title,
+			command: req.command,
 			options: req.options.map((o) => ({value: o.value, label: o.label, description: o.description, active: o.active})),
 			onSelect: (value) => {
 				session.sendRequest({type: 'apply_select_command', command: req.command, value});
@@ -183,6 +185,37 @@ function AppInner({config}: {config: FrontendConfig}): React.JSX.Element {
 		});
 		session.setSelectRequest(null);
 	}, [session.selectRequest]);
+
+	// Capability-driven selectors are recomputed when the attachments that the
+	// next turn will send change: adding or dropping an image re-asks the
+	// backend for the option set so the dropdown never offers a model that
+	// cannot read what is attached.
+	const attachmentSignature = useMemo(
+		() => imageAttachments.map((image) => image.media_type).join(','),
+		[imageAttachments],
+	);
+	const selectModalCommandRef = useRef<string | null>(null);
+	const appliedAttachmentSignatureRef = useRef<string | null>(null);
+	useEffect(() => {
+		const command = selectModal?.command ?? null;
+		const reopened = selectModalCommandRef.current !== command;
+		selectModalCommandRef.current = command;
+		if (command !== 'orcarouter-model') {
+			appliedAttachmentSignatureRef.current = null;
+			return;
+		}
+		if (reopened) {
+			// The list the backend just emitted already reflects the current
+			// attachments, so the first render is not a change.
+			appliedAttachmentSignatureRef.current = attachmentSignature;
+			return;
+		}
+		if (appliedAttachmentSignatureRef.current === attachmentSignature) {
+			return;
+		}
+		appliedAttachmentSignatureRef.current = attachmentSignature;
+		session.sendRequest({type: 'select_command', command: 'model', images: imagePayloads()});
+	}, [attachmentSignature, selectModal]);
 
 	// Intercept special commands that need interactive UI
 	const handleCommand = (cmd: string): boolean => {

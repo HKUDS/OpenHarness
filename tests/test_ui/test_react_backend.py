@@ -76,6 +76,37 @@ class FakeBinaryStdout:
         return None
 
 
+def _save_orcarouter_profile(*, model: str = "orcarouter/auto") -> None:
+    """Persist an active OrcaRouter profile, the way `oh auth` would.
+
+    The profile layer — not just the flat `provider` field — decides which
+    selector `/model` opens, so tests activate the profile the same way the
+    application does.
+    """
+    save_settings(
+        Settings().model_copy(
+            update={
+                "active_profile": "orcarouter",
+                "provider": "orcarouter",
+                "api_format": "openai",
+                "base_url": "https://api.orcarouter.ai/v1",
+                "model": model,
+                "profiles": {
+                    "orcarouter": {
+                        "label": "OrcaRouter - API",
+                        "provider": "orcarouter",
+                        "api_format": "openai",
+                        "auth_source": "orcarouter_api_key",
+                        "default_model": "orcarouter/auto",
+                        "last_model": model,
+                        "base_url": "https://api.orcarouter.ai/v1",
+                    }
+                },
+            }
+        )
+    )
+
+
 def test_frontend_request_accepts_image_attachments():
     request = FrontendRequest.model_validate(
         {
@@ -889,3 +920,217 @@ async def test_ask_edit_approval_skips_when_session_mode_is_full_auto():
 
     assert reply == "always"
     assert events == []
+
+
+@pytest.mark.asyncio
+async def test_backend_host_orcarouter_model_selector_uses_the_live_catalog(tmp_path, monkeypatch):
+    """The /model control for an OrcaRouter profile comes from catalog discovery."""
+    from openharness.api import orcarouter
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("OPENHARNESS_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("ORCAROUTER_API_KEY", "sk-orca-backendhost-test-key-0000")
+    orcarouter.clear_catalog_cache()
+
+    models = [
+        {"id": "openai/gpt-5.5", "supported_endpoint_types": ["openai"],
+         "architecture": {"input_modalities": ["text", "image"]}},
+        {"id": "deepseek/deepseek-v4-pro", "supported_endpoint_types": ["openai"],
+         "architecture": {"input_modalities": ["text"]}},
+        {"id": "openai/gpt-image-1", "supported_endpoint_types": ["image-generation"]},
+    ]
+
+    monkeypatch.setattr(
+        orcarouter,
+        "fetch_models",
+        lambda api_base=None, api_key=None, **kwargs: orcarouter.parse_catalog(
+            {"data": models, "object": "list"}
+        ),
+    )
+
+    _save_orcarouter_profile()
+
+    host = ReactBackendHost(BackendHostConfig(api_client=StaticApiClient("unused")))
+    host._bundle = await build_runtime(api_client=StaticApiClient("unused"))
+    events = []
+
+    async def _emit(event):
+        events.append(event)
+
+    host._emit = _emit  # type: ignore[method-assign]
+    await start_runtime(host._bundle)
+    try:
+        await host._handle_select_command("model")
+    finally:
+        await close_runtime(host._bundle)
+
+    event = next(item for item in events if item.type == "select_request")
+    assert event.modal["command"] == "orcarouter-model"
+    values = [option["value"] for option in event.select_options]
+    assert "openai/gpt-5.5" in values
+    assert "deepseek/deepseek-v4-pro" in values
+    # A non-chat route must not be offered by a chat model selector.
+    assert "openai/gpt-image-1" not in values
+
+
+@pytest.mark.asyncio
+async def test_backend_host_orcarouter_selector_is_modal_options_not_free_text(tmp_path, monkeypatch):
+    """The control is a real dropdown: options, never an empty free-text prompt."""
+    from openharness.api import orcarouter
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("OPENHARNESS_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("ORCAROUTER_API_KEY", "sk-orca-backendhost-test-key-0000")
+    orcarouter.clear_catalog_cache()
+    monkeypatch.setattr(
+        orcarouter,
+        "fetch_models",
+        lambda api_base=None, api_key=None, **kwargs: [
+            orcarouter.parse_model_entry({"id": "orcarouter/auto", "supported_endpoint_types": ["openai"]})
+        ],
+    )
+
+    _save_orcarouter_profile()
+
+    host = ReactBackendHost(BackendHostConfig(api_client=StaticApiClient("unused")))
+    host._bundle = await build_runtime(api_client=StaticApiClient("unused"))
+    events = []
+
+    async def _emit(event):
+        events.append(event)
+
+    host._emit = _emit  # type: ignore[method-assign]
+    await start_runtime(host._bundle)
+    try:
+        await host._handle_select_command("model")
+    finally:
+        await close_runtime(host._bundle)
+
+    event = next(item for item in events if item.type == "select_request")
+    assert event.modal["kind"] == "select"
+    assert [option["value"] for option in event.select_options] == ["orcarouter/auto"]
+
+
+@pytest.mark.asyncio
+async def test_backend_host_orcarouter_selector_drops_image_blind_models_when_attached(tmp_path, monkeypatch):
+    """An attached image re-filters the options and clears an incompatible value."""
+    from openharness.api import orcarouter
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("OPENHARNESS_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("ORCAROUTER_API_KEY", "sk-orca-backendhost-test-key-0000")
+    orcarouter.clear_catalog_cache()
+
+    models = [
+        {"id": "openai/gpt-5.5", "supported_endpoint_types": ["openai"],
+         "architecture": {"input_modalities": ["text", "image"]}},
+        {"id": "deepseek/deepseek-v4-pro", "supported_endpoint_types": ["openai"],
+         "architecture": {"input_modalities": ["text"]}},
+    ]
+    monkeypatch.setattr(
+        orcarouter,
+        "fetch_models",
+        lambda api_base=None, api_key=None, **kwargs: orcarouter.parse_catalog(
+            {"data": models, "object": "list"}
+        ),
+    )
+
+    # The current model is text-only, so attaching an image must drop it.
+    _save_orcarouter_profile(model="deepseek/deepseek-v4-pro")
+
+    host = ReactBackendHost(BackendHostConfig(api_client=StaticApiClient("unused")))
+    host._bundle = await build_runtime(api_client=StaticApiClient("unused"))
+    events = []
+
+    async def _emit(event):
+        events.append(event)
+
+    host._emit = _emit  # type: ignore[method-assign]
+    await start_runtime(host._bundle)
+    try:
+        attachment = FrontendImageAttachment(media_type="image/png", data="aGVsbG8=")
+        await host._handle_select_command("model", [attachment])
+    finally:
+        await close_runtime(host._bundle)
+
+    event = next(item for item in events if item.type == "select_request")
+    values = [option["value"] for option in event.select_options]
+    assert values == ["openai/gpt-5.5"]
+    assert "image" in event.modal["title"]
+    notices = [
+        item.item.text
+        for item in events
+        if item.type == "transcript_item" and item.item and item.item.role == "system"
+    ]
+    assert any("deepseek/deepseek-v4-pro" in text for text in notices)
+
+
+@pytest.mark.asyncio
+async def test_backend_host_orcarouter_selector_ignores_attachments_for_other_providers(tmp_path, monkeypatch):
+    """Non-OrcaRouter profiles keep their existing curated model list."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("OPENHARNESS_DATA_DIR", str(tmp_path / "data"))
+
+    host = ReactBackendHost(BackendHostConfig(api_client=StaticApiClient("unused")))
+    host._bundle = await build_runtime(api_client=StaticApiClient("unused"), model="opus", api_format="anthropic")
+    events = []
+
+    async def _emit(event):
+        events.append(event)
+
+    host._emit = _emit  # type: ignore[method-assign]
+    await start_runtime(host._bundle)
+    try:
+        attachment = FrontendImageAttachment(media_type="image/png", data="aGVsbG8=")
+        await host._handle_select_command("model", [attachment])
+    finally:
+        await close_runtime(host._bundle)
+
+    event = next(item for item in events if item.type == "select_request")
+    assert event.modal["command"] == "model"
+    assert any(option["value"] == "default" for option in event.select_options)
+
+
+@pytest.mark.asyncio
+async def test_backend_host_orcarouter_selector_labels_verified_fallback(tmp_path, monkeypatch):
+    """When discovery fails the selector says so instead of accepting free text."""
+    from openharness.api import orcarouter
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("OPENHARNESS_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("ORCAROUTER_API_KEY", "sk-orca-backendhost-test-key-0000")
+    orcarouter.clear_catalog_cache()
+
+    def boom(*args, **kwargs):
+        raise orcarouter.OrcaRouterCatalogError("catalog unreachable")
+
+    monkeypatch.setattr(orcarouter, "fetch_models", boom)
+
+    _save_orcarouter_profile()
+
+    host = ReactBackendHost(BackendHostConfig(api_client=StaticApiClient("unused")))
+    host._bundle = await build_runtime(api_client=StaticApiClient("unused"))
+    events = []
+
+    async def _emit(event):
+        events.append(event)
+
+    host._emit = _emit  # type: ignore[method-assign]
+    await start_runtime(host._bundle)
+    try:
+        await host._handle_select_command("model")
+    finally:
+        await close_runtime(host._bundle)
+
+    event = next(item for item in events if item.type == "select_request")
+    assert event.modal["kind"] == "select"
+    assert "fallback" in event.modal["title"]
+    values = [option["value"] for option in event.select_options]
+    # The verified seed is offered; the control never degrades to free text.
+    assert "openai/gpt-5.5" in values
+    assert len(values) > 0

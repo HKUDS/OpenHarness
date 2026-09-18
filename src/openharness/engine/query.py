@@ -126,6 +126,31 @@ def _is_completion_token_limit_error(exc: Exception) -> bool:
     )
 
 
+def _record_orcarouter_auth_failure(context: QueryContext, exc: Exception) -> None:
+    """React to a rejected OrcaRouter credential on the request path.
+
+    OrcaRouter hands out a durable API key, not a refreshable token: a 401
+    means reauthentication, so the exact credential generation that made this
+    request is marked and no refresh is attempted.  A 403 (for example a
+    key-scope or model-access refusal) is deliberately left alone, because it
+    says nothing about whether the credential is still valid.
+    """
+    if getattr(exc, "status_code", None) != 401:
+        return
+    try:
+        from openharness.api import orcarouter
+
+        settings = context.settings
+        if settings is None or settings.provider != orcarouter.PROVIDER_NAME:
+            return
+        orcarouter.handle_auth_failure(
+            generation=orcarouter.current_credential_generation(),
+            reason="OrcaRouter relay rejected the credential with HTTP 401",
+        )
+    except (AttributeError, ValueError, RuntimeError, OSError):
+        log.debug("Could not record OrcaRouter reauth state", exc_info=True)
+
+
 class MaxTurnsExceeded(RuntimeError):
     """Raised when the agent exceeds the configured max_turns for one user prompt."""
 
@@ -153,6 +178,7 @@ class QueryContext:
     max_turns: int | None = 200
     hook_executor: HookExecutor | None = None
     tool_metadata: dict[str, object] | None = None
+    settings: Any = None
 
 
 def _append_capped_unique(bucket: list[Any], value: Any, *, limit: int) -> None:
@@ -752,6 +778,7 @@ async def run_query(
                     usage = event.usage
         except Exception as exc:
             error_msg = str(exc)
+            _record_orcarouter_auth_failure(context, exc)
             if _is_completion_token_limit_error(exc):
                 supported_limit = _extract_completion_token_limit(exc)
                 if supported_limit is not None and effective_max_tokens > supported_limit:

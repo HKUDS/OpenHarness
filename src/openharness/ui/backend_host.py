@@ -88,6 +88,9 @@ class ReactBackendHost:
         # Track last tool input per name for rich event emission
         self._last_tool_inputs: dict[str, dict] = {}
         self._edit_always_approved = False
+        # Which selector produced the modal currently on screen, so later
+        # changes (a newly attached image) rebuild the right option set.
+        self._select_origin = ""
 
     async def run(self) -> int:
         self._bundle = await build_runtime(
@@ -140,7 +143,7 @@ class ReactBackendHost:
                     await self._handle_list_sessions()
                     continue
                 if request.type == "select_command":
-                    await self._handle_select_command(request.command or "")
+                    await self._handle_select_command(request.command or "", request.images)
                     continue
                 if request.type == "apply_select_command":
                     if self._busy:
@@ -265,6 +268,7 @@ class ReactBackendHost:
                 ),
             )
         )
+        await self._warn_on_incompatible_attachment(images or [])
 
         async def _print_system(message: str) -> None:
             await self._emit(
@@ -423,6 +427,12 @@ class ReactBackendHost:
             return f"/voice {value}"
         if command == "model":
             return f"/model {value}"
+        if command == "orcarouter-model":
+            # Reuses the existing /model setter, so validation and persistence
+            # stay in one place.
+            return f"/model {value}"
+        if command == "orcarouter-models":
+            return "/model"
         return None
 
     def _status_snapshot(self) -> BackendEvent:
@@ -472,9 +482,10 @@ class ReactBackendHost:
             )
         )
 
-    async def _handle_select_command(self, command_name: str) -> None:
+    async def _handle_select_command(self, command_name: str, images: list[FrontendImageAttachment] | None = None) -> None:
         assert self._bundle is not None
         command = command_name.strip().lstrip("/").lower()
+        self._select_origin = command
         if command == "resume":
             await self._handle_list_sessions()
             return
@@ -667,6 +678,13 @@ class ReactBackendHost:
             return
 
         if command == "model":
+            if active_profile.provider == "orcarouter":
+                # OrcaRouter models are picked from the live catalog, not
+                # hand-typed: /model opens the discovered, capability-filtered
+                # list instead of a curated family list.
+                self._select_origin = "orcarouter-models"
+                await self._emit_orcarouter_models(current_model, images=images)
+                return
             options = self._model_select_options(current_model, active_profile.provider, active_profile.allowed_models)
             await self._emit(
                 BackendEvent(
@@ -677,7 +695,141 @@ class ReactBackendHost:
             )
             return
 
+        if command == "orcarouter-models":
+            await self._emit_orcarouter_models(current_model, images=images)
+            return
+
         await self._emit(BackendEvent(type="error", message=f"No selector available for /{command}"))
+
+    async def _emit_orcarouter_models(
+        self, current_model: str, *, images: list[FrontendImageAttachment] | None = None
+    ) -> None:
+        """Emit the OrcaRouter model selector, rebuilt from the live catalog.
+
+        The catalog is discovered per invocation, so reopening the selector
+        refreshes it, and the required modalities come from the attachments the
+        frontend currently holds.  Incompatible values are never offered: a
+        current value that no longer passes the filter is dropped from the
+        options and called out, so it cannot be silently re-confirmed.
+        """
+        from openharness.api import orcarouter
+
+        catalog = orcarouter.cached_catalog(
+            capability="chat",
+            api_key=self._orcarouter_api_key(),
+        )
+        modalities = _required_input_modalities(images or [])
+        options = orcarouter.select_options(
+            catalog.entries, current=current_model, capability="chat", modalities=modalities
+        )
+        title = "Model · OrcaRouter"
+        if modalities:
+            title = f"Model · OrcaRouter ({'+'.join(modalities)} input only)"
+        if catalog.degraded:
+            title = f"{title} (catalog unavailable — verified fallback)"
+        if not options:
+            await self._emit(
+                BackendEvent(
+                    type="error",
+                    message="OrcaRouter returned no chat-capable models for this credential.",
+                )
+            )
+            await self._emit(BackendEvent(type="line_complete"))
+            return
+        await self._emit(
+            BackendEvent(
+                type="select_request",
+                modal={"kind": "select", "title": title, "command": "orcarouter-model"},
+                select_options=options,
+            )
+        )
+        if current_model and not any(option["value"] == current_model for option in options):
+            if modalities:
+                reason = f"cannot read the attached {'+'.join(modalities)} input"
+            else:
+                reason = "is no longer offered by this credential's catalog"
+            await self._emit(
+                BackendEvent(
+                    type="transcript_item",
+                    item=TranscriptItem(
+                        role="system",
+                        text=(
+                            f"Model '{current_model}' {reason}. "
+                            "It has been dropped from the selector — pick a compatible OrcaRouter model."
+                        ),
+                    ),
+                )
+            )
+
+    def _orcarouter_api_key(self) -> str:
+        """Resolve the OrcaRouter key for backend-side catalog discovery.
+
+        The key stays in this process: only model metadata crosses to the
+        frontend.
+        """
+        try:
+            assert self._bundle is not None
+            settings = self._bundle.current_settings()
+            return settings.resolve_auth().value
+        except (ValueError, RuntimeError, AttributeError):
+            # No resolved credential on the active profile (for example the
+            # user has not connected yet): fall back to env/store resolution so
+            # the catalog still works when a key exists somewhere.
+            from openharness.api.orcarouter import resolve_credential
+
+            try:
+                return resolve_credential().api_key
+            except (ValueError, RuntimeError):
+                return ""
+
+    async def _warn_on_incompatible_attachment(
+        self, images: list[FrontendImageAttachment]
+    ) -> None:
+        """Second-layer guard: warn before an image reaches a text-only model.
+
+        The model selector is the primary control — it only offers image-capable
+        models once an attachment is present — but a value restored from config
+        or set before the catalog loaded must not silently swallow the image.
+        """
+        if not images:
+            return
+        try:
+            assert self._bundle is not None
+            model = self._bundle.app_state.get().model or ""
+        except (AttributeError, RuntimeError):
+            return
+        if not model:
+            return
+
+        from openharness.api import orcarouter
+
+        try:
+            settings = self._bundle.current_settings()
+            if settings.provider != orcarouter.PROVIDER_NAME:
+                return
+            catalog = orcarouter.cached_catalog(
+                capability="chat", api_key=self._orcarouter_api_key()
+            )
+        except (ValueError, RuntimeError, AttributeError):
+            # The guard must never block a turn; it only adds a warning.
+            return
+
+        entry = next((m for m in catalog.entries if m.id == model), None)
+        if entry is None:
+            return
+        if not entry.supports_text_chat or not entry.accepts_modality("image"):
+            await self._emit(
+                BackendEvent(
+                    type="transcript_item",
+                    item=TranscriptItem(
+                        role="system",
+                        text=(
+                            f"Warning: '{model}' is not advertised as image-capable by the "
+                            "OrcaRouter catalog; the attachment may be rejected upstream."
+                        ),
+                    ),
+                )
+            )
 
     def _model_select_options(self, current_model: str, provider: str, allowed_models: list[str] | None = None) -> list[dict[str, object]]:
         if allowed_models:
@@ -878,6 +1030,21 @@ def _format_transcript_line(line: str, images: list[FrontendImageAttachment]) ->
     noun = "image" if len(images) == 1 else "images"
     attachment_line = f"[{len(images)} {noun} attached]"
     return f"{line}\n{attachment_line}" if line else attachment_line
+
+
+def _required_input_modalities(images: list[FrontendImageAttachment]) -> list[str]:
+    """Return the non-text input modalities the current attachments require.
+
+    Modalities are derived from the attachment media types rather than assumed:
+    an ``image/*`` attachment requires an image-capable model, and a model that
+    does not declare the modality is never offered.
+    """
+    modalities: list[str] = []
+    for image in images:
+        modality = (image.media_type or "").split("/", 1)[0].strip().lower()
+        if modality and modality != "text" and modality not in modalities:
+            modalities.append(modality)
+    return modalities
 
 
 async def run_backend_host(
