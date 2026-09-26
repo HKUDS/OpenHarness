@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import AsyncIterator
 
@@ -58,6 +59,9 @@ class QueryEngine:
         self._settings = settings
         self._messages: list[ConversationMessage] = []
         self._cost_tracker = CostTracker()
+        # Strong references to fire-and-forget shadow-gate tasks so they are not
+        # garbage-collected before completion. They never block the real turn.
+        self._shadow_gate_tasks: set[asyncio.Task[None]] = set()
 
     @property
     def messages(self) -> list[ConversationMessage]:
@@ -224,6 +228,22 @@ class QueryEngine:
             return bool(msg.tool_uses)
         return False
 
+    def _maybe_run_shadow_gate(self, user_text: str) -> None:
+        """Fire the optional Superfast Decision Gate in shadow mode.
+
+        Off by default (``SUPERFAST_ENABLED``). When enabled, the gate runs as a
+        background task so it adds no latency to the real turn: it only classifies
+        the pending user message and logs its recommendation. It never changes
+        routing, never skips the model call, and fails open on any error.
+        """
+        from openharness.superfast.decision_gate import gate_enabled, shadow_log_turn
+
+        if not gate_enabled() or not user_text.strip():
+            return
+        task = asyncio.create_task(shadow_log_turn(user_text))
+        self._shadow_gate_tasks.add(task)
+        task.add_done_callback(self._shadow_gate_tasks.discard)
+
     async def submit_message(self, prompt: str | ConversationMessage) -> AsyncIterator[StreamEvent]:
         """Append a user message and execute the query loop."""
         user_message = (
@@ -265,6 +285,8 @@ class QueryEngine:
         coordinator_context = self._build_coordinator_context_message()
         if coordinator_context is not None:
             query_messages.append(coordinator_context)
+        # Shadow-mode Decision Gate: fire-and-forget, logs only, adds no latency.
+        self._maybe_run_shadow_gate(user_message.text)
         try:
             async for event, usage in run_query(context, query_messages):
                 if isinstance(event, AssistantTurnComplete):
