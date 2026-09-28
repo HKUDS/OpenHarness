@@ -354,6 +354,9 @@ Any provider implementing the OpenAI `/v1/chat/completions` style API works:
 
 ### Advanced Profile Management
 
+For a provider-specific example with separate credential storage and explicit
+context/output limits, see the [Tsubasa profile recipe](docs/tsubasa.md).
+
 ```bash
 # List saved workflows
 oh provider list
