@@ -101,7 +101,8 @@ def add_memory_entry(workspace: str | Path | None, title: str, content: str) -> 
 
         index_path = get_memory_index_path(workspace)
         existing_index = index_path.read_text(encoding="utf-8") if index_path.exists() else "# Memory Index\n"
-        if path.name not in existing_index:
+        link_target = f"]({path.name})"
+        if link_target not in existing_index:
             existing_index = existing_index.rstrip() + f"\n- [{title}]({path.name})\n"
             atomic_write_text(index_path, existing_index)
     return path
@@ -144,10 +145,11 @@ def remove_memory_entry(workspace: str | Path | None, name: str) -> bool:
 
         index_path = get_memory_index_path(workspace)
         if index_path.exists():
+            link_target = f"]({path.name})"
             lines = [
                 line
                 for line in index_path.read_text(encoding="utf-8").splitlines()
-                if path.name not in line
+                if link_target not in line
             ]
             atomic_write_text(index_path, "\n".join(lines).rstrip() + "\n")
     return True

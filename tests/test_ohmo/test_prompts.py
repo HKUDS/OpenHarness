@@ -11,6 +11,7 @@ from ohmo.prompts import build_ohmo_system_prompt
 from ohmo.workspace import (
     get_bootstrap_path,
     get_identity_path,
+    get_memory_index_path,
     get_soul_path,
     get_user_path,
     initialize_workspace,
@@ -71,3 +72,21 @@ def test_ohmo_memory_uses_schema_and_soft_delete(tmp_path: Path):
     assert path.exists()
     assert list_ohmo_memory_files(workspace) == []
     assert "disabled: true" in path.read_text(encoding="utf-8")
+
+
+def test_ohmo_memory_index_matches_exact_link_destinations(tmp_path: Path):
+    for case, titles in enumerate((("My Foo", "Foo"), ("Foo", "My Foo"))):
+        workspace = tmp_path / f".ohmo-{case}"
+        initialize_workspace(workspace)
+        for title in titles:
+            add_ohmo_memory_entry(workspace, title, f"Unique contents for {title}")
+
+        index_path = get_memory_index_path(workspace)
+        index = index_path.read_text(encoding="utf-8")
+        assert index.count("](foo.md)") == 1
+        assert index.count("](my_foo.md)") == 1
+
+        assert remove_ohmo_memory_entry(workspace, "foo") is True
+        index = index_path.read_text(encoding="utf-8")
+        assert "](foo.md)" not in index
+        assert index.count("](my_foo.md)") == 1
