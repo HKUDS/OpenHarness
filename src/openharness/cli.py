@@ -1248,6 +1248,7 @@ _PROVIDER_LABELS: dict[str, str] = {
     "gemini": "Google Gemini",
     "minimax": "MiniMax",
     "modelscope": "ModelScope",
+    "cheaperinference": "Cheaper Inference",
 }
 
 _AUTH_SOURCE_LABELS: dict[str, str] = {
@@ -1263,6 +1264,7 @@ _AUTH_SOURCE_LABELS: dict[str, str] = {
     "gemini_api_key": "Gemini API key",
     "minimax_api_key": "MiniMax API key",
     "modelscope_api_key": "ModelScope API key",
+    "cheaperinference_api_key": "Cheaper Inference API key",
 }
 
 
@@ -1729,7 +1731,7 @@ def _login_provider(provider: str) -> None:
         _bind_external_provider(provider)
         return
 
-    if provider in ("anthropic", "openai", "dashscope", "bedrock", "vertex", "moonshot", "gemini", "minimax", "modelscope"):
+    if provider in ("anthropic", "openai", "dashscope", "bedrock", "vertex", "moonshot", "gemini", "minimax", "modelscope", "cheaperinference"):
         label = _PROVIDER_LABELS.get(provider, provider)
         flow = ApiKeyFlow(provider=provider, prompt_text=f"Enter your {label} API key")
         try:
@@ -1814,7 +1816,7 @@ def auth_login(
     """Interactively authenticate with a provider.
 
     Run without arguments to choose a provider from a menu.
-    Supported providers: anthropic, anthropic_claude, openai, openai_codex, copilot, dashscope, bedrock, vertex, moonshot, minimax, modelscope.
+    Supported providers: anthropic, anthropic_claude, openai, openai_codex, copilot, dashscope, bedrock, vertex, moonshot, minimax, modelscope, cheaperinference.
     """
     if provider is None:
         print("Select a provider to authenticate:", flush=True)

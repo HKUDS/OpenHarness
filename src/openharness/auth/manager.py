@@ -38,6 +38,7 @@ _KNOWN_PROVIDERS = [
     "gemini",
     "minimax",
     "modelscope",
+    "cheaperinference",
 ]
 
 _AUTH_SOURCES = [
@@ -53,6 +54,7 @@ _AUTH_SOURCES = [
     "gemini_api_key",
     "minimax_api_key",
     "modelscope_api_key",
+    "cheaperinference_api_key",
 ]
 
 _PROFILE_BY_PROVIDER = {
@@ -65,6 +67,7 @@ _PROFILE_BY_PROVIDER = {
     "gemini": "gemini",
     "minimax": "minimax",
     "modelscope": "modelscope",
+    "cheaperinference": "cheaperinference",
 }
 
 
@@ -162,6 +165,15 @@ class AuthManager:
                     state = "configured"
             elif source == "modelscope_api_key":
                 if os.environ.get("MODELSCOPE_API_KEY"):
+                    configured = True
+                    origin = "env"
+                    state = "configured"
+                elif load_credential(storage_provider, "api_key"):
+                    configured = True
+                    origin = "file"
+                    state = "configured"
+            elif source == "cheaperinference_api_key":
+                if os.environ.get("CHEAPER_INFERENCE_API_KEY"):
                     configured = True
                     origin = "env"
                     state = "configured"
@@ -270,6 +282,14 @@ class AuthManager:
                     configured = True
                     source = "env"
                 elif load_credential("modelscope", "api_key"):
+                    configured = True
+                    source = "file"
+
+            elif provider == "cheaperinference":
+                if os.environ.get("CHEAPER_INFERENCE_API_KEY"):
+                    configured = True
+                    source = "env"
+                elif load_credential("cheaperinference", "api_key"):
                     configured = True
                     source = "file"
 

@@ -279,6 +279,14 @@ def default_provider_profiles() -> dict[str, ProviderProfile]:
             default_model="deepseek-ai/DeepSeek-V4-Flash",
             base_url="https://api-inference.modelscope.cn/v1",
         ),
+        "cheaperinference": ProviderProfile(
+            label="Cheaper Inference",
+            provider="cheaperinference",
+            api_format="openai",
+            auth_source="cheaperinference_api_key",
+            default_model="gpt-5.4-mini",
+            base_url="https://api.cheaperinference.com/v1",
+        ),
     }
 
 
@@ -369,6 +377,7 @@ def auth_source_provider_name(auth_source: str) -> str:
         "minimax_api_key": "minimax",
         "nvidia_api_key": "nvidia",
         "modelscope_api_key": "modelscope",
+        "cheaperinference_api_key": "cheaperinference",
     }
     return mapping.get(auth_source, auth_source)
 
@@ -389,6 +398,10 @@ def auth_source_env_var_candidates(auth_source: str) -> tuple[str, ...]:
         "minimax_api_key": ("OPENHARNESS_MINIMAX_API_KEY", "MINIMAX_API_KEY"),
         "nvidia_api_key": ("OPENHARNESS_NVIDIA_API_KEY", "NVIDIA_API_KEY"),
         "modelscope_api_key": ("OPENHARNESS_MODELSCOPE_API_KEY", "MODELSCOPE_API_KEY"),
+        "cheaperinference_api_key": (
+            "OPENHARNESS_CHEAPER_INFERENCE_API_KEY",
+            "CHEAPER_INFERENCE_API_KEY",
+        ),
     }
     return mapping.get(auth_source, ())
 
@@ -438,6 +451,8 @@ def default_auth_source_for_provider(provider: str, api_format: str | None = Non
         return "nvidia_api_key"
     if provider == "modelscope":
         return "modelscope_api_key"
+    if provider == "cheaperinference":
+        return "cheaperinference_api_key"
     if provider == "openai" or api_format == "openai":
         return "openai_api_key"
     return "anthropic_api_key"

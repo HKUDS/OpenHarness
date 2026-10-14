@@ -138,6 +138,20 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         is_local=False,
         is_oauth=False,
     ),
+    # Cheaper Inference: OpenAI-compatible gateway
+    ProviderSpec(
+        name="cheaperinference",
+        keywords=("cheaperinference",),
+        env_key="CHEAPER_INFERENCE_API_KEY",
+        display_name="Cheaper Inference",
+        backend_type="openai_compat",
+        default_base_url="https://api.cheaperinference.com/v1",
+        detect_by_key_prefix="",
+        detect_by_base_keyword="cheaperinference",
+        is_gateway=True,
+        is_local=False,
+        is_oauth=False,
+    ),
     # === Standard cloud providers (matched by model-name keyword) ============
     # Anthropic: native SDK for claude-* models
     ProviderSpec(
