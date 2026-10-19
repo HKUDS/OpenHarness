@@ -569,6 +569,23 @@ Use `/skills` to list loaded skills with their source and path. User-invocable s
 
 ### 🌐 Web search and proxy settings
 
+For free [Parallel Search MCP](https://docs.parallel.ai/integrations/mcp/search-mcp)
+search in the built-in `web_search` tool, opt in before starting `oh`:
+
+```bash
+export OPENHARNESS_WEB_SEARCH_PROVIDER=parallel
+```
+
+No account or API key is needed. Anonymous search uses Fast mode and is intended
+for exploration and light use, with service rate limits. Results include source
+URLs and excerpts; `max_results` limits the displayed results. Calls use a
+20-second search timeout and return errors without switching providers; connection
+cleanup can take longer. Set the
+provider to `html` or unset it to return to DuckDuckGo. An explicit `search_url`
+or `OPENHARNESS_WEB_SEARCH_URL` takes precedence and uses the HTML backend.
+Existing web proxy/resolution settings and tool permissions also apply to
+Parallel. The built-in `web_fetch` continues to fetch pages directly.
+
 Built-in `web_search` uses DuckDuckGo HTML search by default. In regions where that endpoint is unreachable, point OpenHarness at a trusted public HTML search endpoint or your own SearXNG instance:
 
 ```bash

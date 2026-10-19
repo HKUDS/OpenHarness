@@ -16,6 +16,7 @@ from openharness.utils.fs import atomic_write_text
 
 
 _PERSISTED_TOOL_METADATA_KEYS = (
+    "parallel_search_session_id",
     "permission_mode",
     "read_file_state",
     "invoked_skills",

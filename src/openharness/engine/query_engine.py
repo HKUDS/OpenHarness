@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import AsyncIterator
+from uuid import UUID, uuid4
 
 from openharness.api.client import SupportsStreamingMessages
 from openharness.engine.cost_tracker import CostTracker
@@ -54,9 +55,10 @@ class QueryEngine:
         self._permission_prompt = permission_prompt
         self._ask_user_prompt = ask_user_prompt
         self._hook_executor = hook_executor
-        self._tool_metadata = tool_metadata or {}
+        self._tool_metadata = dict(tool_metadata or {})
         self._settings = settings
         self._messages: list[ConversationMessage] = []
+        self.restore_search_session(self._tool_metadata)
         self._cost_tracker = CostTracker()
 
     @property
@@ -97,6 +99,7 @@ class QueryEngine:
     def clear(self) -> None:
         """Clear the in-memory conversation history."""
         self._messages.clear()
+        self.restore_search_session()
         self._cost_tracker = CostTracker()
 
     def set_system_prompt(self, prompt: str) -> None:
@@ -137,6 +140,16 @@ class QueryEngine:
     def load_messages(self, messages: list[ConversationMessage]) -> None:
         """Replace the in-memory conversation history."""
         self._messages = list(messages)
+
+    def restore_search_session(self, metadata: object = None) -> None:
+        """Restore a saved search conversation, or start one for a legacy snapshot."""
+        value = metadata.get("parallel_search_session_id") if isinstance(metadata, dict) else None
+        try:
+            session_id = str(UUID(str(value)))
+        except ValueError:
+            session_id = str(uuid4())
+        self._search_session_id = session_id
+        self._tool_metadata["parallel_search_session_id"] = session_id
 
     def _schedule_auto_dream(self) -> None:
         """Fire-and-forget background memory consolidation after a user turn."""
@@ -260,6 +273,7 @@ class QueryEngine:
             ask_user_prompt=self._ask_user_prompt,
             hook_executor=self._hook_executor,
             tool_metadata=self._tool_metadata,
+            search_session_id=self._search_session_id,
         )
         query_messages = list(self._messages)
         coordinator_context = self._build_coordinator_context_message()
@@ -297,6 +311,7 @@ class QueryEngine:
             ask_user_prompt=self._ask_user_prompt,
             hook_executor=self._hook_executor,
             tool_metadata=self._tool_metadata,
+            search_session_id=self._search_session_id,
         )
         async for event, usage in run_query(context, self._messages):
             if usage is not None:

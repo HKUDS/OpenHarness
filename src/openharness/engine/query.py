@@ -6,7 +6,7 @@ import asyncio
 import logging
 import re
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, AsyncIterator, Awaitable, Callable
 from uuid import uuid4
@@ -153,6 +153,7 @@ class QueryContext:
     max_turns: int | None = 200
     hook_executor: HookExecutor | None = None
     tool_metadata: dict[str, object] | None = None
+    search_session_id: str = field(default_factory=lambda: str(uuid4()))
 
 
 def _append_capped_unique(bucket: list[Any], value: Any, *, limit: int) -> None:
@@ -975,6 +976,7 @@ async def _execute_tool_call(
                 "tool_registry": context.tool_registry,
                 "ask_user_prompt": context.ask_user_prompt,
                 **(context.tool_metadata or {}),
+                "parallel_search_session_id": context.search_session_id,
             },
             hook_executor=context.hook_executor,
         ),
