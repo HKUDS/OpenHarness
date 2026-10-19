@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import AsyncIterator
+from uuid import uuid4
 
 from openharness.api.client import SupportsStreamingMessages
 from openharness.engine.cost_tracker import CostTracker
@@ -57,6 +58,7 @@ class QueryEngine:
         self._tool_metadata = tool_metadata or {}
         self._settings = settings
         self._messages: list[ConversationMessage] = []
+        self._search_session_id = str(uuid4())
         self._cost_tracker = CostTracker()
 
     @property
@@ -97,6 +99,7 @@ class QueryEngine:
     def clear(self) -> None:
         """Clear the in-memory conversation history."""
         self._messages.clear()
+        self._search_session_id = str(uuid4())
         self._cost_tracker = CostTracker()
 
     def set_system_prompt(self, prompt: str) -> None:
@@ -260,6 +263,7 @@ class QueryEngine:
             ask_user_prompt=self._ask_user_prompt,
             hook_executor=self._hook_executor,
             tool_metadata=self._tool_metadata,
+            search_session_id=self._search_session_id,
         )
         query_messages = list(self._messages)
         coordinator_context = self._build_coordinator_context_message()
@@ -297,6 +301,7 @@ class QueryEngine:
             ask_user_prompt=self._ask_user_prompt,
             hook_executor=self._hook_executor,
             tool_metadata=self._tool_metadata,
+            search_session_id=self._search_session_id,
         )
         async for event, usage in run_query(context, self._messages):
             if usage is not None:
