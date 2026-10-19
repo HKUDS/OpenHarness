@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import importlib
 import json
 from types import SimpleNamespace
 from uuid import UUID
@@ -21,7 +22,7 @@ from openharness.engine.messages import (
 )
 from openharness.engine.query_engine import QueryEngine
 from openharness.permissions import PermissionChecker
-from openharness.tools import create_default_tool_registry, parallel_search
+from openharness.tools import create_default_tool_registry
 from openharness.tools.base import ToolExecutionContext
 from openharness.tools.web_search_tool import WebSearchToolInput
 
@@ -55,14 +56,19 @@ class ScriptedSearchClient:
 @pytest.fixture
 def mcp_http(monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
     monkeypatch.setenv("OPENHARNESS_WEB_SEARCH_PROVIDER", "parallel")
     for name in ("OPENHARNESS_WEB_SEARCH_URL", "OPENHARNESS_WEB_PROXY", "PARALLEL_API_KEY"):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("HTTPS_PROXY", "http://ambient.invalid:9999")
-    state = SimpleNamespace(requests=[], clients=[], error=None, payload=None, delay=False)
+    state = SimpleNamespace(
+        requests=[], clients=[], instances=[], guards=[], error=None, payload=None, delay=False
+    )
 
     async def handle(request):
         state.requests.append(request)
+        if request.method == "DELETE":
+            return httpx.Response(204)
         if request.method != "POST":
             return httpx.Response(405)
         body = json.loads(request.content)
@@ -112,18 +118,27 @@ def mcp_http(monkeypatch, tmp_path):
             raise AssertionError(method)
         if method == "tools/call" and isinstance(state.error, str):
             result["content"] = [{"type": "text", "text": state.error}]
-        return httpx.Response(200, json={"jsonrpc": "2.0", "id": body["id"], "result": result})
+        return httpx.Response(
+            200,
+            json={"jsonrpc": "2.0", "id": body["id"], "result": result},
+            headers={"Mcp-Session-Id": "fixture-transport-session"},
+        )
 
     def client(**kwargs):
         state.clients.append(kwargs)
-        return httpx.AsyncClient(transport=httpx.MockTransport(handle), **kwargs)
+        instance = httpx.AsyncClient(transport=httpx.MockTransport(handle), **kwargs)
+        state.instances.append(instance)
+        return instance
 
     async def guard(url, **kwargs):
         assert url == "https://search.parallel.ai/mcp"
-        assert kwargs["mode"].value == "direct"
+        state.guards.append(kwargs)
 
-    monkeypatch.setattr(parallel_search, "httpx", SimpleNamespace(AsyncClient=client))
-    monkeypatch.setattr(parallel_search, "ensure_http_url_allowed", guard)
+    # The swarm import tests intentionally purge package modules from sys.modules.
+    # Patch the backend resolved by the production lazy import at execution time.
+    state.backend = importlib.import_module("openharness.tools.parallel_search")
+    monkeypatch.setattr(state.backend, "httpx", SimpleNamespace(AsyncClient=client))
+    monkeypatch.setattr(state.backend, "ensure_http_url_allowed", guard)
     return state
 
 
@@ -254,14 +269,14 @@ async def test_empty_and_malformed_results(mcp_http, tmp_path, payload):
 async def test_cancellation_closes_transport(mcp_http, tmp_path):
     mcp_http.delay = True
     clients = []
-    original = parallel_search.httpx.AsyncClient
+    original = mcp_http.backend.httpx.AsyncClient
 
     def client(**kwargs):
         value = original(**kwargs)
         clients.append(value)
         return value
 
-    parallel_search.httpx.AsyncClient = client
+    mcp_http.backend.httpx.AsyncClient = client
     agent, _ = engine(tmp_path, create_default_tool_registry())
     task = asyncio.create_task(turn(agent, "cancel this search"))
     for _ in range(100):
@@ -277,8 +292,6 @@ async def test_cancellation_closes_transport(mcp_http, tmp_path):
 
 @pytest.mark.parametrize("override", [None, "argument", "environment"])
 async def test_html_default_and_explicit_url_precedence(mcp_http, tmp_path, monkeypatch, override):
-    from openharness.tools import web_search_tool
-
     seen = []
 
     async def fetch(url, **kwargs):
@@ -289,7 +302,8 @@ async def test_html_default_and_explicit_url_precedence(mcp_http, tmp_path, monk
             request=httpx.Request("GET", url),
         )
 
-    monkeypatch.setattr(web_search_tool, "fetch_public_http_response", fetch)
+    tool = create_default_tool_registry().get("web_search")
+    monkeypatch.setitem(tool.execute.__globals__, "fetch_public_http_response", fetch)
     url = None
     if override is None:
         monkeypatch.delenv("OPENHARNESS_WEB_SEARCH_PROVIDER")
@@ -324,9 +338,8 @@ async def test_unknown_provider_is_error(mcp_http, tmp_path, monkeypatch):
 
 
 async def test_total_timeout_closes_transport(mcp_http, tmp_path, monkeypatch):
-    from openharness.tools import web_search_tool
-
-    monkeypatch.setattr(web_search_tool, "PARALLEL_SEARCH_TIMEOUT", 0.1)
+    tool = create_default_tool_registry().get("web_search")
+    monkeypatch.setitem(tool.execute.__globals__, "PARALLEL_SEARCH_TIMEOUT", 0.1)
     mcp_http.delay = True
     result = (
         await create_default_tool_registry()
@@ -336,6 +349,7 @@ async def test_total_timeout_closes_transport(mcp_http, tmp_path, monkeypatch):
     assert result.is_error
     assert "TimeoutError" in result.output
     assert calls(mcp_http)
+    assert all(client.is_closed for client in mcp_http.instances)
 
 
 async def test_invalid_result_urls_are_not_exposed(mcp_http, tmp_path):
@@ -355,3 +369,122 @@ async def test_invalid_result_urls_are_not_exposed(mcp_http, tmp_path):
     assert "https://example.com/safe" in result.output
     assert "javascript" not in result.output
     assert "password" not in result.output
+
+
+async def test_saved_conversations_resume_and_continue_with_their_own_ids(mcp_http, tmp_path):
+    from openharness.commands.registry import CommandContext, create_default_command_registry
+    from openharness.services.session_backend import DEFAULT_SESSION_BACKEND
+
+    registry = create_default_tool_registry()
+    agent, _ = engine(tmp_path, registry)
+    snapshots = {}
+    for name in ("saved-a", "saved-b"):
+        agent.clear()
+        await turn(agent, name)
+        DEFAULT_SESSION_BACKEND.save_snapshot(
+            cwd=tmp_path,
+            model="scripted-model",
+            system_prompt="Search.",
+            messages=agent.messages,
+            usage=UsageSnapshot(),
+            session_id=name,
+            tool_metadata=agent.tool_metadata,
+        )
+        snapshots[name] = DEFAULT_SESSION_BACKEND.load_by_id(tmp_path, name)
+    ids = {
+        name: data["tool_metadata"]["parallel_search_session_id"]
+        for name, data in snapshots.items()
+    }
+    assert ids["saved-a"] != ids["saved-b"]
+    commands = create_default_command_registry()
+    context = CommandContext(engine=agent, cwd=str(tmp_path))
+    for name in ("saved-a", "saved-b", "saved-a"):
+        command, args = commands.lookup(f"/resume {name}")
+        await command.handler(args, context)
+        await turn(agent, f"follow up {name}")
+        assert calls(mcp_http)[-1]["session_id"] == ids[name]
+    restored = QueryEngine(
+        api_client=ScriptedSearchClient(),
+        tool_registry=registry,
+        permission_checker=PermissionChecker(PermissionSettings()),
+        cwd=tmp_path,
+        model="scripted-model",
+        system_prompt="Search.",
+        tool_metadata=snapshots["saved-a"]["tool_metadata"],
+    )
+    restored.load_messages(agent.messages)
+    await turn(restored, "restored in another process")
+    assert calls(mcp_http)[-1]["session_id"] == ids["saved-a"]
+    # Replacing history for compaction/rewind and continuing a paused loop keep the ID.
+    agent.load_messages(
+        [ConversationMessage(role="user", content=[TextBlock(text="pending search")])]
+    )
+    _ = [event async for event in agent.continue_pending()]
+    assert calls(mcp_http)[-1]["session_id"] == ids["saved-a"]
+    legacy = {"messages": [], "tool_metadata": {}}
+    context.session_backend = SimpleNamespace(
+        list_snapshots=lambda *_args, **_kw: [], load_latest=lambda *_args: legacy
+    )
+    command, args = commands.lookup("/resume")
+    await command.handler(args, context)
+    await turn(agent, "legacy snapshot")
+    legacy_id = calls(mcp_http)[-1]["session_id"]
+    UUID(legacy_id)
+    assert legacy_id not in ids.values()
+
+
+async def test_pre_tool_hook_blocks_parallel_before_network(mcp_http, tmp_path):
+    from openharness.hooks.events import HookEvent
+    from openharness.hooks.types import AggregatedHookResult, HookResult
+
+    events = []
+
+    class BlockingHooks:
+        async def execute(self, event, payload):
+            events.append(event)
+            return AggregatedHookResult(
+                results=[
+                    HookResult(
+                        hook_type="fixture",
+                        success=True,
+                        blocked=event == HookEvent.PRE_TOOL_USE,
+                        reason="Search disabled by policy",
+                    )
+                ]
+            )
+
+    agent, model = engine(tmp_path, create_default_tool_registry())
+    agent._hook_executor = BlockingHooks()
+    await turn(agent, "blocked search")
+    assert HookEvent.PRE_TOOL_USE in events
+    assert not mcp_http.requests
+    assert any(
+        "Search disabled by policy" in b.content
+        for r in model.requests
+        for m in r.messages
+        for b in m.content
+        if isinstance(b, ToolResultBlock)
+    )
+
+
+@pytest.mark.parametrize("environment_override", [False, True])
+async def test_parallel_honors_saved_and_environment_proxy(
+    mcp_http, tmp_path, monkeypatch, environment_override
+):
+    from openharness.config.settings import Settings, WebSettings, save_settings
+
+    save_settings(Settings(web=WebSettings(proxy="http://saved-proxy.example:8080")))
+    if environment_override:
+        monkeypatch.setenv("OPENHARNESS_WEB_PROXY", "http://override-proxy.example:8080")
+    agent, _ = engine(tmp_path, create_default_tool_registry())
+    await turn(agent, "proxy search")
+    expected = (
+        "http://override-proxy.example:8080"
+        if environment_override
+        else "http://saved-proxy.example:8080"
+    )
+    assert all(
+        kwargs["proxy"] == expected and kwargs["trust_env"] is False for kwargs in mcp_http.clients
+    )
+    assert all(kwargs["mode"].value == "proxy" for kwargs in mcp_http.guards)
+    assert all(client.is_closed for client in mcp_http.instances)

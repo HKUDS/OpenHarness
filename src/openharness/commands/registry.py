@@ -809,6 +809,7 @@ def create_default_command_registry(
                 [ConversationMessage.model_validate(item) for item in snapshot.get("messages", [])]
             )
             context.engine.load_messages(messages)
+            context.engine.restore_search_session(snapshot.get("tool_metadata"))
             summary = snapshot.get("summary", "")[:60]
             return CommandResult(
                 message=f"Restored {len(messages)} messages from session {sid}"
@@ -827,6 +828,7 @@ def create_default_command_registry(
                 [ConversationMessage.model_validate(item) for item in snapshot.get("messages", [])]
             )
             context.engine.load_messages(messages)
+            context.engine.restore_search_session(snapshot.get("tool_metadata"))
             return CommandResult(
                 message=f"Restored {len(messages)} messages from the latest session.",
                 replay_messages=messages,

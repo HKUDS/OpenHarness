@@ -579,7 +579,8 @@ export OPENHARNESS_WEB_SEARCH_PROVIDER=parallel
 No account or API key is needed. Anonymous search uses Fast mode and is intended
 for exploration and light use, with service rate limits. Results include source
 URLs and excerpts; `max_results` limits the displayed results. Calls use a
-20-second total timeout and return errors without switching providers. Set the
+20-second search timeout and return errors without switching providers; connection
+cleanup can take longer. Set the
 provider to `html` or unset it to return to DuckDuckGo. An explicit `search_url`
 or `OPENHARNESS_WEB_SEARCH_URL` takes precedence and uses the HTML backend.
 Existing web proxy/resolution settings and tool permissions also apply to
