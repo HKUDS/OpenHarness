@@ -32,6 +32,7 @@ class ScriptedSearchClient:
 
     def __init__(self):
         self.requests = []
+        self.query = "search"
 
     async def stream_message(self, request):
         self.requests.append(request)
@@ -43,7 +44,7 @@ class ScriptedSearchClient:
                 ToolUseBlock(
                     id=f"search-{len(self.requests)}",
                     name="web_search",
-                    input={"query": blocks[0].text, "max_results": 1},
+                    input={"query": self.query, "max_results": 1},
                 )
             ]
         yield ApiMessageCompleteEvent(
@@ -157,6 +158,8 @@ def engine(tmp_path, registry, *, denied=False):
 
 
 async def turn(engine, text):
+    # Keep scripted tool arguments independent of runtime-injected context messages.
+    engine.api_client.query = text
     return [event async for event in engine.submit_message(text)]
 
 
