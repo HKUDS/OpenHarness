@@ -200,6 +200,7 @@ class BackgroundTaskManager:
             raise ValueError(f"Task {task_id} is not running")
 
         process.terminate()
+        task.status = "killed"
         try:
             await asyncio.wait_for(process.wait(), timeout=3)
         except asyncio.TimeoutError:
@@ -207,9 +208,8 @@ class BackgroundTaskManager:
             await process.wait()
         await _close_process_stdin(process)
 
-        task.status = "killed"
+        task.return_code = process.returncode
         task.ended_at = time.time()
-        await self._notify_completion_listeners(task)
         return task
 
     async def write_to_task(self, task_id: str, data: str) -> None:
