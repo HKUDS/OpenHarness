@@ -831,13 +831,14 @@ async def run_query(
                     content=f"Tool {tc.name} failed: {type(exc).__name__}: {exc}",
                     is_error=True,
                 )
+            tool_results = [result]
+            messages.append(ConversationMessage(role="user", content=tool_results))
             yield ToolExecutionCompleted(
                 tool_name=tc.name,
                 output=result.content,
                 is_error=result.is_error,
                 metadata=result.result_metadata,
             ), None
-            tool_results = [result]
         else:
             # Multiple tools: execute concurrently, emit events after
             for tc in tool_calls:
@@ -869,6 +870,7 @@ async def run_query(
                     )
                 tool_results.append(result)
 
+            messages.append(ConversationMessage(role="user", content=tool_results))
             for tc, result in zip(tool_calls, tool_results):
                 yield ToolExecutionCompleted(
                     tool_name=tc.name,
@@ -876,8 +878,6 @@ async def run_query(
                     is_error=result.is_error,
                     metadata=result.result_metadata,
                 ), None
-
-        messages.append(ConversationMessage(role="user", content=tool_results))
 
     if context.max_turns is not None:
         raise MaxTurnsExceeded(context.max_turns)

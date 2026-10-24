@@ -1256,6 +1256,58 @@ async def test_query_engine_synthesizes_tool_result_when_single_tool_raises(tmp_
     assert events[-1].message.text == "Recovered from the failure."
 
 
+@pytest.mark.asyncio
+async def test_query_engine_keeps_tool_result_when_interrupted_before_followup(tmp_path: Path):
+    registry = ToolRegistry()
+    registry.register(_OkTool())
+    engine = QueryEngine(
+        api_client=FakeApiClient(
+            [
+                _FakeResponse(
+                    message=ConversationMessage(
+                        role="assistant",
+                        content=[ToolUseBlock(id="toolu_interrupted", name="ok_tool", input={})],
+                    ),
+                    usage=UsageSnapshot(input_tokens=1, output_tokens=1),
+                ),
+                _FakeResponse(
+                    message=ConversationMessage(
+                        role="assistant",
+                        content=[TextBlock(text="Continued after interruption.")],
+                    ),
+                    usage=UsageSnapshot(input_tokens=1, output_tokens=1),
+                ),
+            ]
+        ),
+        tool_registry=registry,
+        permission_checker=PermissionChecker(PermissionSettings(mode=PermissionMode.FULL_AUTO)),
+        cwd=tmp_path,
+        model="claude-test",
+        system_prompt="system",
+    )
+
+    stream = engine.submit_message("run one tool")
+    async for event in stream:
+        if isinstance(event, ToolExecutionCompleted):
+            break
+    await stream.aclose()
+
+    assert engine.has_pending_continuation()
+    result_blocks = [
+        block
+        for message in engine.messages
+        for block in message.content
+        if isinstance(block, ToolResultBlock)
+    ]
+    assert len(result_blocks) == 1
+    assert result_blocks[0].tool_use_id == "toolu_interrupted"
+    assert result_blocks[0].content == "ok"
+
+    continued_events = [event async for event in engine.continue_pending()]
+    assert isinstance(continued_events[-1], AssistantTurnComplete)
+    assert continued_events[-1].message.text == "Continued after interruption."
+
+
 class _LargeOutputTool(BaseTool):
     name = "mcp__playwright__browser_snapshot"
     description = "Returns a large browser snapshot."
