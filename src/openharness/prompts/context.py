@@ -28,6 +28,7 @@ def _build_skills_section(
     extra_skill_dirs: Iterable[str | Path] | None = None,
     extra_plugin_roots: Iterable[str | Path] | None = None,
     settings: Settings | None = None,
+    include_plugin_tools: bool = True,
 ) -> str | None:
     """Build a system prompt section listing available skills."""
     registry = load_skill_registry(
@@ -35,6 +36,7 @@ def _build_skills_section(
         extra_skill_dirs=extra_skill_dirs,
         extra_plugin_roots=extra_plugin_roots,
         settings=settings,
+        include_plugin_tools=include_plugin_tools,
     )
     skills = [skill for skill in registry.list_skills() if not skill.disable_model_invocation]
     if not skills:
@@ -107,6 +109,7 @@ def build_runtime_system_prompt(
     extra_skill_dirs: Iterable[str | Path] | None = None,
     extra_plugin_roots: Iterable[str | Path] | None = None,
     include_project_memory: bool = True,
+    include_plugin_tools: bool = True,
 ) -> str:
     """Build the runtime system prompt with project instructions and memory."""
     if is_coordinator_mode():
@@ -136,6 +139,7 @@ def build_runtime_system_prompt(
         extra_skill_dirs=extra_skill_dirs,
         extra_plugin_roots=extra_plugin_roots,
         settings=settings,
+        include_plugin_tools=include_plugin_tools,
     )
     if skills_section and not is_coordinator_mode():
         sections.append(skills_section)

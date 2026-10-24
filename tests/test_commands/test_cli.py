@@ -361,8 +361,8 @@ def test_build_dry_run_preview_classifies_slash_command_and_flags_bad_mcp(monkey
         lambda settings: types.SimpleNamespace(name="anthropic"),
     )
     monkeypatch.setattr("openharness.api.provider.auth_status", lambda settings: "configured")
-    monkeypatch.setattr("openharness.plugins.load_plugins", lambda settings, cwd: [])
-    monkeypatch.setattr("openharness.skills.load_skill_registry", lambda cwd, settings=None: _FakeSkillRegistry())
+    monkeypatch.setattr("openharness.plugins.load_plugins", lambda settings, cwd, **kwargs: [])
+    monkeypatch.setattr("openharness.skills.load_skill_registry", lambda cwd, **kwargs: _FakeSkillRegistry())
     monkeypatch.setattr("openharness.prompts.context.build_runtime_system_prompt", lambda *args, **kwargs: "preview prompt")
     monkeypatch.setattr("openharness.ui.runtime._resolve_api_client_from_settings", lambda settings: object())
 
@@ -389,6 +389,68 @@ def test_build_dry_run_preview_classifies_slash_command_and_flags_bad_mcp(monkey
     assert "command not found in PATH" in preview["mcp_servers"][0]["issues"][0]
 
 
+def test_dry_run_does_not_import_enabled_plugin_tool_modules(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
+    project = tmp_path / "project"
+    tools_dir = project / ".openharness" / "plugins" / "side-effect-plugin" / "tools"
+    tools_dir.mkdir(parents=True)
+    (tools_dir.parent / "plugin.json").write_text(
+        json.dumps(
+            {
+                "name": "side-effect-plugin",
+                "version": "1.0.0",
+                "description": "Plugin used to verify dry-run isolation",
+                "enabled_by_default": True,
+            }
+        ),
+        encoding="utf-8",
+    )
+    marker = tmp_path / "plugin-imported.txt"
+    (tools_dir / "side_effect.py").write_text(
+        "from pathlib import Path\n"
+        f"Path({str(marker)!r}).write_text('imported', encoding='utf-8')\n",
+        encoding="utf-8",
+    )
+    settings = Settings(
+        api_key="sk-test",
+        allow_project_plugins=True,
+        allow_project_skills=False,
+        memory={"enabled": False},
+    )
+
+    class _FakeSkillRegistry:
+        def list_skills(self):
+            return []
+
+    monkeypatch.setattr("openharness.config.load_settings", lambda: settings)
+    monkeypatch.setattr("openharness.commands.registry.load_skill_registry", lambda *args, **kwargs: _FakeSkillRegistry())
+    monkeypatch.setattr("openharness.skills.loader.load_user_skills", lambda: [])
+    monkeypatch.setattr(
+        "openharness.api.provider.detect_provider",
+        lambda settings: types.SimpleNamespace(name="anthropic"),
+    )
+    monkeypatch.setattr("openharness.api.provider.auth_status", lambda settings: "configured")
+    monkeypatch.setattr("openharness.prompts.context.load_claude_md_prompt", lambda cwd: None)
+    monkeypatch.setattr("openharness.prompts.context.load_local_rules", lambda: None)
+    monkeypatch.setattr("openharness.ui.runtime._resolve_api_client_from_settings", lambda settings: object())
+
+    preview = cli._build_dry_run_preview(
+        prompt="inspect the project",
+        cwd=str(project),
+        model=None,
+        max_turns=None,
+        base_url=None,
+        system_prompt=None,
+        append_system_prompt=None,
+        api_key=None,
+        api_format=None,
+        permission_mode=None,
+    )
+
+    assert preview["plugins"][0]["name"] == "side-effect-plugin"
+    assert not marker.exists()
+
+
 def test_build_dry_run_preview_sets_blocked_when_model_prompt_lacks_auth(monkeypatch, tmp_path: Path):
     settings = Settings(api_key="")
 
@@ -402,8 +464,8 @@ def test_build_dry_run_preview_sets_blocked_when_model_prompt_lacks_auth(monkeyp
         lambda settings: types.SimpleNamespace(name="anthropic"),
     )
     monkeypatch.setattr("openharness.api.provider.auth_status", lambda settings: "missing")
-    monkeypatch.setattr("openharness.plugins.load_plugins", lambda settings, cwd: [])
-    monkeypatch.setattr("openharness.skills.load_skill_registry", lambda cwd, settings=None: _FakeSkillRegistry())
+    monkeypatch.setattr("openharness.plugins.load_plugins", lambda settings, cwd, **kwargs: [])
+    monkeypatch.setattr("openharness.skills.load_skill_registry", lambda cwd, **kwargs: _FakeSkillRegistry())
     monkeypatch.setattr("openharness.prompts.context.build_runtime_system_prompt", lambda *args, **kwargs: "preview prompt")
 
     def fake_resolve_api_client(settings):
@@ -471,8 +533,8 @@ def test_build_dry_run_preview_recommends_matching_skills_and_tools(monkeypatch,
         lambda settings: types.SimpleNamespace(name="anthropic"),
     )
     monkeypatch.setattr("openharness.api.provider.auth_status", lambda settings: "configured")
-    monkeypatch.setattr("openharness.plugins.load_plugins", lambda settings, cwd: [])
-    monkeypatch.setattr("openharness.skills.load_skill_registry", lambda cwd, settings=None: _FakeSkillRegistry())
+    monkeypatch.setattr("openharness.plugins.load_plugins", lambda settings, cwd, **kwargs: [])
+    monkeypatch.setattr("openharness.skills.load_skill_registry", lambda cwd, **kwargs: _FakeSkillRegistry())
     monkeypatch.setattr("openharness.tools.create_default_tool_registry", lambda: _FakeToolRegistry())
     monkeypatch.setattr("openharness.prompts.context.build_runtime_system_prompt", lambda *args, **kwargs: "preview prompt")
     monkeypatch.setattr("openharness.ui.runtime._resolve_api_client_from_settings", lambda settings: object())

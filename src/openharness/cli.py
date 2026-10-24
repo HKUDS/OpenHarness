@@ -432,7 +432,7 @@ def _build_dry_run_preview(
     auth = auth_status(settings)
     profile_name, profile = settings.resolve_profile()
 
-    plugins = load_plugins(settings, resolved_cwd)
+    plugins = load_plugins(settings, resolved_cwd, include_tools=False)
     plugin_commands = [
         command
         for plugin in plugins
@@ -441,7 +441,7 @@ def _build_dry_run_preview(
     ]
     command_registry = create_default_command_registry(plugin_commands=plugin_commands)
     command_match = command_registry.lookup(prompt) if prompt else None
-    skill_registry = load_skill_registry(resolved_cwd, settings=settings)
+    skill_registry = load_skill_registry(resolved_cwd, settings=settings, include_plugin_tools=False)
     skills = skill_registry.list_skills()
     mcp_servers = load_mcp_server_configs(settings, plugins)
     tool_registry = create_default_tool_registry()
@@ -476,6 +476,7 @@ def _build_dry_run_preview(
         settings,
         cwd=resolved_cwd,
         latest_user_prompt=prompt_seed,
+        include_plugin_tools=False,
     )
 
     command_entries = []
