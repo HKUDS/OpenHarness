@@ -13,6 +13,8 @@ The format is based on Keep a Changelog, and this project currently tracks chang
 
 ### Fixed
 
+- CI no longer breaks on fresh dependency resolution: `mcp` is now constrained to `<2` (mcp 2.x renamed `FastMCP` to `MCPServer`, which made `tests/test_mcp/test_http_flow.py` fail at collection), and the ruff rule set is pinned explicitly to `E4,E7,E9,F` so newer ruff releases with expanded defaults (0.17+) do not fail `ruff check` on unchanged code.
+- The test suite no longer picks up a contributor's real `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, or `ANTHROPIC_MODEL` environment variables. An autouse fixture clears them for every test, so machines that run Claude Code through a relay or subscription bridge see the same results as CI instead of shadowed auth and model assertions.
 - Codex subscription requests now pass reasoning effort separately, enabling `gpt-5.5` with `xhigh` effort instead of treating `gpt-5.5 xhigh` as an unsupported model name.
 - Telegram channel now delivers replies again under `ohmo init --no-interactive` and other configs that do not write a `reply_to_message` field. `TelegramConfig` declares `reply_to_message: bool = True` so the attribute access in `TelegramChannel.send` no longer raises `AttributeError` and outbound progress/tool-hint/final messages are sent as expected. See issue #243.
 
