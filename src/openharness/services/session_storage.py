@@ -14,7 +14,6 @@ from openharness.config.paths import get_sessions_dir
 from openharness.engine.messages import ConversationMessage, sanitize_conversation_messages
 from openharness.utils.fs import atomic_write_text
 
-
 _PERSISTED_TOOL_METADATA_KEYS = (
     "permission_mode",
     "read_file_state",
@@ -120,12 +119,21 @@ def _sanitize_snapshot_payload(payload: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
+def _read_snapshot_file(path: Path) -> dict[str, Any] | None:
+    """Return a valid snapshot or None if a stored file is unreadable."""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            return None
+        return _sanitize_snapshot_payload(data)
+    except (OSError, UnicodeError, ValueError, TypeError):
+        return None
+
+
 def load_session_snapshot(cwd: str | Path) -> dict[str, Any] | None:
     """Load the most recent session snapshot for the project."""
     path = get_project_session_dir(cwd) / "latest.json"
-    if not path.exists():
-        return None
-    return _sanitize_snapshot_payload(json.loads(path.read_text(encoding="utf-8")))
+    return _read_snapshot_file(path)
 
 
 def list_session_snapshots(cwd: str | Path, limit: int = 20) -> list[dict[str, Any]]:
@@ -196,14 +204,13 @@ def load_session_by_id(cwd: str | Path, session_id: str) -> dict[str, Any] | Non
     session_dir = get_project_session_dir(cwd)
     # Try named session first
     path = session_dir / f"session-{session_id}.json"
-    if path.exists():
-        return _sanitize_snapshot_payload(json.loads(path.read_text(encoding="utf-8")))
-    # Fallback to latest.json if session_id matches
-    latest = session_dir / "latest.json"
-    if latest.exists():
-        data = _sanitize_snapshot_payload(json.loads(latest.read_text(encoding="utf-8")))
-        if data.get("session_id") == session_id or session_id == "latest":
-            return data
+    stored = _read_snapshot_file(path)
+    if stored is not None:
+        return stored
+    # Fallback to latest.json if the named file is corrupt or missing.
+    latest = _read_snapshot_file(session_dir / "latest.json")
+    if latest and (latest.get("session_id") == session_id or session_id == "latest"):
+        return latest
     return None
 
 
