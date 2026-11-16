@@ -14,7 +14,11 @@ from openharness.memory import (
     remove_memory_entry,
 )
 from openharness.memory.scan import _parse_memory_file, scan_memory_files
-from openharness.memory.usage import find_stale_memory_candidates, load_usage_index, mark_memory_used
+from openharness.memory.usage import (
+    find_stale_memory_candidates,
+    load_usage_index,
+    mark_memory_used,
+)
 
 
 def test_memory_paths_are_stable(tmp_path: Path, monkeypatch):
