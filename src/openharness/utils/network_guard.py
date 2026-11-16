@@ -10,7 +10,6 @@ from urllib.parse import ParseResult, urljoin, urlparse
 
 import httpx
 
-
 _DEFAULT_PORTS = {
     "http": 80,
     "https": 443,
@@ -279,9 +278,7 @@ async def _resolve_host_addresses(host: str, port: int) -> set[_IPAddress]:
 
     addresses: set[_IPAddress] = set()
     for family, _, _, _, sockaddr in infos:
-        if family == socket.AF_INET:
-            candidate = sockaddr[0]
-        elif family == socket.AF_INET6:
+        if family in (socket.AF_INET, socket.AF_INET6):
             candidate = sockaddr[0]
         else:
             continue

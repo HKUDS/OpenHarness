@@ -7,7 +7,11 @@ import ipaddress
 import httpx
 import pytest
 
-from openharness.utils.network_guard import NetworkGuardError, fetch_public_http_response, validate_http_url
+from openharness.utils.network_guard import (
+    NetworkGuardError,
+    fetch_public_http_response,
+    validate_http_url,
+)
 
 
 @pytest.mark.parametrize(
