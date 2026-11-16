@@ -4,11 +4,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from openharness.config.schema import Config
-from openharness.utils.fs import atomic_write_text
-
 from ohmo.gateway.models import GatewayConfig
 from ohmo.workspace import get_gateway_config_path
+from openharness.config.schema import Config
+from openharness.utils.fs import atomic_write_text
 
 
 def load_gateway_config(workspace: str | Path | None = None) -> GatewayConfig:
