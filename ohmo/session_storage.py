@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-import json
 import hashlib
+import json
 import time
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from ohmo.workspace import get_sessions_dir
 from openharness.api.usage import UsageSnapshot
 from openharness.engine.messages import ConversationMessage, sanitize_conversation_messages
 from openharness.services.session_backend import SessionBackend
@@ -17,8 +18,6 @@ from openharness.services.session_storage import (
     _read_snapshot_file,
 )
 from openharness.utils.fs import atomic_write_text
-
-from ohmo.workspace import get_sessions_dir
 
 
 def get_session_dir(workspace: str | Path | None = None) -> Path:

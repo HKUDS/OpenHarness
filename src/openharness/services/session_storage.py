@@ -14,7 +14,6 @@ from openharness.config.paths import get_sessions_dir
 from openharness.engine.messages import ConversationMessage, sanitize_conversation_messages
 from openharness.utils.fs import atomic_write_text
 
-
 _PERSISTED_TOOL_METADATA_KEYS = (
     "permission_mode",
     "read_file_state",

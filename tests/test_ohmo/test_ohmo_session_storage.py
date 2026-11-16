@@ -1,11 +1,10 @@
 import json
 from pathlib import Path
 
-from openharness.api.usage import UsageSnapshot
-from openharness.engine.messages import ConversationMessage
-
 from ohmo.session_storage import OhmoSessionBackend, get_session_dir
 from ohmo.workspace import initialize_workspace
+from openharness.api.usage import UsageSnapshot
+from openharness.engine.messages import ConversationMessage
 
 
 def test_ohmo_session_backend_uses_workspace_sessions(tmp_path: Path):
