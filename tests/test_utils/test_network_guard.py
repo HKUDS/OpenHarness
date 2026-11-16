@@ -7,7 +7,24 @@ import ipaddress
 import httpx
 import pytest
 
-from openharness.utils.network_guard import fetch_public_http_response
+from openharness.utils.network_guard import (
+    NetworkGuardError,
+    fetch_public_http_response,
+    validate_http_url,
+)
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://example.com:abc/path",
+        "https://example.com:70000/path",
+        "https://[::1",
+    ],
+)
+def test_validate_http_url_rejects_invalid_authorities(url: str) -> None:
+    with pytest.raises(NetworkGuardError, match="invalid HTTP URL"):
+        validate_http_url(url)
 
 
 class FakeAsyncClient:
