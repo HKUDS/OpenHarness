@@ -88,4 +88,4 @@ def _is_default_agent_index(path: Path) -> bool:
         text = path.read_text(encoding="utf-8", errors="replace")
     except OSError:
         return False
-    return text.startswith("# Memory Index\n")
+    return text.strip() == "# Memory Index"

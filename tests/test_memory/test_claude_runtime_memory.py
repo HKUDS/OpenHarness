@@ -194,6 +194,44 @@ def test_agent_memory_snapshot_initializes(tmp_path: Path, monkeypatch: pytest.M
     assert (target / "MEMORY.md").read_text(encoding="utf-8") == "# Snapshot\n"
 
 
+def test_agent_memory_snapshot_preserves_populated_index(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENHARNESS_DATA_DIR", str(tmp_path / "data"))
+    project = tmp_path / "repo"
+    project.mkdir()
+    snapshot = project / ".openharness" / "agent-memory-snapshots" / "reviewer"
+    snapshot.mkdir(parents=True)
+    (snapshot / "MEMORY.md").write_text("# Snapshot\n", encoding="utf-8")
+
+    target = ensure_agent_memory_vault(project, "reviewer", "project")
+    index = target / "MEMORY.md"
+    original = "# Memory Index\n- [Keep](keep.md)\n"
+    index.write_text(original, encoding="utf-8")
+
+    initialize_agent_memory_from_snapshot(project, "reviewer", "project")
+
+    assert index.read_text(encoding="utf-8") == original
+
+
+def test_agent_memory_snapshot_explicit_replace_overwrites_populated_index(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENHARNESS_DATA_DIR", str(tmp_path / "data"))
+    project = tmp_path / "repo"
+    project.mkdir()
+    snapshot = project / ".openharness" / "agent-memory-snapshots" / "reviewer"
+    snapshot.mkdir(parents=True)
+    (snapshot / "MEMORY.md").write_text("# Snapshot\n", encoding="utf-8")
+
+    target = ensure_agent_memory_vault(project, "reviewer", "project")
+    index = target / "MEMORY.md"
+    index.write_text("# Memory Index\n- [Keep](keep.md)\n", encoding="utf-8")
+
+    initialize_agent_memory_from_snapshot(project, "reviewer", "project", replace=True)
+
+    assert index.read_text(encoding="utf-8") == "# Snapshot\n"
+
 @pytest.mark.asyncio
 async def test_memory_commands_expose_session_team_and_agent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("OPENHARNESS_DATA_DIR", str(tmp_path / "data"))
