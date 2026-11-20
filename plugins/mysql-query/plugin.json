@@ -1,0 +1,8 @@
+{
+  "name": "mysql-query",
+  "version": "0.2.0",
+  "description": "MySQL 数据库查询能力：定位数据库 → 查看表结构 → 生成并执行只读 SQL → 数据分析",
+  "enabled_by_default": true,
+  "skills_dir": "skills",
+  "tools_dir": "tools"
+}

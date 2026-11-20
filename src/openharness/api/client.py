@@ -56,6 +56,13 @@ class ApiTextDeltaEvent:
 
 
 @dataclass(frozen=True)
+class ApiThinkingDeltaEvent:
+    """Incremental reasoning/thinking content produced by thinking models."""
+
+    text: str
+
+
+@dataclass(frozen=True)
 class ApiMessageCompleteEvent:
     """Terminal event containing the full assistant message."""
 
@@ -74,7 +81,7 @@ class ApiRetryEvent:
     delay_seconds: float
 
 
-ApiStreamEvent = ApiTextDeltaEvent | ApiMessageCompleteEvent | ApiRetryEvent
+ApiStreamEvent = ApiTextDeltaEvent | ApiThinkingDeltaEvent | ApiMessageCompleteEvent | ApiRetryEvent
 
 
 class SupportsStreamingMessages(Protocol):
