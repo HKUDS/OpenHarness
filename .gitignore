@@ -35,3 +35,8 @@ react_tui_smoke.txt
 .DS_Store
 Thumbs.db
 uv.lock
+
+.metals/
+.trae/
+.openharness-home/
+insightagent/frontend/node_modules/

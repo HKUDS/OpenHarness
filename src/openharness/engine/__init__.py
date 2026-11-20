@@ -15,6 +15,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from openharness.engine.query_engine import QueryEngine
     from openharness.engine.stream_events import (
         AssistantTextDelta,
+        AssistantThinkingDelta,
         AssistantTurnComplete,
         ToolExecutionCompleted,
         ToolExecutionStarted,
@@ -22,6 +23,7 @@ if TYPE_CHECKING:  # pragma: no cover
 
 __all__ = [
     "AssistantTextDelta",
+    "AssistantThinkingDelta",
     "AssistantTurnComplete",
     "ConversationMessage",
     "ImageBlock",
@@ -59,12 +61,14 @@ def __getattr__(name: str):
 
     if name in {
         "AssistantTextDelta",
+        "AssistantThinkingDelta",
         "AssistantTurnComplete",
         "ToolExecutionCompleted",
         "ToolExecutionStarted",
     }:
         from openharness.engine.stream_events import (
             AssistantTextDelta,
+            AssistantThinkingDelta,
             AssistantTurnComplete,
             ToolExecutionCompleted,
             ToolExecutionStarted,
@@ -72,6 +76,7 @@ def __getattr__(name: str):
 
         return {
             "AssistantTextDelta": AssistantTextDelta,
+            "AssistantThinkingDelta": AssistantThinkingDelta,
             "AssistantTurnComplete": AssistantTurnComplete,
             "ToolExecutionCompleted": ToolExecutionCompleted,
             "ToolExecutionStarted": ToolExecutionStarted,

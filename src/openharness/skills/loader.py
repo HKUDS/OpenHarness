@@ -167,12 +167,17 @@ def load_skills_from_dirs(
     seen: set[Path] = set()
     for directory in directories:
         root = Path(directory).expanduser().resolve()
-        if create_missing:
-            root.mkdir(parents=True, exist_ok=True)
-        elif not root.is_dir():
+        try:
+            if create_missing:
+                root.mkdir(parents=True, exist_ok=True)
+            elif not root.is_dir():
+                continue
+            children = sorted(root.iterdir())
+        except OSError:
+            # Directory inaccessible (ACL/sandbox-restricted compat dir): skip gracefully
             continue
         candidates: list[Path] = []
-        for child in sorted(root.iterdir()):
+        for child in children:
             if child.is_dir():
                 skill_path = child / "SKILL.md"
                 if skill_path.exists():

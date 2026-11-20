@@ -18,6 +18,7 @@ from openharness.api.client import (
     ApiRetryEvent,
     ApiStreamEvent,
     ApiTextDeltaEvent,
+    ApiThinkingDeltaEvent,
 )
 from openharness.api.errors import (
     AuthenticationFailure,
@@ -358,10 +359,12 @@ class OpenAICompatibleClient:
             if chunk_finish:
                 finish_reason = chunk_finish
 
-            # Accumulate reasoning_content from thinking models (not shown to user)
+            # Accumulate reasoning_content from thinking models and stream
+            # it out as thinking deltas so consumers can show the thought process
             reasoning_piece = getattr(delta, "reasoning_content", None) or ""
             if reasoning_piece:
                 collected_reasoning += reasoning_piece
+                yield ApiThinkingDeltaEvent(text=reasoning_piece)
 
             # Stream text content to user, stripping inline <think> blocks
             if delta.content:
