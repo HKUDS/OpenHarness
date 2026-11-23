@@ -202,13 +202,7 @@ def _convert_assistant_message(msg: ConversationMessage) -> dict[str, Any]:
         openai_msg["reasoning_content"] = ""
 
     if tool_uses:
-        # Gemini 3 thinking models return a ``thought_signature`` on each tool
-        # call (surfaced as ``extra_content`` in the OpenAI-compat protocol) that
-        # MUST be sent back on the follow-up request, or the API rejects it with
-        # a 400 "Function call is missing a thought_signature". The streaming/
-        # response parser stashes it on ``msg._tool_extra_content`` keyed by
-        # tool-call id; replay it here. Providers that don't set it are unaffected.
-        extra_by_id = getattr(msg, "_tool_extra_content", None) or {}
+        # Gemini tool signatures must be sent back with their original call.
         tool_calls: list[dict[str, Any]] = []
         for tu in tool_uses:
             call: dict[str, Any] = {
@@ -219,9 +213,8 @@ def _convert_assistant_message(msg: ConversationMessage) -> dict[str, Any]:
                     "arguments": json.dumps(tu.input),
                 },
             }
-            extra = extra_by_id.get(tu.id)
-            if extra:
-                call["extra_content"] = extra
+            if tu.extra_content:
+                call["extra_content"] = tu.extra_content
             tool_calls.append(call)
         openai_msg["tool_calls"] = tool_calls
 
@@ -237,7 +230,6 @@ def _parse_assistant_response(response: Any) -> ConversationMessage:
     if message.content:
         content.append(TextBlock(text=message.content))
 
-    tool_extra: dict[str, Any] = {}
     if message.tool_calls:
         for tc in message.tool_calls:
             try:
@@ -248,19 +240,13 @@ def _parse_assistant_response(response: Any) -> ConversationMessage:
                 id=tc.id,
                 name=tc.function.name,
                 input=args,
+                extra_content=_extract_tool_extra_content(tc),
             ))
-            extra = _extract_tool_extra_content(tc)
-            if extra:
-                tool_extra[tc.id] = extra
 
-    result = ConversationMessage(role="assistant", content=content)
-    # Preserve Gemini 3 thought_signature (extra_content) for the round-trip.
-    if tool_extra:
-        result._tool_extra_content = tool_extra  # type: ignore[attr-defined]
-    return result
+    return ConversationMessage(role="assistant", content=content)
 
 
-def _extract_tool_extra_content(tc: Any) -> Any:
+def _extract_tool_extra_content(tc: Any) -> dict[str, Any] | None:
     """Pull the OpenAI-compat ``extra_content`` off a tool call, if present.
 
     Gemini surfaces its ``thought_signature`` here (``extra_content.google.
@@ -272,7 +258,7 @@ def _extract_tool_extra_content(tc: Any) -> Any:
         model_extra = getattr(tc, "model_extra", None)
         if model_extra:
             extra = model_extra.get("extra_content")
-    return extra
+    return extra if isinstance(extra, dict) else None
 
 
 def _normalize_openai_base_url(base_url: str | None) -> str | None:
@@ -409,14 +395,19 @@ class OpenAICompatibleClient:
             # Accumulate tool calls
             if delta.tool_calls:
                 for tc_delta in delta.tool_calls:
-                    idx = tc_delta.index
+                    idx = getattr(tc_delta, "index", None)
                     extra = _extract_tool_extra_content(tc_delta)
                     if idx is None:
-                        # Gemini streams the thought_signature (extra_content) on
-                        # a trailing, index-less delta. Attach it to the current
-                        # tool call instead of creating a phantom entry.
-                        if extra and last_tool_idx is not None:
-                            collected_tool_calls[last_tool_idx]["extra_content"] = extra
+                        # A trailing signature delta may omit the call index.
+                        if extra:
+                            call_id = getattr(tc_delta, "id", None)
+                            target_idx = (
+                                next((key for key, call in collected_tool_calls.items()
+                                      if call["id"] == call_id), None)
+                                if call_id else last_tool_idx
+                            )
+                            if target_idx is not None:
+                                collected_tool_calls[target_idx]["extra_content"] = extra
                         continue
                     last_tool_idx = idx
                     if idx not in collected_tool_calls:
@@ -448,7 +439,6 @@ class OpenAICompatibleClient:
         if collected_content:
             content.append(TextBlock(text=collected_content))
 
-        tool_extra: dict[str, Any] = {}
         for _idx in sorted(collected_tool_calls.keys()):
             tc = collected_tool_calls[_idx]
             # Skip phantom/empty tool calls that some providers send
@@ -462,9 +452,8 @@ class OpenAICompatibleClient:
                 id=tc["id"],
                 name=tc["name"],
                 input=args,
+                extra_content=tc.get("extra_content"),
             ))
-            if tc.get("extra_content"):
-                tool_extra[tc["id"]] = tc["extra_content"]
 
         final_message = ConversationMessage(role="assistant", content=content)
 
@@ -472,11 +461,6 @@ class OpenAICompatibleClient:
         # can replay it when the message is sent back to the API
         if collected_reasoning:
             final_message._reasoning = collected_reasoning  # type: ignore[attr-defined]
-
-        # Preserve Gemini 3 thought_signature (extra_content) so the follow-up
-        # request round-trips it — required for tool calls to keep working.
-        if tool_extra:
-            final_message._tool_extra_content = tool_extra  # type: ignore[attr-defined]
 
         yield ApiMessageCompleteEvent(
             message=final_message,

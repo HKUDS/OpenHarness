@@ -44,6 +44,7 @@ class ToolUseBlock(BaseModel):
     id: str = Field(default_factory=lambda: f"toolu_{uuid4().hex}")
     name: str
     input: dict[str, Any] = Field(default_factory=dict)
+    extra_content: dict[str, Any] | None = None
 
 
 class ToolResultBlock(BaseModel):

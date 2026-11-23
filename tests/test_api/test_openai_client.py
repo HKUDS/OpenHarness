@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 import httpx
 
 import pytest
 
-from openharness.api.client import ApiMessageRequest
+from openharness.api.client import ApiMessageCompleteEvent, ApiMessageRequest
+from openharness.api.usage import UsageSnapshot
 from openharness.api.openai_client import (
     OpenAICompatibleClient,
     _convert_assistant_message,
@@ -16,6 +18,7 @@ from openharness.api.openai_client import (
     _convert_tools_to_openai,
     _extract_tool_extra_content,
     _normalize_openai_base_url,
+    _parse_assistant_response,
     _strip_think_blocks,
     _token_limit_param_for_model,
 )
@@ -527,11 +530,14 @@ class TestThoughtSignatureRoundTrip:
         assert _extract_tool_extra_content(_FakeToolCall()) is None
 
     def test_convert_replays_extra_content(self):
-        msg = ConversationMessage(
-            role="assistant",
-            content=[ToolUseBlock(id="call_1", name="bash", input={"cmd": "ls"})],
-        )
-        msg._tool_extra_content = {"call_1": self._SIG}  # type: ignore[attr-defined]
+        msg = _parse_assistant_response(SimpleNamespace(choices=[
+            SimpleNamespace(message=SimpleNamespace(content=None, tool_calls=[
+                SimpleNamespace(
+                    id="call_1", function=SimpleNamespace(name="read_file", arguments="{}"),
+                    extra_content=self._SIG,
+                ),
+            ])),
+        ]))
         out = _convert_assistant_message(msg)
         assert out["tool_calls"][0]["extra_content"] == self._SIG
 
@@ -543,3 +549,72 @@ class TestThoughtSignatureRoundTrip:
         )
         out = _convert_assistant_message(msg)
         assert "extra_content" not in out["tool_calls"][0]
+
+
+    @pytest.mark.asyncio
+    async def test_streaming_signature_is_replayed_after_snapshot_restore(self, tmp_path, monkeypatch):
+        from openharness.services.session_storage import load_session_by_id, save_session_snapshot
+
+        monkeypatch.setenv("OPENHARNESS_DATA_DIR", str(tmp_path / "data"))
+        chunks = [
+            [
+                {
+                    "index": index,
+                    "id": call_id,
+                    "type": "function",
+                    "function": {"name": "read_file", "arguments": "{}"},
+                }
+                for index, call_id in enumerate(("call_1", "call_2"))
+            ],
+            [{"id": "call_1", "extra_content": self._SIG}],
+        ]
+        events = [
+            {
+                "id": "example",
+                "object": "chat.completion.chunk",
+                "created": 0,
+                "model": "gemini-test",
+                "choices": [{"index": 0, "delta": {"tool_calls": calls}}],
+            }
+            for calls in chunks
+        ]
+        stream = "".join(f"data: {json.dumps(event)}\n\n" for event in events) + "data: [DONE]\n\n"
+        requests = []
+
+        def handler(request):
+            requests.append(json.loads(request.content))
+            return httpx.Response(200, text=stream, headers={"Content-Type": "text/event-stream"})
+
+        client = OpenAICompatibleClient(api_key="test-key", base_url="https://example.test/v1")
+        await client._client._client.aclose()
+        client._client._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        prompt = ConversationMessage.from_user_text("Read two files")
+        try:
+            result = [
+                event async for event in client.stream_message(
+                    ApiMessageRequest(model="gemini-test", messages=[prompt])
+                )
+            ]
+            assistant = result[-1]
+            assert isinstance(assistant, ApiMessageCompleteEvent)
+            tool_results = ConversationMessage(role="user", content=[
+                ToolResultBlock(tool_use_id=call_id, content="ok") for call_id in ("call_1", "call_2")
+            ])
+            save_session_snapshot(
+                cwd=tmp_path, model="gemini-test", system_prompt="",
+                messages=[prompt, assistant.message, tool_results],
+                usage=UsageSnapshot(), session_id="gemini-resume",
+            )
+            stored = load_session_by_id(tmp_path, "gemini-resume")
+            restored = [ConversationMessage.model_validate(item) for item in stored["messages"]]
+            _ = [
+                event async for event in client.stream_message(
+                    ApiMessageRequest(model="gemini-test", messages=restored)
+                )
+            ]
+        finally:
+            await client.close()
+
+        call_1, call_2 = requests[1]["messages"][1]["tool_calls"]
+        assert call_1["id"] == "call_1" and call_1["extra_content"] == self._SIG
+        assert call_2["id"] == "call_2" and "extra_content" not in call_2
