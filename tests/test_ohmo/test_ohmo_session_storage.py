@@ -37,6 +37,7 @@ def test_ohmo_session_backend_ignores_corrupt_snapshots(tmp_path: Path):
 
     assert backend.load_latest(tmp_path) is None
     assert backend.load_by_id(tmp_path, "corrupt") is None
+    assert backend.list_snapshots(tmp_path) == []
 
 
 def test_ohmo_session_backend_loads_latest_for_session_key(tmp_path: Path):

@@ -98,9 +98,8 @@ def list_snapshots(workspace: str | Path | None = None, limit: int = 20) -> list
     session_dir = get_session_dir(workspace)
     sessions: list[dict[str, Any]] = []
     for path in sorted(session_dir.glob("session-*.json"), key=lambda p: p.stat().st_mtime, reverse=True):
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
+        data = _read_snapshot_file(path)
+        if data is None:
             continue
         sessions.append(
             {

@@ -123,7 +123,7 @@ def _read_snapshot_file(path: Path) -> dict[str, Any] | None:
     """Return a valid snapshot or None if a stored file is unreadable."""
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-        if not isinstance(data, dict):
+        if not isinstance(data, dict) or not isinstance(data.get("messages", []), list):
             return None
         return _sanitize_snapshot_payload(data)
     except (OSError, UnicodeError, ValueError, TypeError):
@@ -145,7 +145,9 @@ def list_session_snapshots(cwd: str | Path, limit: int = 20) -> list[dict[str, A
     # Named session files
     for path in sorted(session_dir.glob("session-*.json"), key=lambda p: p.stat().st_mtime, reverse=True):
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
+            data = _read_snapshot_file(path)
+            if data is None:
+                continue
             sid = data.get("session_id", path.stem.replace("session-", ""))
             seen_ids.add(sid)
             summary = data.get("summary", "")
@@ -164,16 +166,16 @@ def list_session_snapshots(cwd: str | Path, limit: int = 20) -> list[dict[str, A
                 "model": data.get("model", ""),
                 "created_at": data.get("created_at", path.stat().st_mtime),
             })
-        except (json.JSONDecodeError, OSError):
+        except OSError:
             continue
         if len(sessions) >= limit:
             break
 
     # Also include latest.json if it has no corresponding session file
     latest_path = session_dir / "latest.json"
-    if latest_path.exists() and len(sessions) < limit:
+    data = _read_snapshot_file(latest_path) if len(sessions) < limit else None
+    if data is not None:
         try:
-            data = json.loads(latest_path.read_text(encoding="utf-8"))
             sid = data.get("session_id", "latest")
             if sid not in seen_ids:
                 summary = data.get("summary", "")
@@ -191,7 +193,7 @@ def list_session_snapshots(cwd: str | Path, limit: int = 20) -> list[dict[str, A
                     "model": data.get("model", ""),
                     "created_at": data.get("created_at", latest_path.stat().st_mtime),
                 })
-        except (json.JSONDecodeError, OSError):
+        except OSError:
             pass
 
     # Sort by created_at descending

@@ -10,6 +10,7 @@ from openharness.engine.messages import ConversationMessage, TextBlock
 from openharness.services.session_storage import (
     export_session_markdown,
     get_project_session_dir,
+    list_session_snapshots,
     load_session_snapshot,
     save_session_snapshot,
 )
@@ -51,8 +52,14 @@ def test_corrupted_session_snapshot_is_ignored(tmp_path: Path, monkeypatch):
     (directory / "latest.json").write_text("invalid JSON", encoding="utf-8")
     (directory / "session-corrupt.json").write_text("[]", encoding="utf-8")
 
+    (directory / "session-invalid-messages.json").write_text(
+        json.dumps({"messages": None}), encoding="utf-8",
+    )
+
     assert load_session_snapshot(project) is None
     assert load_session_by_id(project, "corrupt") is None
+    assert load_session_by_id(project, "invalid-messages") is None
+    assert list_session_snapshots(project) == []
 
 
 def test_load_session_by_id_falls_back_after_corrupt_named_file(tmp_path: Path, monkeypatch):
