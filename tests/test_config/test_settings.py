@@ -14,10 +14,29 @@ from openharness.config.settings import (
     display_model_setting,
     load_settings,
     normalize_anthropic_model_name,
+    resolve_model_setting,
     save_settings,
     strip_ansi_escape_sequences,
     _apply_env_overrides,
 )
+
+
+def test_minimax_context_window_label_is_removed_from_runtime_model(tmp_path, monkeypatch):
+    config = tmp_path / "settings.json"
+    config.write_text(
+        json.dumps({"provider": "minimax", "model": "MiniMax-M3[1M]", "active_profile": "minimax"}),
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("OPENHARNESS_MODEL", raising=False)
+    monkeypatch.delenv("ANTHROPIC_MODEL", raising=False)
+    settings = load_settings(config)
+    assert settings.model == "MiniMax-M3"
+    assert settings.merge_cli_overrides(model="MiniMax-M3[1m]").model == "MiniMax-M3"
+    assert resolve_model_setting("MiniMax-M3", "minimax") == "MiniMax-M3"
+    assert resolve_model_setting("custom-model[1M]", "openai") == "custom-model[1M]"
+
+    monkeypatch.setenv("OPENHARNESS_MODEL", "MiniMax-M3[1M]")
+    assert load_settings(config).model == "MiniMax-M3"
 
 
 class TestSettings:

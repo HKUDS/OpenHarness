@@ -350,6 +350,8 @@ def resolve_model_setting(
     if provider in {"openai", "openai_codex", "copilot"} and normalized in {"default", "best"}:
         return "gpt-5.4"
 
+    if provider == "minimax":
+        return re.sub(r"\[\d+[KMkm]\]$", "", configured).strip()
     return configured
 
 
@@ -1034,6 +1036,8 @@ def _apply_env_overrides(settings: Settings) -> Settings:
     if web_updates:
         updates["web"] = settings.web.model_copy(update=web_updates)
 
+    if "model" in updates and updates.get("provider", settings.provider) == "minimax":
+        updates["model"] = resolve_model_setting(updates["model"], "minimax")
     if not updates:
         return settings
     return settings.model_copy(update=updates)
