@@ -31,6 +31,36 @@ def test_cli_help():
     assert "--dry-run" in plain_output
 
 
+def test_plugin_cli_toggles_installed_plugin_without_importing_tools(tmp_path, monkeypatch):
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
+    source = tmp_path / "source-directory"
+    tools_dir = source / "tools"
+    tools_dir.mkdir(parents=True)
+    (source / "plugin.json").write_text(
+        json.dumps({"name": "demo-plugin", "version": "1.0.0"}),
+        encoding="utf-8",
+    )
+    marker = tmp_path / "plugin-imported"
+    (tools_dir / "example.py").write_text(
+        f"from pathlib import Path\nPath({str(marker)!r}).touch()\n", encoding="utf-8"
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["plugin", "install", str(source)])
+    assert result.exit_code == 0, result.output
+    assert "demo-plugin" not in load_settings().enabled_plugins
+
+    for action, enabled in (("enable", True), ("disable", False)):
+        result = runner.invoke(app, ["plugin", action, "demo-plugin"])
+        assert result.exit_code == 0, result.output
+        assert load_settings().enabled_plugins["demo-plugin"] is enabled
+
+    result = runner.invoke(app, ["plugin", "enable", "missing-plugin"])
+    assert result.exit_code == 1
+    assert "not installed" in result.output
+    assert not marker.exists()
+
+
 def test_setup_flow_selects_profile_and_model(tmp_path: Path, monkeypatch):
     runner = CliRunner()
     monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path))

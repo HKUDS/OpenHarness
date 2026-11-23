@@ -882,20 +882,30 @@ def plugin_uninstall(
     print(f"Uninstalled plugin: {name}")
 
 
+def _set_plugin_enabled(name: str, enabled: bool) -> None:
+    from openharness.config import load_settings, save_settings
+    from openharness.plugins import load_plugins
+
+    settings = load_settings()
+    plugins = load_plugins(settings, Path.cwd(), include_tools=False)
+    if not any(plugin.name == name for plugin in plugins):
+        typer.echo(
+            f"Plugin '{name}' is not installed. Run 'oh plugin list' to see available plugins.",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+    settings.enabled_plugins[name] = enabled
+    save_settings(settings)
+    action = "Enabled" if enabled else "Disabled"
+    print(f"{action} plugin '{name}'. Restart session to reload.")
+
+
 @plugin_app.command("enable")
 def plugin_enable(
     name: str = typer.Argument(..., help="Plugin name to enable"),
 ) -> None:
     """Enable an installed plugin."""
-    from openharness.config import load_settings, save_settings
-
-    settings = load_settings()
-    if name not in settings.enabled_plugins:
-        typer.echo(f"Plugin '{name}' is not installed. Run 'oh plugin list' to see available plugins.", err=True)
-        raise typer.Exit(code=1)
-    settings.enabled_plugins[name] = True
-    save_settings(settings)
-    print(f"Enabled plugin '{name}'. Restart session to reload.")
+    _set_plugin_enabled(name, True)
 
 
 @plugin_app.command("disable")
@@ -903,15 +913,7 @@ def plugin_disable(
     name: str = typer.Argument(..., help="Plugin name to disable"),
 ) -> None:
     """Disable an installed plugin."""
-    from openharness.config import load_settings, save_settings
-
-    settings = load_settings()
-    if name not in settings.enabled_plugins:
-        typer.echo(f"Plugin '{name}' is not installed. Run 'oh plugin list' to see available plugins.", err=True)
-        raise typer.Exit(code=1)
-    settings.enabled_plugins[name] = False
-    save_settings(settings)
-    print(f"Disabled plugin '{name}'. Restart session to reload.")
+    _set_plugin_enabled(name, False)
 
 
 # ---- cron subcommands ----

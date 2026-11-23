@@ -601,6 +601,7 @@ The proxy URL must be HTTP/HTTPS and cannot contain embedded credentials.
 oh plugin list
 oh plugin install <source>
 oh plugin enable <name>
+oh plugin disable <name>
 ```
 
 ### 🤝 Ecosystem Workflows
