@@ -392,7 +392,7 @@ def test_build_dry_run_preview_classifies_slash_command_and_flags_bad_mcp(monkey
     )
     monkeypatch.setattr("openharness.api.provider.auth_status", lambda settings: "configured")
     monkeypatch.setattr("openharness.plugins.load_plugins", lambda settings, cwd, **kwargs: [])
-    monkeypatch.setattr("openharness.skills.load_skill_registry", lambda cwd, **kwargs: _FakeSkillRegistry())
+    monkeypatch.setattr("openharness.skills.load_skill_registry", lambda cwd=None, **kwargs: _FakeSkillRegistry())
     monkeypatch.setattr("openharness.prompts.context.build_runtime_system_prompt", lambda *args, **kwargs: "preview prompt")
     monkeypatch.setattr("openharness.ui.runtime._resolve_api_client_from_settings", lambda settings: object())
 
@@ -495,7 +495,7 @@ def test_build_dry_run_preview_sets_blocked_when_model_prompt_lacks_auth(monkeyp
     )
     monkeypatch.setattr("openharness.api.provider.auth_status", lambda settings: "missing")
     monkeypatch.setattr("openharness.plugins.load_plugins", lambda settings, cwd, **kwargs: [])
-    monkeypatch.setattr("openharness.skills.load_skill_registry", lambda cwd, **kwargs: _FakeSkillRegistry())
+    monkeypatch.setattr("openharness.skills.load_skill_registry", lambda cwd=None, **kwargs: _FakeSkillRegistry())
     monkeypatch.setattr("openharness.prompts.context.build_runtime_system_prompt", lambda *args, **kwargs: "preview prompt")
 
     def fake_resolve_api_client(settings):
@@ -564,7 +564,7 @@ def test_build_dry_run_preview_recommends_matching_skills_and_tools(monkeypatch,
     )
     monkeypatch.setattr("openharness.api.provider.auth_status", lambda settings: "configured")
     monkeypatch.setattr("openharness.plugins.load_plugins", lambda settings, cwd, **kwargs: [])
-    monkeypatch.setattr("openharness.skills.load_skill_registry", lambda cwd, **kwargs: _FakeSkillRegistry())
+    monkeypatch.setattr("openharness.skills.load_skill_registry", lambda cwd=None, **kwargs: _FakeSkillRegistry())
     monkeypatch.setattr("openharness.tools.create_default_tool_registry", lambda: _FakeToolRegistry())
     monkeypatch.setattr("openharness.prompts.context.build_runtime_system_prompt", lambda *args, **kwargs: "preview prompt")
     monkeypatch.setattr("openharness.ui.runtime._resolve_api_client_from_settings", lambda settings: object())
