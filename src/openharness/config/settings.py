@@ -135,6 +135,12 @@ class ProviderProfile(BaseModel):
     allowed_models: list[str] = Field(default_factory=list)
     context_window_tokens: int | None = None
     auto_compact_threshold_tokens: int | None = None
+    # Codex-style per-profile session defaults. When set, these become the
+    # session's permission mode / effort UNLESS overridden by a CLI flag
+    # (CLI > profile > global). `None` means "inherit the global default" —
+    # so existing profiles behave exactly as before.
+    permission_mode: str | None = None
+    effort: str | None = None
 
     @property
     def resolved_model(self) -> str:
@@ -640,6 +646,20 @@ class Settings(BaseModel):
         """Project the active profile back onto legacy flat settings fields."""
         profile_name, profile = self.resolve_profile()
         configured_model = (profile.last_model or "").strip() or profile.default_model
+        # Per-profile session defaults (Codex-style). Only override the global
+        # value when the profile sets a VALID one — an unset/invalid field
+        # leaves today's behavior byte-identical (and an invalid value never
+        # crashes load_settings). CLI flags still win: merge_cli_overrides runs
+        # after this and overrides only when its flag is non-None.
+        permission = self.permission
+        if profile.permission_mode:
+            try:
+                permission = self.permission.model_copy(
+                    update={"mode": PermissionMode(profile.permission_mode)}
+                )
+            except ValueError:
+                permission = self.permission
+        effort = profile.effort or self.effort
         return self.model_copy(
             update={
                 "active_profile": profile_name,
@@ -649,6 +669,8 @@ class Settings(BaseModel):
                 "base_url": profile.base_url,
                 "context_window_tokens": profile.context_window_tokens,
                 "auto_compact_threshold_tokens": profile.auto_compact_threshold_tokens,
+                "permission": permission,
+                "effort": effort,
                 "model": resolve_model_setting(
                     configured_model,
                     profile.provider,
