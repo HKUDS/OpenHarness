@@ -33,9 +33,10 @@ def scan_memory_files(
             continue
         try:
             text = path.read_text(encoding="utf-8")
-        except OSError:
+            header = _parse_memory_file(path, text)
+        except (OSError, UnicodeError):
+            # Corrupt or concurrently removed notes should not break all memory.
             continue
-        header = _parse_memory_file(path, text)
         if header.disabled and not include_disabled:
             continue
         if is_memory_expired(_metadata_from_header(header)) and not include_expired:

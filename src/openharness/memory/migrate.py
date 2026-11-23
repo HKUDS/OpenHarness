@@ -70,7 +70,7 @@ def migrate_memory(
             rendered = render_memory_file(migrated, body)
             if rendered != content:
                 changed_payloads.append((path, rendered))
-        except OSError:
+        except (OSError, UnicodeError):
             failed_files.append(path.name)
 
     backup_dir = ""
