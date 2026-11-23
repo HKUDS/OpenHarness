@@ -14,6 +14,7 @@ from openharness.api.openai_client import (
     _convert_assistant_message,
     _convert_messages_to_openai,
     _convert_tools_to_openai,
+    _extract_tool_extra_content,
     _normalize_openai_base_url,
     _strip_think_blocks,
     _token_limit_param_for_model,
@@ -497,3 +498,48 @@ class TestReasoningContentEmission:
         msg = ConversationMessage(role="assistant", content=[TextBlock(text="hi")])
         out = _convert_assistant_message(msg)
         assert "reasoning_content" not in out
+
+
+class _FakeToolCall:
+    """Minimal stand-in for an openai SDK tool-call object."""
+
+    def __init__(self, extra_content=None, model_extra=None):
+        if extra_content is not None:
+            self.extra_content = extra_content
+        self.model_extra = model_extra
+
+
+class TestThoughtSignatureRoundTrip:
+    """Gemini 3 returns a thought_signature (as ``extra_content``) on each tool
+    call that must be echoed back, or the follow-up request fails with a 400.
+    """
+
+    _SIG = {"google": {"thought_signature": "EjQKMg=="}}
+
+    def test_extract_from_direct_attribute(self):
+        assert _extract_tool_extra_content(_FakeToolCall(extra_content=self._SIG)) == self._SIG
+
+    def test_extract_from_model_extra(self):
+        tc = _FakeToolCall(model_extra={"extra_content": self._SIG})
+        assert _extract_tool_extra_content(tc) == self._SIG
+
+    def test_extract_absent_returns_none(self):
+        assert _extract_tool_extra_content(_FakeToolCall()) is None
+
+    def test_convert_replays_extra_content(self):
+        msg = ConversationMessage(
+            role="assistant",
+            content=[ToolUseBlock(id="call_1", name="bash", input={"cmd": "ls"})],
+        )
+        msg._tool_extra_content = {"call_1": self._SIG}  # type: ignore[attr-defined]
+        out = _convert_assistant_message(msg)
+        assert out["tool_calls"][0]["extra_content"] == self._SIG
+
+    def test_convert_omits_when_absent(self):
+        # Providers that don't set a thought_signature must be unaffected.
+        msg = ConversationMessage(
+            role="assistant",
+            content=[ToolUseBlock(id="call_1", name="bash", input={"cmd": "ls"})],
+        )
+        out = _convert_assistant_message(msg)
+        assert "extra_content" not in out["tool_calls"][0]
