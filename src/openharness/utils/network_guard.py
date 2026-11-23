@@ -10,7 +10,6 @@ from urllib.parse import ParseResult, urljoin, urlparse
 
 import httpx
 
-
 _DEFAULT_PORTS = {
     "http": 80,
     "https": 443,
@@ -49,7 +48,12 @@ class NetworkGuardError(ValueError):
 
 def validate_http_url(url: str) -> None:
     """Validate basic HTTP/HTTPS URL syntax."""
-    parsed = urlparse(url)
+    try:
+        parsed = urlparse(url)
+        # Accessing .port validates its syntax and allowed range.
+        _ = parsed.port
+    except ValueError as exc:
+        raise NetworkGuardError(f"invalid HTTP URL: {exc}") from exc
     if parsed.scheme not in {"http", "https"}:
         raise NetworkGuardError("only http and https URLs are allowed")
     if not parsed.netloc or not parsed.hostname:
@@ -274,9 +278,7 @@ async def _resolve_host_addresses(host: str, port: int) -> set[_IPAddress]:
 
     addresses: set[_IPAddress] = set()
     for family, _, _, _, sockaddr in infos:
-        if family == socket.AF_INET:
-            candidate = sockaddr[0]
-        elif family == socket.AF_INET6:
+        if family in (socket.AF_INET, socket.AF_INET6):
             candidate = sockaddr[0]
         else:
             continue
