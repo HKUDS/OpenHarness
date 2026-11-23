@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -207,6 +208,34 @@ async def test_stop_task(tmp_path: Path, monkeypatch):
     updated = manager.get_task(task.id)
     assert updated is not None
     assert updated.status == "killed"
+
+
+@pytest.mark.asyncio
+async def test_stop_task_notifies_completion_once_with_exit_code(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("OPENHARNESS_DATA_DIR", str(tmp_path / "data"))
+    manager = BackgroundTaskManager()
+    seen = []
+    manager.register_completion_listener(
+        lambda task: seen.append((task.status, task.return_code))
+    )
+    try:
+        task = await manager.create_shell_task(
+            argv=[sys.executable, "-c", "import time; time.sleep(30)"],
+            description="sleeper",
+            cwd=tmp_path,
+        )
+        waiter = manager._waiters[task.id]
+        stopped = await manager.stop_task(task.id)
+        await asyncio.wait_for(waiter, timeout=5)
+
+        assert len(seen) == 1
+        assert seen[0][0] == "killed"
+        assert seen[0][1] is not None
+        assert seen[0][1] == stopped.return_code
+        await manager.stop_task(task.id)
+        assert len(seen) == 1
+    finally:
+        await manager.aclose()
 
 
 @pytest.mark.asyncio
