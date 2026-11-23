@@ -2,23 +2,22 @@
 
 from __future__ import annotations
 
-import json
 import hashlib
+import json
 import time
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from ohmo.workspace import get_sessions_dir
 from openharness.api.usage import UsageSnapshot
 from openharness.engine.messages import ConversationMessage, sanitize_conversation_messages
 from openharness.services.session_backend import SessionBackend
 from openharness.services.session_storage import (
     _persistable_tool_metadata,
-    _sanitize_snapshot_payload,
+    _read_snapshot_file,
 )
 from openharness.utils.fs import atomic_write_text
-
-from ohmo.workspace import get_sessions_dir
 
 
 def get_session_dir(workspace: str | Path | None = None) -> Path:
@@ -87,16 +86,12 @@ def save_session_snapshot(
 
 def load_latest(workspace: str | Path | None = None) -> dict[str, Any] | None:
     path = get_session_dir(workspace) / "latest.json"
-    if not path.exists():
-        return None
-    return _sanitize_snapshot_payload(json.loads(path.read_text(encoding="utf-8")))
+    return _read_snapshot_file(path)
 
 
 def load_latest_for_session_key(workspace: str | Path | None, session_key: str) -> dict[str, Any] | None:
     path = _session_key_latest_path(workspace, session_key)
-    if path.exists():
-        return _sanitize_snapshot_payload(json.loads(path.read_text(encoding="utf-8")))
-    return None
+    return _read_snapshot_file(path)
 
 
 def list_snapshots(workspace: str | Path | None = None, limit: int = 20) -> list[dict[str, Any]]:
@@ -123,8 +118,9 @@ def list_snapshots(workspace: str | Path | None = None, limit: int = 20) -> list
 
 def load_by_id(workspace: str | Path | None, session_id: str) -> dict[str, Any] | None:
     path = get_session_dir(workspace) / f"session-{session_id}.json"
-    if path.exists():
-        return _sanitize_snapshot_payload(json.loads(path.read_text(encoding="utf-8")))
+    stored = _read_snapshot_file(path)
+    if stored is not None:
+        return stored
     latest = load_latest(workspace)
     if latest and (latest.get("session_id") == session_id or session_id == "latest"):
         return latest

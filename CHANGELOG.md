@@ -24,6 +24,7 @@ The format is based on Keep a Changelog, and this project currently tracks chang
 - Initializing an agent memory snapshot now preserves an existing index containing user entries instead of treating any index with the default heading as empty.
 - Proactive ohmo notification chunking now preserves newline/indentation content and rejects nonpositive chunk limits instead of potentially looping forever.
 - ohmo gateway configuration updates now use atomic replacement so interrupted writes preserve the last valid gateway.json.
+- Corrupted project and ohmo session snapshot files no longer crash load/resume; missing or invalid snapshots return no session, and per-ID loading can fall back to a valid latest snapshot.
 - Codex subscription requests now pass reasoning effort separately, enabling `gpt-5.5` with `xhigh` effort instead of treating `gpt-5.5 xhigh` as an unsupported model name.
 - Telegram channel now delivers replies again under `ohmo init --no-interactive` and other configs that do not write a `reply_to_message` field. `TelegramConfig` declares `reply_to_message: bool = True` so the attribute access in `TelegramChannel.send` no longer raises `AttributeError` and outbound progress/tool-hint/final messages are sent as expected. See issue #243.
 
