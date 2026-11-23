@@ -19,17 +19,21 @@ class OhmoNotificationError(RuntimeError):
 
 def _chunk_text(text: str, *, max_chars: int = 1800) -> list[str]:
     """Split text into message-sized chunks without losing content."""
-    stripped = text.strip()
-    if not stripped:
+    if max_chars <= 0:
+        raise ValueError("max_chars must be positive")
+    remaining = text.strip()
+    if not remaining:
         return []
+
     chunks: list[str] = []
-    remaining = stripped
     while len(remaining) > max_chars:
-        split_at = remaining.rfind("\n", 0, max_chars)
+        split_at = remaining.rfind("\n", 1, max_chars)
         if split_at < max_chars // 2:
             split_at = max_chars
-        chunks.append(remaining[:split_at].strip())
-        remaining = remaining[split_at:].strip()
+        else:
+            split_at += 1  # Keep the separator instead of deleting text.
+        chunks.append(remaining[:split_at])
+        remaining = remaining[split_at:]
     if remaining:
         chunks.append(remaining)
     return chunks

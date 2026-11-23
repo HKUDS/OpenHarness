@@ -22,6 +22,7 @@ The format is based on Keep a Changelog, and this project currently tracks chang
 - Stopping a background task now emits one completion notification with its exit code, avoiding duplicate callbacks and incomplete subagent-stop hook payloads.
 - Project and ohmo personal memory indexes now match exact Markdown link destinations, preventing overlapping memory filenames from hiding or removing unrelated index entries.
 - Initializing an agent memory snapshot now preserves an existing index containing user entries instead of treating any index with the default heading as empty.
+- Proactive ohmo notification chunking now preserves newline/indentation content and rejects nonpositive chunk limits instead of potentially looping forever.
 - Codex subscription requests now pass reasoning effort separately, enabling `gpt-5.5` with `xhigh` effort instead of treating `gpt-5.5 xhigh` as an unsupported model name.
 - Telegram channel now delivers replies again under `ohmo init --no-interactive` and other configs that do not write a `reply_to_message` field. `TelegramConfig` declares `reply_to_message: bool = True` so the attribute access in `TelegramChannel.send` no longer raises `AttributeError` and outbound progress/tool-hint/final messages are sent as expected. See issue #243.
 
