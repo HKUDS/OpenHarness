@@ -9,6 +9,7 @@ from rich.syntax import Syntax
 
 from openharness.engine.stream_events import (
     AssistantTextDelta,
+    AssistantThinkingDelta,
     AssistantTurnComplete,
     CompactProgressEvent,
     StreamEvent,
@@ -27,6 +28,7 @@ class OutputRenderer:
         self._style_name = style_name
         self._spinner_status = None
         self._last_tool_input: dict | None = None
+        self._thinking_active = False
 
     def set_style(self, style_name: str) -> None:
         self._style_name = style_name
@@ -44,6 +46,7 @@ class OutputRenderer:
 
     def start_assistant_turn(self) -> None:
         self._stop_spinner()  # Stop the thinking spinner when output starts
+        self._thinking_active = False
         if self._assistant_line_open:
             self.console.print()
         self._assistant_buffer = ""
@@ -55,9 +58,25 @@ class OutputRenderer:
 
     def render_event(self, event: StreamEvent) -> None:
         if isinstance(event, AssistantTextDelta):
+            # If we were showing thinking, add blank line separator before normal text
+            if self._thinking_active:
+                self._thinking_active = False
+                self.console.print()  # End thinking line
+                self.console.print()  # Blank line separator
             self._assistant_buffer += event.text
             # Stream raw text for responsiveness
             self.console.print(event.text, end="", markup=False, highlight=False)
+            return
+
+        if isinstance(event, AssistantThinkingDelta):
+            if not self._thinking_active:
+                self._thinking_active = True
+                # First thinking event: print prefix with newline before
+                if self._style_name != "minimal":
+                    self.console.print("\n[dim]Think: [/dim]", end="")
+                else:
+                    self.console.print("Think: ", end="", style="dim")
+            self.console.print(event.text, end="", markup=False, highlight=False, style="dim")
             return
 
         if isinstance(event, AssistantTurnComplete):

@@ -46,6 +46,7 @@ class ApiMessageRequest:
     max_tokens: int = 4096
     tools: list[dict[str, Any]] = field(default_factory=list)
     effort: str | None = None
+    show_thinking: bool = False
 
 
 @dataclass(frozen=True)
@@ -74,7 +75,14 @@ class ApiRetryEvent:
     delay_seconds: float
 
 
-ApiStreamEvent = ApiTextDeltaEvent | ApiMessageCompleteEvent | ApiRetryEvent
+@dataclass(frozen=True)
+class ApiThinkingDeltaEvent:
+    """Incremental thinking/reasoning content from the model."""
+
+    text: str
+
+
+ApiStreamEvent = ApiTextDeltaEvent | ApiThinkingDeltaEvent | ApiMessageCompleteEvent | ApiRetryEvent
 
 
 class SupportsStreamingMessages(Protocol):

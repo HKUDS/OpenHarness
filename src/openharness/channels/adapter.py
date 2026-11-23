@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING
 
 from openharness.channels.bus.events import InboundMessage, OutboundMessage
 from openharness.channels.bus.queue import MessageBus
-from openharness.engine.stream_events import AssistantTextDelta, AssistantTurnComplete
+from openharness.engine.stream_events import AssistantTextDelta, AssistantThinkingDelta, AssistantTurnComplete
 
 if TYPE_CHECKING:
     from openharness.engine.query_engine import QueryEngine
@@ -98,7 +98,10 @@ class ChannelBridge:
         reply_parts: list[str] = []
         try:
             async for event in self._engine.submit_message(msg.content):
-                if isinstance(event, AssistantTextDelta):
+                if isinstance(event, AssistantThinkingDelta):
+                    # Thinking content is omitted from channel replies
+                    pass
+                elif isinstance(event, AssistantTextDelta):
                     reply_parts.append(event.text)
                 elif isinstance(event, AssistantTurnComplete):
                     # Turn is done; we'll send the accumulated text below

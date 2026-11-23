@@ -4,7 +4,7 @@ export type FrontendConfig = {
 };
 
 export type TranscriptItem = {
-	role: 'system' | 'user' | 'assistant' | 'tool' | 'tool_result' | 'log' | 'status';
+	role: 'system' | 'user' | 'assistant' | 'thinking' | 'tool' | 'tool_result' | 'log' | 'status';
 	text: string;
 	tool_name?: string;
 	tool_input?: Record<string, unknown>;

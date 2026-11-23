@@ -2231,6 +2231,12 @@ def main(
         help="Override verbose mode setting from config",
         rich_help_panel="Model & Effort",
     ),
+    show_thinking: bool = typer.Option(
+        False,
+        "--show-thinking",
+        help="Show model thinking/reasoning process in the output",
+        rich_help_panel="Model & Effort",
+    ),
     max_turns: int | None = typer.Option(
         None,
         "--max-turns",
@@ -2515,6 +2521,7 @@ def main(
                 permission_mode=permission_mode,
                 max_turns=max_turns,
                 effort=effort,
+                show_thinking=show_thinking or None,
             )
         )
         return
@@ -2548,5 +2555,6 @@ def main(
             api_format=api_format,
             permission_mode=permission_mode,
             effort=effort,
+            show_thinking=show_thinking or None,
         )
     )

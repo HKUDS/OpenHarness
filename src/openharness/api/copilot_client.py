@@ -125,6 +125,7 @@ class CopilotClient:
             system_prompt=request.system_prompt,
             max_tokens=request.max_tokens,
             tools=request.tools,
+            show_thinking=request.show_thinking,
         )
         async for event in self._inner.stream_message(patched):
             yield event
