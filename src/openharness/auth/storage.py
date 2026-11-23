@@ -29,6 +29,7 @@ log = logging.getLogger(__name__)
 
 _CREDS_FILE_NAME = "credentials.json"
 _KEYRING_SERVICE = "openharness"
+_STATE_KEY = "provider_state"
 
 
 def _creds_lock_path() -> Path:
@@ -193,6 +194,44 @@ def clear_provider_credentials(provider: str, *, use_keyring: bool | None = None
 def list_stored_providers() -> list[str]:
     """Return the list of providers that have credentials in the file store."""
     return list(_load_creds_file().keys())
+
+
+def load_provider_state(provider: str) -> dict[str, Any] | None:
+    """Return non-secret bookkeeping for *provider*, or None when absent.
+
+    This holds lifecycle metadata that is not itself a secret — a credential
+    generation counter, a reauthentication flag, the acquisition source — so a
+    provider can tell whether the credential it just used is still the current
+    one.  Secrets belong in :func:`store_credential`.
+    """
+    entry = _load_creds_file().get(provider, {})
+    if not isinstance(entry, dict):
+        return None
+    state = entry.get(_STATE_KEY)
+    if not isinstance(state, dict):
+        return None
+    return dict(state)
+
+
+def store_provider_state(provider: str, state: dict[str, Any]) -> None:
+    """Persist non-secret bookkeeping for *provider*.
+
+    An empty mapping removes the record without touching any stored secret.
+    """
+    with exclusive_file_lock(_creds_lock_path()):
+        data = _load_creds_file()
+        entry = data.setdefault(provider, {})
+        if not isinstance(entry, dict):
+            entry = {}
+            data[provider] = entry
+        if state:
+            entry[_STATE_KEY] = dict(state)
+        else:
+            entry.pop(_STATE_KEY, None)
+        if not entry:
+            data.pop(provider, None)
+        _save_creds_file(data)
+    log.debug("Stored provider state for %s", provider)
 
 
 def store_external_binding(binding: ExternalAuthBinding) -> None:

@@ -8,6 +8,9 @@ The format is based on Keep a Changelog, and this project currently tracks chang
 
 ### Added
 
+- OrcaRouter is now a first-class provider (`https://api.orcarouter.ai/v1`) with two independent authentication choices: an `sk-orca-…` API key (`oh auth orcarouter-api-key`, `ORCAROUTER_API_KEY`), or OAuth 2.0 + PKCE account login (`oh auth orcarouter`, with `--oob` for machines that cannot receive a redirect). Both produce the same durable key and share one inference path.
+- The OrcaRouter model control is populated from the live `GET /v1/models` catalog, filtered per capability (chat, embeddings, image, video, rerank). Attaching an image narrows the selector to models that explicitly declare image input, and a current model that no longer fits is cleared instead of kept. A small verified fallback catalog keeps a fresh install usable when discovery is unavailable, and the UI labels that state.
+- OrcaRouter credential lifecycle: a rejected key marks only the exact credential generation that made the request for reauthentication, without attempting a refresh grant (OrcaRouter issues a durable key, not a refresh token) and without discarding the stored secret.
 - Hooks now support a `priority` field (default `0`). Within an event, hooks run highest-priority first, and hooks sharing a priority keep their registration order. This lets users order, for example, a security-check hook ahead of a logging hook regardless of where each is declared in settings or contributed by plugins.
 - `edit_file` and `write_file` in the React TUI now preview a unified diff before applying file changes, let users approve once or for the rest of the session, and skip the extra prompt automatically in `full_auto` mode.
 

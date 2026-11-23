@@ -68,6 +68,21 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         is_oauth=True,
     ),
     # === Gateways (detected by api_key prefix / base_url keyword) ============
+    # OrcaRouter: OpenAI-compatible gateway. Inference lives on api.orcarouter.ai;
+    # authentication lives on www.orcarouter.ai (see openharness/api/orcarouter.py).
+    ProviderSpec(
+        name="orcarouter",
+        keywords=("orcarouter", "orca-router"),
+        env_key="ORCAROUTER_API_KEY",
+        display_name="OrcaRouter",
+        backend_type="openai_compat",
+        default_base_url="https://api.orcarouter.ai/v1",
+        detect_by_key_prefix="sk-orca-",
+        detect_by_base_keyword="orcarouter",
+        is_gateway=True,
+        is_local=False,
+        is_oauth=False,
+    ),
     # OpenRouter: global gateway, keys start with "sk-or-"
     ProviderSpec(
         name="openrouter",

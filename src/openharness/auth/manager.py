@@ -38,6 +38,7 @@ _KNOWN_PROVIDERS = [
     "gemini",
     "minimax",
     "modelscope",
+    "orcarouter",
 ]
 
 _AUTH_SOURCES = [
@@ -53,6 +54,8 @@ _AUTH_SOURCES = [
     "gemini_api_key",
     "minimax_api_key",
     "modelscope_api_key",
+    "orcarouter_api_key",
+    "orcarouter_oauth",
 ]
 
 _PROFILE_BY_PROVIDER = {
@@ -65,6 +68,7 @@ _PROFILE_BY_PROVIDER = {
     "gemini": "gemini",
     "minimax": "minimax",
     "modelscope": "modelscope",
+    "orcarouter": "orcarouter",
 }
 
 
