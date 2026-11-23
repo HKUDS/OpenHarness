@@ -555,12 +555,7 @@ def _offload_tool_output_if_needed(
     )
     if omitted:
         inline += f" ({omitted} chars omitted)"
-    inline += (
-        "\n\nIMPORTANT: The preview below is a partial fragment of the full output. "
-        "Do NOT infer, guess, or supplement the omitted content from training knowledge. "
-        "Only report what is explicitly present in the preview. "
-        "If you need the complete output, read the file at the path shown above."
-    )
+    inline += "\nRead the full output file for details omitted from the preview."
     if preview:
         inline += f"\n\nPreview:\n{preview}"
     return inline, artifact_path

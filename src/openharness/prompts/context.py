@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Iterable
 
@@ -41,21 +42,14 @@ def _build_skills_section(
     skills = [skill for skill in registry.list_skills() if not skill.disable_model_invocation]
     if not skills:
         return None
-    # Build an example using the first skill name so the model sees a concrete
-    # invocation pattern rather than the abstract placeholder "<skill_name>".
-    first_name = (skills[0].command_name or skills[0].name) if skills else "example-skill"
+    first_name = json.dumps(skills[0].command_name or skills[0].name, ensure_ascii=False)
     lines = [
         "# Available Skills",
         "",
-        "IMPORTANT: Skills are NOT tools. Do NOT call them as direct function calls.",
-        "Skills must be accessed exclusively through the `skill` tool:",
-        f'  skill(name="{first_name}")',
-        "",
-        "When a user's request matches a skill below, call `skill(name=\"<skill_name>\")` "
-        "to load the full instructions, then follow them. "
-        "Calling a skill name directly as a tool will fail with 'unknown tool'.",
-        "",
-        "Available skills (access each via `skill(name=\"<name>\")`):",
+        "Load a relevant skill through the `skill` tool before following its instructions.",
+        f"Example: `skill(name={first_name})`.",
+        "Use `skill` as the tool name and pass the skill's name in the `name` argument.",
+        "User-invocable skills can also be run directly by the user as `/<skill-name>`.",
         "",
     ]
     for skill in skills:

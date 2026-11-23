@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from openharness.prompts.context import _build_skills_section
 from openharness.prompts.environment import EnvironmentInfo
 from openharness.prompts.system_prompt import build_system_prompt
+from openharness.skills.registry import SkillRegistry
+from openharness.skills.types import SkillDefinition
 
 
 def _make_env(**overrides) -> EnvironmentInfo:
@@ -66,3 +69,17 @@ def test_build_system_prompt_default_includes_base():
     env = _make_env()
     prompt = build_system_prompt(env=env)
     assert "OpenHarness" in prompt
+
+
+def test_skill_prompt_shows_concrete_tool_invocation(tmp_path, monkeypatch):
+    registry = SkillRegistry()
+    registry.register(SkillDefinition(
+        name="search-guide", command_name="search-guide", source="user",
+        description="Search", content="Guide",
+    ))
+    monkeypatch.setattr("openharness.prompts.context.load_skill_registry", lambda *a, **kw: registry)
+
+    section = _build_skills_section(tmp_path)
+    assert 'skill(name="search-guide")' in section
+    assert "Use `skill` as the tool name" in section
+    assert "User-invocable skills" in section
