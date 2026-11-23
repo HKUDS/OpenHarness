@@ -1,0 +1,13 @@
+{
+  "name": "report-search",
+  "version": "0.2.0",
+  "description": "报表目录检索能力：通过 MCP 报表检索服务检索最相关的报表（含链接、指标、业务描述）",
+  "enabled_by_default": true,
+  "skills_dir": "skills",
+  "tools_dir": "tools",
+  "mcp": {
+    "server": "报表检索",
+    "tool": "search",
+    "collection": "biz_report_meta"
+  }
+}

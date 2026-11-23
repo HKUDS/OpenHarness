@@ -16,6 +16,7 @@ from openharness.api.client import (
     ApiMessageRequest,
     ApiRetryEvent,
     ApiTextDeltaEvent,
+    ApiThinkingDeltaEvent,
     SupportsStreamingMessages,
 )
 from openharness.api.provider import is_model_multimodal
@@ -29,6 +30,7 @@ from openharness.engine.messages import (
 )
 from openharness.engine.stream_events import (
     AssistantTextDelta,
+    AssistantThinkingDelta,
     AssistantTurnComplete,
     CompactProgressEvent,
     ErrorEvent,
@@ -743,6 +745,9 @@ async def run_query(
             ):
                 if isinstance(event, ApiTextDeltaEvent):
                     yield AssistantTextDelta(text=event.text), None
+                    continue
+                if isinstance(event, ApiThinkingDeltaEvent):
+                    yield AssistantThinkingDelta(text=event.text), None
                     continue
                 if isinstance(event, ApiRetryEvent):
                     yield StatusEvent(

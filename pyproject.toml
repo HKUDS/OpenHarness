@@ -33,9 +33,17 @@ dependencies = [
     "python-telegram-bot>=21.0.0",
     "discord.py>=2.0.0",
     "lark-oapi>=1.5.0",
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+    "sqlparse>=0.5",
+    "pymilvus>=2.4",
 ]
 
 [project.optional-dependencies]
+db = [
+    "pymysql>=1.1",
+    "psycopg[binary]>=3.1",
+]
 dev = [
     "pexpect>=4.9.0",
     "pytest>=8.0.0",
@@ -50,9 +58,10 @@ openharness = "openharness.cli:app"
 oh = "openharness.cli:app"
 openh = "openharness.cli:app"
 ohmo = "ohmo.cli:app"
+insightagent = "insightagent.cli:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/openharness", "ohmo"]
+packages = ["src/openharness", "ohmo", "insightagent"]
 
 [tool.hatch.build]
 exclude = [
@@ -68,6 +77,7 @@ exclude = [
 ]
 
 [tool.hatch.build.targets.wheel.force-include]
+"plugins" = "plugins"
 "frontend/terminal/package.json" = "openharness/_frontend/package.json"
 "frontend/terminal/tsconfig.json" = "openharness/_frontend/tsconfig.json"
 "frontend/terminal/src" = "openharness/_frontend/src"

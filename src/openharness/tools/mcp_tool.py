@@ -17,6 +17,7 @@ class McpToolAdapter(BaseTool):
     def __init__(self, manager: McpClientManager, tool_info: McpToolInfo) -> None:
         self._manager = manager
         self._tool_info = tool_info
+        self.server_name = tool_info.server_name
         server_segment = _sanitize_tool_segment(tool_info.server_name)
         tool_segment = _sanitize_tool_segment(tool_info.name)
         self.name = f"mcp__{server_segment}__{tool_segment}"

@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from openharness.hooks.schemas import HookDefinition
 from openharness.mcp.types import McpServerConfig
@@ -135,6 +135,12 @@ class ProviderProfile(BaseModel):
     allowed_models: list[str] = Field(default_factory=list)
     context_window_tokens: int | None = None
     auto_compact_threshold_tokens: int | None = None
+
+    @field_validator("default_model", mode="before")
+    @classmethod
+    def _none_default_model_as_empty(cls, value: Any) -> Any:
+        """Treat `default_model: null` in settings.json as unset (empty string)."""
+        return "" if value is None else value
 
     @property
     def resolved_model(self) -> str:
