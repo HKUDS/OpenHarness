@@ -50,6 +50,7 @@ async def run_repl(
     api_format: str | None = None,
     api_client: SupportsStreamingMessages | None = None,
     backend_only: bool = False,
+    debug: bool = False,
     restore_messages: list[dict] | None = None,
     restore_tool_metadata: dict[str, object] | None = None,
     permission_mode: str | None = None,
@@ -75,6 +76,7 @@ async def run_repl(
 
     exit_code = await launch_react_tui(
         prompt=prompt,
+        debug=debug,
         cwd=cwd,
         model=model,
         max_turns=max_turns,

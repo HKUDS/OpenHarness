@@ -73,8 +73,6 @@ class McpClientManager:
                         len(status.tools),
                         len(status.resources),
                     )
-                elif status.state == "failed":
-                    log.warning("MCP: %r failed to connect — %s", name, status.detail)
 
     async def reconnect_all(self) -> None:
         """Reconnect all configured servers."""
@@ -93,13 +91,18 @@ class McpClientManager:
         """Return one configured server object if present."""
         return self._server_configs.get(name)
 
-    async def _close_failed_stack(self, stack: AsyncExitStack) -> None:
-        """Best-effort cleanup for a connection attempt that never finished."""
+    async def _close_failed_stack(
+        self, stack: AsyncExitStack, failure: BaseException
+    ) -> BaseException:
+        """Close a failed connection and keep the transport error if it interrupted setup."""
         try:
             await stack.aclose()
         except BaseException as exc:
             if isinstance(exc, (KeyboardInterrupt, SystemExit)):
                 raise
+            if isinstance(failure, asyncio.CancelledError):
+                return exc
+        return failure
 
     def _mark_connection_failed(
         self,
@@ -110,12 +113,22 @@ class McpClientManager:
         exc: BaseException,
     ) -> None:
         """Record one MCP connection failure without aborting startup."""
+        transport = getattr(config, "type", "unknown")
+        reason = exc
+        while children := getattr(reason, "exceptions", ()):
+            reason = children[0]
+        detail = (
+            f"HTTP {reason.response.status_code}"
+            if isinstance(reason, httpx.HTTPStatusError)
+            else type(reason).__name__
+        )
+        log.warning("MCP: %r failed to connect (transport=%s): %s", name, transport, detail)
         self._statuses[name] = McpConnectionStatus(
             name=name,
             state="failed",
-            transport=getattr(config, "type", "unknown"),
+            transport=transport,
             auth_configured=auth_configured,
-            detail=str(exc) or exc.__class__.__name__,
+            detail=detail if isinstance(reason, httpx.HTTPStatusError) else str(exc) or detail,
         )
 
     async def close(self) -> None:
@@ -196,7 +209,6 @@ class McpClientManager:
         return "\n".join(parts).strip()
 
     async def _connect_stdio(self, name: str, config: McpStdioServerConfig) -> None:
-        log.debug("MCP: spawning stdio process for %r: %s %s", name, config.command, " ".join(config.args))
         stack = AsyncExitStack()
         try:
             read_stream, write_stream = await stack.enter_async_context(
@@ -217,25 +229,16 @@ class McpClientManager:
                 write_stream=write_stream,
                 auth_configured=bool(config.env),
             )
-        except asyncio.CancelledError as exc:
-            await self._close_failed_stack(stack)
+        except (asyncio.CancelledError, Exception) as exc:
+            failure = await self._close_failed_stack(stack, exc)
             self._mark_connection_failed(
                 name,
                 config,
                 auth_configured=bool(config.env),
-                exc=exc,
-            )
-        except Exception as exc:
-            await self._close_failed_stack(stack)
-            self._mark_connection_failed(
-                name,
-                config,
-                auth_configured=bool(config.env),
-                exc=exc,
+                exc=failure,
             )
 
     async def _connect_http(self, name: str, config: McpHttpServerConfig) -> None:
-        log.debug("MCP: connecting to HTTP server %r at %s", name, config.url)
         stack = AsyncExitStack()
         try:
             http_client = await stack.enter_async_context(
@@ -252,21 +255,13 @@ class McpClientManager:
                 write_stream=write_stream,
                 auth_configured=bool(config.headers),
             )
-        except asyncio.CancelledError as exc:
-            await self._close_failed_stack(stack)
+        except (asyncio.CancelledError, Exception) as exc:
+            failure = await self._close_failed_stack(stack, exc)
             self._mark_connection_failed(
                 name,
                 config,
                 auth_configured=bool(config.headers),
-                exc=exc,
-            )
-        except Exception as exc:
-            await self._close_failed_stack(stack)
-            self._mark_connection_failed(
-                name,
-                config,
-                auth_configured=bool(config.headers),
-                exc=exc,
+                exc=failure,
             )
 
     async def _register_connected_session(

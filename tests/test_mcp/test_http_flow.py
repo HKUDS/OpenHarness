@@ -17,9 +17,11 @@ from openharness.tools.base import ToolExecutionContext
 
 
 @pytest.mark.asyncio
-async def test_http_mcp_manager_connects_and_executes_in_process_server(monkeypatch):
+@pytest.mark.parametrize("path", ["/mcp", "/jsonrpc"])
+async def test_http_mcp_manager_connects_and_executes_in_process_server(monkeypatch, path):
     server = FastMCP(
         "demo-http",
+        streamable_http_path=path,
         transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
     )
 
@@ -50,7 +52,7 @@ async def test_http_mcp_manager_connects_and_executes_in_process_server(monkeypa
     manager = McpClientManager(
         {
             "http-fixture": McpHttpServerConfig(
-                url="http://testserver/mcp",
+                url=f"http://testserver{path}",
                 headers={"Authorization": "Bearer token-smoke"},
             )
         }

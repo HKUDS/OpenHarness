@@ -2457,16 +2457,16 @@ def main(
     import asyncio
     import logging
 
-    if debug:
+    log_level = os.environ.get("OPENHARNESS_LOG_LEVEL")
+    if debug or log_level:
+        level = logging.DEBUG if debug else getattr(logging, log_level.upper(), logging.WARNING)
+        # HTTP and MCP dependencies can include request URLs in debug and info logs.
         logging.basicConfig(
-            level=logging.DEBUG,
+            level=max(level, logging.WARNING),
             format="%(asctime)s [%(name)s] %(levelname)s %(message)s",
             stream=sys.stderr,
         )
-        logging.getLogger("openharness").setLevel(logging.DEBUG)
-    elif os.environ.get("OPENHARNESS_LOG_LEVEL"):
-        lvl = getattr(logging, os.environ["OPENHARNESS_LOG_LEVEL"].upper(), logging.WARNING)
-        logging.basicConfig(level=lvl, format="%(asctime)s [%(name)s] %(levelname)s %(message)s", stream=sys.stderr)
+        logging.getLogger("openharness").setLevel(level)
 
     if dangerously_skip_permissions:
         permission_mode = "full_auto"
@@ -2568,6 +2568,7 @@ def main(
                 cwd=cwd,
                 model=session_data.get("model") or model,
                 backend_only=backend_only,
+                debug=debug,
                 base_url=base_url,
                 system_prompt=system_prompt,
                 api_key=api_key,
@@ -2626,6 +2627,7 @@ def main(
             model=model,
             max_turns=max_turns,
             backend_only=backend_only,
+            debug=debug,
             base_url=base_url,
             system_prompt=system_prompt,
             api_key=api_key,

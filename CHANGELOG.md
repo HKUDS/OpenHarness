@@ -8,10 +8,17 @@ The format is based on Keep a Changelog, and this project currently tracks chang
 
 ### Added
 
+- `oh cron status/list/history` and `oh autopilot status/list` now support `--json`.
+- `oh plugin enable` and `oh plugin disable` manage installed plugins from the CLI.
+
 - Hooks now support a `priority` field (default `0`). Within an event, hooks run highest-priority first, and hooks sharing a priority keep their registration order. This lets users order, for example, a security-check hook ahead of a logging hook regardless of where each is declared in settings or contributed by plugins.
 - `edit_file` and `write_file` in the React TUI now preview a unified diff before applying file changes, let users approve once or for the rest of the session, and skip the extra prompt automatically in `full_auto` mode.
 
 ### Fixed
+
+- The `config` tool validates changes using the settings schema before saving them, including structured fields and fields without a current value.
+- Interactive `--debug` reaches the backend, and MCP connection logs report status without including command arguments, request URLs, or credentials.
+- Interrupting parallel tools preserves completed results and marks the remaining calls as interrupted so the conversation can continue.
 
 - Ohmo gateway now respects `send_tool_hints = false` in the bridge, preventing disabled tool hints from being published to the outbound bus or written to INFO logs.
 - `/resume <session_id>` now keeps writing subsequent turns to the restored session instead of creating a new session snapshot under the runtime's startup ID.

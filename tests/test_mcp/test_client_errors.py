@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from pathlib import Path
 import asyncio
+import logging
 from contextlib import AsyncExitStack
 from unittest.mock import AsyncMock, MagicMock
 
+import httpx
 import pytest
 
 try:
@@ -15,7 +17,9 @@ except NameError:  # pragma: no cover - Python < 3.11 compatibility
     from exceptiongroup import BaseExceptionGroup
 
 from openharness.mcp.client import McpClientManager, McpServerNotConnectedError
-from openharness.mcp.types import McpConnectionStatus, McpStdioServerConfig, McpToolInfo
+from openharness.mcp.types import (
+    McpConnectionStatus, McpHttpServerConfig, McpStdioServerConfig, McpToolInfo,
+)
 from openharness.tools.base import ToolExecutionContext
 from openharness.tools.mcp_tool import McpToolAdapter
 from openharness.tools.read_mcp_resource_tool import ReadMcpResourceTool
@@ -156,13 +160,13 @@ async def test_close_failed_stack_suppresses_base_exception_group_cleanup_error(
         )
     )
 
-    await manager._close_failed_stack(stack)
+    original = RuntimeError("initialization failed")
+    assert await manager._close_failed_stack(stack, original) is original
 
 
 @pytest.mark.asyncio
 async def test_connect_all_marks_http_server_failed_when_initialize_is_cancelled(monkeypatch):
     import openharness.mcp.client as client_module
-    from openharness.mcp.types import McpHttpServerConfig
 
     manager = McpClientManager(
         {
@@ -193,6 +197,52 @@ async def test_connect_all_marks_http_server_failed_when_initialize_is_cancelled
     assert status.name == "broken-http"
     assert status.state == "failed"
     assert "simulated cancellation" in status.detail
+
+
+@pytest.mark.asyncio
+async def test_connect_all_logs_failure_without_request_data(monkeypatch, caplog):
+    import openharness.mcp.client as client_module
+
+    marker = "mcp-test-credential"
+    url = f"http://127.0.0.1:9999/mcp?token={marker}"
+    manager = McpClientManager({
+        "stdio-test": McpStdioServerConfig(command="example", args=[marker]),
+        "http-test": McpHttpServerConfig(url=url, headers={"Authorization": marker}),
+    })
+    request = httpx.Request("POST", url)
+    response = httpx.Response(401, request=request)
+    manager._register_connected_session = AsyncMock(side_effect=[
+        FileNotFoundError(f"Could not start {marker}"),
+        asyncio.CancelledError(),
+    ])
+
+    class FailedHttpTransport(_AsyncContextManager):
+        async def __aexit__(self, exc_type, exc, tb):
+            failure = httpx.HTTPStatusError(
+                f"Request failed for {url}", request=request, response=response,
+            )
+            raise BaseExceptionGroup("transport failed", [failure])
+    monkeypatch.setattr(
+        client_module, "stdio_client", lambda *_: _AsyncContextManager((object(), object())),
+    )
+    monkeypatch.setattr(
+        client_module.httpx, "AsyncClient", lambda **_: _AsyncContextManager(AsyncMock()),
+    )
+    monkeypatch.setattr(
+        client_module,
+        "streamable_http_client",
+        lambda *args, **kwargs: FailedHttpTransport((object(), object(), AsyncMock())),
+    )
+    caplog.set_level(logging.DEBUG, logger="openharness.mcp.client")
+
+    await manager.connect_all()
+
+    assert "connecting to server 'stdio-test' (transport=stdio)" in caplog.text
+    assert "connecting to server 'http-test' (transport=http)" in caplog.text
+    assert "FileNotFoundError" in caplog.text
+    assert "HTTP 401" in caplog.text
+    assert marker not in caplog.text
+    assert url not in caplog.text
 
 
 # --- McpToolAdapter catches error and returns ToolResult(is_error=True) ---
