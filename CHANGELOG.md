@@ -38,6 +38,7 @@ The format is based on Keep a Changelog, and this project currently tracks chang
 - Multimodal model detection now recognizes OpenAI `gpt-4.1` and `gpt-5`
   family model names, including `gpt-5.5`, so image inputs are sent natively
   instead of being routed through the image-to-text fallback.
+- Truncated tool output now includes an explicit instruction telling the agent not to infer or supplement omitted content from training knowledge. Previously, partial JSON previews could cause the agent to hallucinate missing information.
 - Codex subscription requests now pass reasoning effort separately, enabling `gpt-5.5` with `xhigh` effort instead of treating `gpt-5.5 xhigh` as an unsupported model name.
 - Telegram channel now delivers replies again under `ohmo init --no-interactive` and other configs that do not write a `reply_to_message` field. `TelegramConfig` declares `reply_to_message: bool = True` so the attribute access in `TelegramChannel.send` no longer raises `AttributeError` and outbound progress/tool-hint/final messages are sent as expected. See issue #243.
 - Interrupting a tool-driven turn after a tool finishes now preserves its result, so `/continue` resumes the pending model turn instead of losing that result.
