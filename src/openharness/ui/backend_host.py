@@ -68,6 +68,7 @@ class BackendHostConfig:
     extra_plugin_roots: tuple[str, ...] = ()
     memory_backend: MemoryCommandBackend | None = None
     include_project_memory: bool = True
+    autodream_context: dict[str, object] | None = None
 
 
 class ReactBackendHost:
@@ -113,6 +114,7 @@ class ReactBackendHost:
             extra_plugin_roots=self._config.extra_plugin_roots,
             memory_backend=self._config.memory_backend,
             include_project_memory=self._config.include_project_memory,
+            autodream_context=self._config.autodream_context,
         )
         await start_runtime(self._bundle)
         await self._emit(
@@ -901,6 +903,7 @@ async def run_backend_host(
     extra_plugin_roots: tuple[str | Path, ...] = (),
     memory_backend: MemoryCommandBackend | None = None,
     include_project_memory: bool = True,
+    autodream_context: dict[str, object] | None = None,
 ) -> int:
     """Run the structured React backend host."""
     if cwd:
@@ -926,6 +929,7 @@ async def run_backend_host(
             extra_plugin_roots=tuple(str(Path(path).expanduser().resolve()) for path in extra_plugin_roots),
             memory_backend=memory_backend,
             include_project_memory=include_project_memory,
+            autodream_context=autodream_context,
         )
     )
     return await host.run()
