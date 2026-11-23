@@ -104,8 +104,14 @@ def discover_plugin_paths_for_settings(
     return paths
 
 
-def load_plugins(settings, cwd: str | Path, extra_roots: Iterable[str | Path] | None = None) -> list[LoadedPlugin]:
-    """Load plugins from disk."""
+def load_plugins(
+    settings,
+    cwd: str | Path,
+    extra_roots: Iterable[str | Path] | None = None,
+    *,
+    include_tools: bool = True,
+) -> list[LoadedPlugin]:
+    """Load plugins from disk, optionally without importing plugin tool modules."""
     project_plugins_dir = get_project_plugins_dir(cwd)
     if not getattr(settings, "allow_project_plugins", False) and any(
         path.is_dir() and _find_manifest(path) is not None for path in sorted(project_plugins_dir.iterdir())
@@ -117,14 +123,19 @@ def load_plugins(settings, cwd: str | Path, extra_roots: Iterable[str | Path] | 
         )
     plugins: list[LoadedPlugin] = []
     for path in discover_plugin_paths_for_settings(settings, cwd, extra_roots=extra_roots):
-        plugin = load_plugin(path, settings.enabled_plugins)
+        plugin = load_plugin(path, settings.enabled_plugins, include_tools=include_tools)
         if plugin is not None:
             plugins.append(plugin)
     return plugins
 
 
-def load_plugin(path: Path, enabled_plugins: dict[str, bool]) -> LoadedPlugin | None:
-    """Load one plugin directory."""
+def load_plugin(
+    path: Path,
+    enabled_plugins: dict[str, bool],
+    *,
+    include_tools: bool = True,
+) -> LoadedPlugin | None:
+    """Load one plugin directory, optionally without importing its tool modules."""
     manifest_path = _find_manifest(path)
     if manifest_path is None:
         return None
@@ -138,7 +149,7 @@ def load_plugin(path: Path, enabled_plugins: dict[str, bool]) -> LoadedPlugin | 
     skills = _load_plugin_skills(path / manifest.skills_dir)
     commands = _load_plugin_commands(path, manifest)
     agents = _load_plugin_agents(path, manifest)
-    tools = _load_plugin_tools(path, manifest) if enabled else []
+    tools = _load_plugin_tools(path, manifest) if enabled and include_tools else []
     hooks = _load_plugin_hooks(path / manifest.hooks_file)
     hooks_dir_file = path / "hooks" / "hooks.json"
     if not hooks and hooks_dir_file.exists():

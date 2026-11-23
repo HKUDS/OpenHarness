@@ -286,7 +286,7 @@ oh --dry-run -p "Explain this repository" --output-format json
 Dry-run is intentionally static:
 
 - It does **not** call the model
-- It does **not** execute tools or spawn subagents
+- It does **not** import plugin tool modules, execute tools, or spawn subagents
 - It does **not** connect to MCP servers
 - It **does** resolve settings, auth status, prompt assembly, skills, commands, tools, and obvious MCP config problems
 
