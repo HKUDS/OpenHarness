@@ -1320,6 +1320,72 @@ async def test_query_engine_keeps_tool_result_when_interrupted_before_followup(t
     assert continued_events[-1].message.text == "Continued after interruption."
 
 
+@pytest.mark.asyncio
+async def test_query_engine_keeps_finished_parallel_results_on_cancellation(tmp_path, monkeypatch):
+    slow_started = asyncio.Event()
+    slow_stopped = asyncio.Event()
+    fast_finished = asyncio.Event()
+
+    async def execute_tool(context, name, call_id, arguments):
+        if name == "fast":
+            await slow_started.wait()
+            fast_finished.set()
+            return ToolResultBlock(tool_use_id=call_id, content="already finished")
+        slow_started.set()
+        try:
+            await asyncio.Future()
+        finally:
+            slow_stopped.set()
+
+    monkeypatch.setattr("openharness.engine.query._execute_tool_call", execute_tool)
+    engine = QueryEngine(
+        api_client=FakeApiClient([
+            _FakeResponse(
+                message=ConversationMessage(
+                    role="assistant",
+                    content=[
+                        ToolUseBlock(id="toolu_fast", name="fast", input={}),
+                        ToolUseBlock(id="toolu_slow", name="slow", input={}),
+                    ],
+                ),
+                usage=UsageSnapshot(),
+            ),
+            _FakeResponse(
+                message=ConversationMessage(role="assistant", content=[TextBlock(text="resumed")]),
+                usage=UsageSnapshot(),
+            ),
+        ]),
+        tool_registry=ToolRegistry(),
+        permission_checker=PermissionChecker(PermissionSettings()),
+        cwd=tmp_path,
+        model="claude-test",
+        system_prompt="system",
+    )
+
+    async def run_turn():
+        return [event async for event in engine.submit_message("run two tools")]
+
+    turn = asyncio.create_task(run_turn())
+    try:
+        await asyncio.wait_for(fast_finished.wait(), timeout=5)
+    finally:
+        turn.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await turn
+
+    assert slow_stopped.is_set()
+    assert engine.has_pending_continuation()
+    fast, slow = engine.messages[-1].content
+    assert isinstance(fast, ToolResultBlock) and fast.tool_use_id == "toolu_fast"
+    assert fast.content == "already finished" and not fast.is_error
+    assert isinstance(slow, ToolResultBlock) and slow.tool_use_id == "toolu_slow"
+    assert slow.is_error and "interrupted" in slow.content
+
+    resumed = [event async for event in engine.continue_pending()]
+    assert isinstance(resumed[-1], AssistantTurnComplete)
+    assert resumed[-1].message.text == "resumed"
+
+
 class _LargeOutputTool(BaseTool):
     name = "mcp__playwright__browser_snapshot"
     description = "Returns a large browser snapshot."

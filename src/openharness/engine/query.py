@@ -26,6 +26,7 @@ from openharness.engine.messages import (
     ImageBlock,
     TextBlock,
     ToolResultBlock,
+    ToolUseBlock,
 )
 from openharness.engine.stream_events import (
     AssistantTextDelta,
@@ -831,12 +832,7 @@ async def run_query(
             try:
                 result = await _execute_tool_call(context, tc.name, tc.id, tc.input)
             except Exception as exc:
-                log.exception("tool execution raised: name=%s id=%s", tc.name, tc.id)
-                result = ToolResultBlock(
-                    tool_use_id=tc.id,
-                    content=f"Tool {tc.name} failed: {type(exc).__name__}: {exc}",
-                    is_error=True,
-                )
+                result = _tool_result_or_error(tc, exc)
             tool_results = [result]
             messages.append(ConversationMessage(role="user", content=tool_results))
             yield ToolExecutionCompleted(
@@ -850,31 +846,30 @@ async def run_query(
             for tc in tool_calls:
                 yield ToolExecutionStarted(tool_name=tc.name, tool_input=tc.input), None
 
-            async def _run(tc):
-                return await _execute_tool_call(context, tc.name, tc.id, tc.input)
-
-            # Use return_exceptions=True so a single failing tool does not abandon
-            # its siblings as cancelled coroutines and leave the conversation with
-            # un-replied tool_use blocks (Anthropic's API rejects the next request
-            # on the session if any tool_use is missing a matching tool_result).
-            raw_results = await asyncio.gather(
-                *[_run(tc) for tc in tool_calls], return_exceptions=True
-            )
-            tool_results = []
-            for tc, result in zip(tool_calls, raw_results):
-                if isinstance(result, BaseException):
-                    log.exception(
-                        "tool execution raised: name=%s id=%s",
-                        tc.name,
-                        tc.id,
-                        exc_info=result,
-                    )
-                    result = ToolResultBlock(
-                        tool_use_id=tc.id,
-                        content=f"Tool {tc.name} failed: {type(result).__name__}: {result}",
-                        is_error=True,
-                    )
-                tool_results.append(result)
+            tasks = [
+                asyncio.create_task(_execute_tool_call(context, tc.name, tc.id, tc.input))
+                for tc in tool_calls
+            ]
+            try:
+                raw_results = await asyncio.gather(*tasks, return_exceptions=True)
+            except asyncio.CancelledError:
+                if any(not task.cancelled() for task in tasks):
+                    # Keep completed results and pair every interrupted call so the
+                    # provider can accept the history when the user resumes.
+                    interrupted_results = [
+                        _tool_result_or_error(
+                            tc,
+                            asyncio.CancelledError() if task.cancelled()
+                            else task.exception() or task.result(),
+                        )
+                        for tc, task in zip(tool_calls, tasks)
+                    ]
+                    messages.append(ConversationMessage(role="user", content=interrupted_results))
+                raise
+            tool_results = [
+                _tool_result_or_error(tc, result)
+                for tc, result in zip(tool_calls, raw_results)
+            ]
 
             messages.append(ConversationMessage(role="user", content=tool_results))
             for tc, result in zip(tool_calls, tool_results):
@@ -888,6 +883,24 @@ async def run_query(
     if context.max_turns is not None:
         raise MaxTurnsExceeded(context.max_turns)
     raise RuntimeError("Query loop exited without a max_turns limit or final response")
+
+
+def _tool_result_or_error(
+    tool_call: ToolUseBlock, result: ToolResultBlock | BaseException
+) -> ToolResultBlock:
+    if isinstance(result, ToolResultBlock):
+        return result
+    if isinstance(result, asyncio.CancelledError):
+        content = f"Tool {tool_call.name} was interrupted."
+    else:
+        log.error(
+            "tool execution raised: name=%s id=%s",
+            tool_call.name,
+            tool_call.id,
+            exc_info=result,
+        )
+        content = f"Tool {tool_call.name} failed: {type(result).__name__}: {result}"
+    return ToolResultBlock(tool_use_id=tool_call.id, content=content, is_error=True)
 
 
 async def _execute_tool_call(
