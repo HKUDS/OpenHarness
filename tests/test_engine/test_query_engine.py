@@ -519,7 +519,16 @@ async def test_query_engine_reactive_compacts_after_prompt_too_long(tmp_path: Pa
 
 
 @pytest.mark.asyncio
-async def test_query_engine_tracks_recent_read_files_and_skills(tmp_path: Path):
+@pytest.mark.parametrize(
+    ("read_options", "expected_span", "expected_text"),
+    [
+        ({}, "lines 1-200", "alpha"),
+        ({"offset": "1.0", "limit": "1.0"}, "lines 2-2", "beta"),
+    ],
+)
+async def test_query_engine_tracks_recent_read_files_and_skills(
+    tmp_path: Path, read_options, expected_span: str, expected_text: str
+):
     sample = tmp_path / "hello.txt"
     sample.write_text("alpha\nbeta\n", encoding="utf-8")
     registry = create_default_tool_registry()
@@ -540,7 +549,9 @@ async def test_query_engine_tracks_recent_read_files_and_skills(tmp_path: Path):
                     message=ConversationMessage(
                         role="assistant",
                         content=[
-                            ToolUseBlock(name="read_file", input={"path": str(sample)}),
+                            ToolUseBlock(
+                                name="read_file", input={"path": str(sample), **read_options}
+                            ),
                             ToolUseBlock(name="skill", input={"name": "demo-skill"}),
                         ],
                     ),
@@ -569,7 +580,8 @@ async def test_query_engine_tracks_recent_read_files_and_skills(tmp_path: Path):
     read_state = engine._tool_metadata.get("read_file_state")
     assert isinstance(read_state, list) and read_state
     assert read_state[-1]["path"] == str(sample.resolve())
-    assert "alpha" in read_state[-1]["preview"]
+    assert read_state[-1]["span"] == expected_span
+    assert expected_text in read_state[-1]["preview"]
     task_focus = engine.tool_metadata.get("task_focus_state")
     assert isinstance(task_focus, dict)
     assert "track context" in task_focus.get("goal", "")
@@ -579,7 +591,7 @@ async def test_query_engine_tracks_recent_read_files_and_skills(tmp_path: Path):
     assert invoked_skills[-1] == "demo-skill"
     verified = engine.tool_metadata.get("recent_verified_work")
     assert isinstance(verified, list)
-    assert any("Inspected file" in entry for entry in verified)
+    assert f"Inspected file {sample.resolve()} ({expected_span})" in verified
     assert any("Loaded skill demo-skill" in entry for entry in verified)
 
 

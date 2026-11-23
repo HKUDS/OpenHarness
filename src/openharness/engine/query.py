@@ -42,6 +42,7 @@ from openharness.permissions.checker import PermissionChecker
 from openharness.services.tool_outputs import tool_output_inline_chars, tool_output_preview_chars
 from openharness.tools.base import ToolExecutionContext
 from openharness.tools.base import ToolRegistry
+from openharness.tools.file_read_tool import FileReadToolInput
 
 AUTO_COMPACT_STATUS_MESSAGE = "Auto-compacting conversation memory to keep things fast and focused."
 REACTIVE_COMPACT_STATUS_MESSAGE = "Prompt too long; compacting conversation memory and retrying."
@@ -397,6 +398,7 @@ def _record_tool_carryover(
     *,
     tool_name: str,
     tool_input: dict[str, object],
+    parsed_input: object,
     tool_output: str,
     tool_result_metadata: dict[str, object] | None,
     is_error: bool,
@@ -406,9 +408,13 @@ def _record_tool_carryover(
         return
     if resolved_file_path is not None:
         _remember_active_artifact(context.tool_metadata, resolved_file_path)
-    if tool_name == "read_file" and resolved_file_path is not None:
-        offset = int(tool_input.get("offset") or 0)
-        limit = int(tool_input.get("limit") or 200)
+    if (
+        tool_name == "read_file"
+        and resolved_file_path is not None
+        and isinstance(parsed_input, FileReadToolInput)
+    ):
+        offset = parsed_input.offset
+        limit = parsed_input.limit
         _remember_read_file(
             context.tool_metadata,
             path=resolved_file_path,
@@ -999,6 +1005,7 @@ async def _execute_tool_call(
         context,
         tool_name=tool_name,
         tool_input=tool_input,
+        parsed_input=parsed_input,
         tool_output=tool_result.content,
         tool_result_metadata=result.metadata,
         is_error=tool_result.is_error,
