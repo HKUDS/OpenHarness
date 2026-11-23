@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from openharness.config.settings import load_settings, save_settings
 from openharness.tools.bash_tool import BashTool, BashToolInput
 from openharness.tools.base import ToolExecutionContext
 from openharness.tools.brief_tool import BriefTool, BriefToolInput
@@ -225,6 +226,42 @@ async def test_skill_todo_and_config_tools(tmp_path: Path, monkeypatch):
         ToolExecutionContext(cwd=tmp_path),
     )
     assert config_result.output == "Updated theme"
+
+
+@pytest.mark.asyncio
+async def test_config_tool_validates_settings_before_persisting(tmp_path, monkeypatch):
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
+    tool = ConfigTool()
+    context = ToolExecutionContext(cwd=tmp_path)
+    save_settings(load_settings())
+
+    updates = (
+        ("web.synthetic_dns_cidrs", "10.0.0.0/8, 192.168.0.0/16"),
+        ("enabled_plugins", '{"sample": "false"}'),
+        ("memory.context_window_tokens", "12000"),
+        ("sandbox.docker", '{"extra_env": {"STATUS": "ready"}}'),
+        ("verbose", " yes "),
+    )
+    for key, value in updates:
+        result = await tool.execute(ConfigToolInput(action="set", key=key, value=value), context)
+        assert not result.is_error, result.output
+
+    settings = load_settings()
+    assert settings.web.synthetic_dns_cidrs == ["10.0.0.0/8", "192.168.0.0/16"]
+    assert settings.enabled_plugins == {"sample": False}
+    assert settings.memory.context_window_tokens == 12000
+    assert settings.sandbox.docker.extra_env == {"STATUS": "ready"}
+    assert settings.verbose is True
+
+    invalid_updates = (
+        ("web.synthetic_dns_cidrs", '["valid", 123]'),
+        ("enabled_plugins", '{"sample": "invalid"}'),
+        ("memory.context_window_tokens", "invalid"),
+    )
+    for key, value in invalid_updates:
+        result = await tool.execute(ConfigToolInput(action="set", key=key, value=value), context)
+        assert result.is_error
+        assert load_settings() == settings
 
 
 @pytest.mark.asyncio
