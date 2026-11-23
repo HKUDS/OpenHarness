@@ -16,6 +16,11 @@ The format is based on Keep a Changelog, and this project currently tracks chang
 
 ### Fixed
 
+- MiniMax model IDs now omit trailing context-window labels such as `[1M]` when sent to the API.
+- Gemini tool-call signatures survive session snapshots and are replayed with the original tool calls.
+- The skills prompt includes a concrete `skill` tool invocation.
+- OHMO gateway startup waits for the child to report readiness. Restart requests from the gateway's own shell are handled by the running gateway itself.
+
 - The `config` tool validates changes using the settings schema before saving them, including structured fields and fields without a current value.
 - Interactive `--debug` reaches the backend, and MCP connection logs report status without including command arguments, request URLs, or credentials.
 - Interrupting parallel tools preserves completed results and marks the remaining calls as interrupted so the conversation can continue.
@@ -38,7 +43,7 @@ The format is based on Keep a Changelog, and this project currently tracks chang
 - Multimodal model detection now recognizes OpenAI `gpt-4.1` and `gpt-5`
   family model names, including `gpt-5.5`, so image inputs are sent natively
   instead of being routed through the image-to-text fallback.
-- Truncated tool output now includes an explicit instruction telling the agent not to infer or supplement omitted content from training knowledge. Previously, partial JSON previews could cause the agent to hallucinate missing information.
+- Truncated tool output now marks the preview as incomplete and points to the full output file.
 - Codex subscription requests now pass reasoning effort separately, enabling `gpt-5.5` with `xhigh` effort instead of treating `gpt-5.5 xhigh` as an unsupported model name.
 - Telegram channel now delivers replies again under `ohmo init --no-interactive` and other configs that do not write a `reply_to_message` field. `TelegramConfig` declares `reply_to_message: bool = True` so the attribute access in `TelegramChannel.send` no longer raises `AttributeError` and outbound progress/tool-hint/final messages are sent as expected. See issue #243.
 - Interrupting a tool-driven turn after a tool finishes now preserves its result, so `/continue` resumes the pending model turn instead of losing that result.

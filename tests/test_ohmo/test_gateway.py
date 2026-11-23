@@ -432,9 +432,15 @@ def test_start_gateway_process_uses_child_log_file_handler_without_console_dupli
     class FakeProcess:
         pid = 1234
 
+        def poll(self):
+            return None
+
     def fake_popen(args, **kwargs):
         captured["args"] = args
         captured["kwargs"] = kwargs
+        (workspace / "state.json").write_text(
+            GatewayState(running=True, pid=FakeProcess.pid).model_dump_json(), encoding="utf-8",
+        )
         return FakeProcess()
 
     monkeypatch.setattr("ohmo.gateway.service.subprocess.Popen", fake_popen)
@@ -450,6 +456,54 @@ def test_start_gateway_process_uses_child_log_file_handler_without_console_dupli
     assert isinstance(kwargs, dict)
     assert kwargs["stdout"] is kwargs["stderr"]
     assert getattr(kwargs["stdout"], "name", "").endswith("gateway.log")
+
+
+def test_start_gateway_process_detects_exit_during_readiness(tmp_path, monkeypatch):
+    workspace = tmp_path / ".ohmo-home"
+    initialize_workspace(workspace)
+    polls = iter((None, 17))
+
+    class FakeProcess:
+        pid = 1234
+
+        def poll(self):
+            return next(polls)
+
+    def fake_popen(*args, **kwargs):
+        (workspace / "state.json").write_text(
+            GatewayState(running=True, pid=FakeProcess.pid).model_dump_json(), encoding="utf-8",
+        )
+        return FakeProcess()
+
+    monkeypatch.setattr("ohmo.gateway.service.subprocess.Popen", fake_popen)
+    monkeypatch.setattr("ohmo.gateway.service.time.sleep", lambda _: None)
+    with pytest.raises(RuntimeError, match=r"status 17.*gateway.log"):
+        start_gateway_process(tmp_path, workspace)
+
+
+def test_start_gateway_process_cleans_up_child_that_never_reports_ready(tmp_path, monkeypatch):
+    workspace = tmp_path / ".ohmo-home"
+    stopped = []
+
+    class FakeProcess:
+        pid = 1234
+
+        def poll(self):
+            return None
+
+        def terminate(self):
+            stopped.append(self.pid)
+
+        def wait(self, timeout):
+            assert timeout == 3
+            return 0
+
+    monkeypatch.setattr("ohmo.gateway.service.subprocess.Popen", lambda *a, **kw: FakeProcess())
+    monkeypatch.setattr("ohmo.gateway.service._STARTUP_TIMEOUT_SECONDS", 0)
+
+    with pytest.raises(RuntimeError, match=r"did not report readiness.*gateway.log"):
+        start_gateway_process(tmp_path, workspace)
+    assert stopped == [1234]
 
 
 def test_stop_gateway_process_kills_matching_workspace_processes(tmp_path, monkeypatch):

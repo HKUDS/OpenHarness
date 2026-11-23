@@ -20,6 +20,7 @@ if sys.platform == "win32":
 from openharness.channels.bus.events import OutboundMessage
 from openharness.channels.bus.queue import MessageBus
 from openharness.channels.impl.manager import ChannelManager
+from openharness.utils.fs import atomic_write_text
 
 from ohmo.gateway.bridge import OhmoGatewayBridge
 from ohmo.gateway.config import build_channel_manager_config, load_gateway_config
@@ -35,6 +36,9 @@ from ohmo.workspace import (
 
 logger = logging.getLogger(__name__)
 _REPO_ROOT = Path(__file__).resolve().parents[2]
+_STARTUP_TIMEOUT_SECONDS = 15.0
+_STARTUP_GRACE_SECONDS = 0.2
+_GATEWAY_PID_ENV = "OHMO_GATEWAY_PID"
 
 
 class OhmoGatewayService:
@@ -102,7 +106,7 @@ class OhmoGatewayService:
             enabled_channels=self._config.enabled_channels,
             last_error=last_error or self._channel_last_error(),
         )
-        self.state_file.write_text(state.model_dump_json(indent=2) + "\n", encoding="utf-8")
+        atomic_write_text(self.state_file, state.model_dump_json(indent=2) + "\n")
 
     async def request_restart(self, message, session_key: str) -> None:
         """Ask the foreground gateway loop to restart itself."""
@@ -198,61 +202,111 @@ class OhmoGatewayService:
             path.unlink(missing_ok=True)
 
     async def run_foreground(self) -> int:
-        self.pid_file.write_text(str(os.getpid()), encoding="utf-8")
-        self.write_state(running=True)
+        pid = str(os.getpid())
+        restart_request = _restart_request_path(get_workspace_root(self._workspace), pid)
+        restart_request.unlink(missing_ok=True)
+        self.pid_file.write_text(pid, encoding="utf-8")
+        previous_pid = os.environ.get(_GATEWAY_PID_ENV)
+        os.environ[_GATEWAY_PID_ENV] = pid
+        stop_event = asyncio.Event()
+        self._stop_event = stop_event
+        self._restart_requested = False
+
+        loop = asyncio.get_running_loop()
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            with contextlib.suppress(NotImplementedError):
+                loop.add_signal_handler(sig, stop_event.set)
+
+        async def _state_heartbeat() -> None:
+            while not stop_event.is_set():
+                self.write_state(running=True)
+                for _ in range(20):
+                    if stop_event.is_set():
+                        return
+                    if restart_request.exists():
+                        restart_request.unlink(missing_ok=True)
+                        self._restart_requested = True
+                        stop_event.set()
+                        return
+                    await asyncio.sleep(0.25)
+
         bridge_task = asyncio.create_task(self._bridge.run(), name="ohmo-gateway-bridge")
         manager_task = asyncio.create_task(self._manager.start_all(), name="ohmo-gateway-channels")
         restart_notice_task = asyncio.create_task(
             self._publish_pending_restart_notice(),
             name="ohmo-gateway-restart-notice",
         )
-        stop_event = asyncio.Event()
-        self._stop_event = stop_event
-        self._restart_requested = False
-
-        def _stop(*_: object) -> None:
-            stop_event.set()
-
-        loop = asyncio.get_running_loop()
-        for sig in (signal.SIGTERM, signal.SIGINT):
-            with contextlib.suppress(NotImplementedError):
-                loop.add_signal_handler(sig, _stop)
-
-        async def _state_heartbeat() -> None:
-            while not stop_event.is_set():
-                self.write_state(running=True)
-                await asyncio.sleep(5.0)
-
-        state_task = asyncio.create_task(_state_heartbeat(), name="ohmo-gateway-state")
-
+        stop_task = asyncio.create_task(stop_event.wait(), name="ohmo-gateway-stop")
+        tasks = [bridge_task, manager_task, restart_notice_task, stop_task]
+        workers = {bridge_task}
+        if self._config.enabled_channels:
+            workers.add(manager_task)
+        last_error = None
         try:
-            await stop_event.wait()
+            await asyncio.sleep(0)
+            for worker in workers:
+                if worker.done():
+                    worker.result()
+                    raise RuntimeError(f"{worker.get_name()} stopped during startup")
+            self.write_state(running=True)
+            state_task = asyncio.create_task(_state_heartbeat(), name="ohmo-gateway-state")
+            tasks.append(state_task)
+            finished, _ = await asyncio.wait(
+                {stop_task, state_task, *workers}, return_when=asyncio.FIRST_COMPLETED,
+            )
+            if not stop_event.is_set():
+                for worker in finished:
+                    worker.result()
+                names = ", ".join(task.get_name() for task in finished)
+                raise RuntimeError(f"Gateway worker stopped unexpectedly: {names}")
         except Exception as exc:
-            self.write_state(running=False, last_error=str(exc))
+            last_error = str(exc)
             raise
         finally:
             self._bridge.stop()
-            bridge_task.cancel()
-            manager_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await bridge_task
-            with contextlib.suppress(asyncio.CancelledError):
-                await manager_task
-            if not state_task.done():
-                state_task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await state_task
-            if not restart_notice_task.done():
-                restart_notice_task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await restart_notice_task
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
             await self._manager.stop_all()
-            self.write_state(running=False)
-            self.pid_file.unlink(missing_ok=True)
+            with contextlib.suppress(FileNotFoundError):
+                if self.pid_file.read_text(encoding="utf-8").strip() == pid:
+                    self.write_state(running=False, last_error=last_error)
+                    self.pid_file.unlink(missing_ok=True)
             self._stop_event = None
+            if previous_pid is None:
+                os.environ.pop(_GATEWAY_PID_ENV, None)
+            else:
+                os.environ[_GATEWAY_PID_ENV] = previous_pid
         if self._restart_requested:
             self._exec_restart()
         return 0
+
+
+def _restart_request_path(root: Path, pid: str) -> Path:
+    return root / f"gateway-restart-{pid}.request"
+
+
+def request_restart_from_gateway_child(workspace: str | Path | None = None) -> bool:
+    """Queue a restart when the command is running inside the gateway's own session."""
+    pid = os.environ.get(_GATEWAY_PID_ENV, "")
+    inherited_workspace = os.environ.get("OHMO_WORKSPACE")
+    root = get_workspace_root(workspace)
+    if not pid.isascii() or not pid.isdecimal() or not inherited_workspace:
+        return False
+    if root != Path(inherited_workspace).resolve():
+        return False
+    with contextlib.suppress(FileNotFoundError):
+        if (root / "gateway.pid").read_text(encoding="utf-8").strip() == pid:
+            atomic_write_text(_restart_request_path(root, pid), "restart\n")
+            return True
+    return False
+
+
+def _read_gateway_state(path: Path) -> GatewayState | None:
+    try:
+        return GatewayState.model_validate_json(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
 
 
 def start_gateway_process(cwd: str | Path | None = None, workspace: str | Path | None = None) -> int:
@@ -297,16 +351,37 @@ def start_gateway_process(cwd: str | Path | None = None, workspace: str | Path |
             **popen_kwargs,
         )
 
-    # Verify the process actually started rather than crashing immediately.
-    # Poll for up to ~1.5 s in increasing intervals to give the process time
-    # to initialise before declaring it alive.
-    for delay in (0.1, 0.2, 0.4, 0.8):
-        time.sleep(delay)
-        if _pid_is_running(process.pid):
-            return process.pid
+    deadline = time.monotonic() + _STARTUP_TIMEOUT_SECONDS
+    ready_since: float | None = None
+    while True:
+        exit_code = process.poll()
+        if exit_code is not None:
+            raise RuntimeError(
+                f"Gateway process (pid={process.pid}) exited with status {exit_code}. "
+                f"Check {service.log_file} for details."
+            )
+        now = time.monotonic()
+        state = _read_gateway_state(service.state_file)
+        if state and state.running and state.pid == process.pid:
+            if ready_since is None:
+                ready_since = now
+            if now - ready_since >= _STARTUP_GRACE_SECONDS:
+                return process.pid
+        else:
+            ready_since = None
+        if now >= deadline:
+            break
+        time.sleep(0.1)
 
+    with contextlib.suppress(ProcessLookupError):
+        process.terminate()
+        try:
+            process.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
     raise RuntimeError(
-        f"Gateway process (pid={process.pid}) exited immediately after start. "
+        f"Gateway process (pid={process.pid}) did not report readiness. "
         f"Check {service.log_file} for details."
     )
 
@@ -446,19 +521,13 @@ def gateway_status(cwd: str | Path | None = None, workspace: str | Path | None =
         else:
             service.pid_file.unlink(missing_ok=True)
 
-    active_sessions = 0
-    last_error: str | None = None
-    if service.state_file.exists():
-        with contextlib.suppress(Exception):
-            state = GatewayState.model_validate_json(service.state_file.read_text(encoding="utf-8"))
-            active_sessions = state.active_sessions
-            last_error = state.last_error
+    state = _read_gateway_state(service.state_file)
 
     return GatewayState(
         running=live_pid is not None,
         pid=live_pid,
-        active_sessions=active_sessions,
+        active_sessions=state.active_sessions if state else 0,
         provider_profile=service._config.provider_profile,
         enabled_channels=service._config.enabled_channels,
-        last_error=last_error,
+        last_error=state.last_error if state else None,
     )

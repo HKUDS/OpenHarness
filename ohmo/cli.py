@@ -17,6 +17,7 @@ from ohmo.gateway.models import GatewayConfig
 from ohmo.gateway.service import (
     OhmoGatewayService,
     gateway_status,
+    request_restart_from_gateway_child,
     start_gateway_process,
     stop_gateway_process,
 )
@@ -680,7 +681,11 @@ def gateway_start_cmd(
     cwd: str = typer.Option(str(Path.cwd()), "--cwd", help="Project working directory"),
     workspace: str | None = typer.Option(None, "--workspace", help=_WORKSPACE_HELP),
 ) -> None:
-    pid = start_gateway_process(cwd, workspace)
+    try:
+        pid = start_gateway_process(cwd, workspace)
+    except RuntimeError as exc:
+        typer.echo(f"ERROR: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
     print(f"ohmo gateway started (pid={pid})")
 
 
@@ -700,6 +705,9 @@ def gateway_restart_cmd(
     cwd: str = typer.Option(str(Path.cwd()), "--cwd", help="Project working directory"),
     workspace: str | None = typer.Option(None, "--workspace", help=_WORKSPACE_HELP),
 ) -> None:
+    if request_restart_from_gateway_child(workspace):
+        print("ohmo gateway restart requested.")
+        return
     stop_gateway_process(cwd, workspace)
     try:
         pid = start_gateway_process(cwd, workspace)

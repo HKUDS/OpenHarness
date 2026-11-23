@@ -181,6 +181,24 @@ def test_ohmo_init_interactive_writes_feishu_gateway_config(tmp_path: Path, monk
     assert config["channel_configs"]["feishu"]["bot_names"] == ["ohmo", "openclaw"]
 
 
+def test_gateway_restart_from_its_own_shell_queues_request(tmp_path, monkeypatch):
+    workspace = tmp_path / ".ohmo-home"
+    workspace.mkdir()
+    (workspace / "gateway.pid").write_text("1234", encoding="utf-8")
+    monkeypatch.setenv("OHMO_GATEWAY_PID", "1234")
+    monkeypatch.setenv("OHMO_WORKSPACE", str(workspace))
+
+    def unexpected_stop(*args, **kwargs):
+        raise AssertionError("the gateway must not stop before the restart is queued")
+
+    monkeypatch.setattr("ohmo.cli.stop_gateway_process", unexpected_stop)
+    result = CliRunner().invoke(app, ["gateway", "restart", "--workspace", str(workspace)])
+
+    assert result.exit_code == 0, result.output
+    assert "restart requested" in result.output
+    assert (workspace / "gateway-restart-1234.request").exists()
+
+
 def test_ohmo_config_interactive_can_restart_gateway(tmp_path: Path, monkeypatch):
     runner = CliRunner()
     workspace = tmp_path / ".ohmo-home"
