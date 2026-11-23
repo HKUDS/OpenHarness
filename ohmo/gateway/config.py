@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from openharness.config.schema import Config
-
 from ohmo.gateway.models import GatewayConfig
 from ohmo.workspace import get_gateway_config_path
+from openharness.config.schema import Config
+from openharness.utils.fs import atomic_write_text
 
 
 def load_gateway_config(workspace: str | Path | None = None) -> GatewayConfig:
@@ -22,7 +22,7 @@ def save_gateway_config(config: GatewayConfig, workspace: str | Path | None = No
     """Persist ``.ohmo/gateway.json``."""
     path = get_gateway_config_path(workspace)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(config.model_dump_json(indent=2) + "\n", encoding="utf-8")
+    atomic_write_text(path, config.model_dump_json(indent=2) + "\n")
     return path
 
 
