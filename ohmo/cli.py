@@ -404,7 +404,11 @@ def _maybe_restart_gateway(*, cwd: str | Path, workspace: str | Path) -> None:
         print("Configuration saved. Restart later with `ohmo gateway restart`.")
         return
     stop_gateway_process(cwd, workspace)
-    pid = start_gateway_process(cwd, workspace)
+    try:
+        pid = start_gateway_process(cwd, workspace)
+    except RuntimeError as exc:
+        print(f"ERROR: {exc}")
+        return
     print(f"ohmo gateway restarted (pid={pid})")
 
 
@@ -697,7 +701,11 @@ def gateway_restart_cmd(
     workspace: str | None = typer.Option(None, "--workspace", help=_WORKSPACE_HELP),
 ) -> None:
     stop_gateway_process(cwd, workspace)
-    pid = start_gateway_process(cwd, workspace)
+    try:
+        pid = start_gateway_process(cwd, workspace)
+    except RuntimeError as exc:
+        typer.echo(f"ERROR: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
     print(f"ohmo gateway restarted (pid={pid})")
 
 
