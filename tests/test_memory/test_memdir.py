@@ -90,6 +90,27 @@ def test_remove_memory_entry_soft_deletes_and_hides_entry(tmp_path: Path, monkey
     assert headers[0].disabled is True
 
 
+
+def test_memory_index_matches_exact_link_destinations(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("OPENHARNESS_DATA_DIR", str(tmp_path / "data"))
+
+    for case, titles in enumerate((("My Foo", "Foo"), ("Foo", "My Foo"))):
+        project_dir = tmp_path / f"repo-{case}"
+        project_dir.mkdir()
+        for title in titles:
+            add_memory_entry(project_dir, title, f"Unique contents for {title}")
+
+        entrypoint = get_memory_entrypoint(project_dir)
+        index = entrypoint.read_text(encoding="utf-8")
+        assert index.count("](foo.md)") == 1
+        assert index.count("](my_foo.md)") == 1
+
+        assert remove_memory_entry(project_dir, "foo") is True
+        index = entrypoint.read_text(encoding="utf-8")
+        assert "](foo.md)" not in index
+        assert index.count("](my_foo.md)") == 1
+
+
 def test_migrate_memory_backfills_schema(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("OPENHARNESS_DATA_DIR", str(tmp_path / "data"))
     project_dir = tmp_path / "repo"

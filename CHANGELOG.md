@@ -20,6 +20,7 @@ The format is based on Keep a Changelog, and this project currently tracks chang
 - CI now explicitly selects Ruff rules `E4,E7,E9,F` to keep lint results stable across Ruff releases.
 - The test suite no longer picks up a contributor's real `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, or `ANTHROPIC_MODEL` environment variables. An autouse fixture clears them for every test, so machines that run Claude Code through a relay or subscription bridge see the same results as CI instead of shadowed auth and model assertions.
 - Stopping a background task now emits one completion notification with its exit code, avoiding duplicate callbacks and incomplete subagent-stop hook payloads.
+- Project and ohmo personal memory indexes now match exact Markdown link destinations, preventing overlapping memory filenames from hiding or removing unrelated index entries.
 - Codex subscription requests now pass reasoning effort separately, enabling `gpt-5.5` with `xhigh` effort instead of treating `gpt-5.5 xhigh` as an unsupported model name.
 - Telegram channel now delivers replies again under `ohmo init --no-interactive` and other configs that do not write a `reply_to_message` field. `TelegramConfig` declares `reply_to_message: bool = True` so the attribute access in `TelegramChannel.send` no longer raises `AttributeError` and outbound progress/tool-hint/final messages are sent as expected. See issue #243.
 

@@ -115,7 +115,8 @@ def add_memory_entry(
 
         entrypoint = memory_dir / "MEMORY.md"
         index_text = entrypoint.read_text(encoding="utf-8") if entrypoint.exists() else "# Memory Index\n"
-        if path.name not in index_text:
+        link_target = f"]({path.name})"
+        if link_target not in index_text:
             index_text = index_text.rstrip() + f"\n- [{title}]({path.name})\n"
             atomic_write_text(entrypoint, index_text)
     return path
@@ -150,10 +151,11 @@ def remove_memory_entry(cwd: str | Path, name: str) -> bool:
 
         entrypoint = get_memory_entrypoint(cwd)
         if entrypoint.exists():
+            link_target = f"]({path.name})"
             lines = [
                 line
                 for line in entrypoint.read_text(encoding="utf-8").splitlines()
-                if path.name not in line
+                if link_target not in line
             ]
             atomic_write_text(entrypoint, "\n".join(lines).rstrip() + "\n")
     return True
