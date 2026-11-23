@@ -537,7 +537,7 @@ async def test_backend_host_uses_effective_model_from_env_override(tmp_path, mon
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
     monkeypatch.setenv("OPENHARNESS_DATA_DIR", str(tmp_path / "data"))
-    monkeypatch.setenv("OPENHARNESS_MODEL", "minimax-m1")
+    monkeypatch.setenv("OPENHARNESS_MODEL", "MiniMax-M3")
 
     host = ReactBackendHost(BackendHostConfig(api_client=StaticApiClient("unused")))
     host._bundle = await build_runtime(api_client=StaticApiClient("unused"))
@@ -549,11 +549,11 @@ async def test_backend_host_uses_effective_model_from_env_override(tmp_path, mon
     host._emit = _emit  # type: ignore[method-assign]
     await start_runtime(host._bundle)
     try:
-        assert host._bundle.app_state.get().model == "minimax-m1"
+        assert host._bundle.app_state.get().model == "MiniMax-M3"
 
         # Exercise sync_app_state through a slash command refresh path.
         await host._process_line("/fast show")
-        assert host._bundle.app_state.get().model == "minimax-m1"
+        assert host._bundle.app_state.get().model == "MiniMax-M3"
     finally:
         await close_runtime(host._bundle)
 
