@@ -223,7 +223,7 @@ OpenHarness 现在把 provider 视为 **workflow + profile**，而不是只暴�
 |----------|------|
 | `Anthropic-Compatible API` | Anthropic 风格接口，适合 Claude/Kimi/GLM/MiniMax 等 |
 | `Claude Subscription` | 复用本地 `~/.claude/.credentials.json` |
-| `OpenAI-Compatible API` | OpenAI 风格接口，适合 OpenAI/OpenRouter/各种兼容网关 |
+| `OpenAI-Compatible API` | OpenAI 风格接口，适合 OpenAI/OpenRouter/Atlas Cloud/各种兼容网关 |
 | `Codex Subscription` | 复用本地 `~/.codex/auth.json` |
 | `GitHub Copilot` | GitHub Copilot OAuth workflow |
 
