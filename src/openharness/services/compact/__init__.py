@@ -1531,7 +1531,9 @@ async def auto_compact_if_needed(
         token_count=estimate_message_tokens(messages),
         details={"tokens_freed": tokens_freed},
     )
-    if tokens_freed > 0 and not should_autocompact(
+    # A forced (reactive) pass runs because the provider rejected a prompt that
+    # the local estimate said would fit, so the estimate cannot end it early.
+    if tokens_freed > 0 and not force and not should_autocompact(
         messages,
         model,
         state,
