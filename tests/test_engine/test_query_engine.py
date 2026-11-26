@@ -1679,3 +1679,68 @@ async def test_query_engine_drops_empty_assistant_messages(tmp_path: Path):
     assert not any(isinstance(event, AssistantTurnComplete) for event in events)
     assert len(engine.messages) == 1
     assert engine.messages[0].role == "user"
+
+
+class _SmallContextApiClient:
+    """Fake provider whose real context is smaller than the local estimate assumes."""
+
+    def __init__(self, *, max_chars: int) -> None:
+        self.max_chars = max_chars
+        self.request_sizes: list[int] = []
+
+    async def stream_message(self, request):
+        size = sum(
+            len(block.text) if isinstance(block, TextBlock) else len(getattr(block, "content", ""))
+            for message in request.messages
+            for block in message.content
+        )
+        self.request_sizes.append(size)
+        if size > self.max_chars:
+            raise RequestFailure("prompt too long")
+        yield ApiMessageCompleteEvent(
+            message=ConversationMessage(role="assistant", content=[TextBlock(text="fits now")]),
+            usage=UsageSnapshot(input_tokens=1, output_tokens=1),
+            stop_reason=None,
+        )
+
+
+@pytest.mark.asyncio
+async def test_query_engine_reactive_compact_does_not_stop_after_microcompact(tmp_path: Path):
+    # The local estimate stays under the auto-compact threshold, but the provider
+    # rejects the prompt. Clearing a few old tool results must not end the
+    # reactive pass, because the estimate that missed the overflow cannot prove
+    # that the prompt fits now.
+    history = [ConversationMessage.from_user_text("Here is the build log:\n" + "log line\n" * 6000)]
+    for index in range(8):
+        history.append(
+            ConversationMessage(
+                role="assistant",
+                content=[ToolUseBlock(id=f"toolu_{index}", name="bash", input={"command": f"step {index}"})],
+            )
+        )
+        history.append(
+            ConversationMessage(
+                role="user",
+                content=[ToolResultBlock(tool_use_id=f"toolu_{index}", content=f"output {index} " * 20)],
+            )
+        )
+    history.append(ConversationMessage(role="assistant", content=[TextBlock(text="All steps ran.")]))
+
+    api_client = _SmallContextApiClient(max_chars=20_000)
+    engine = QueryEngine(
+        api_client=api_client,
+        tool_registry=create_default_tool_registry(),
+        permission_checker=PermissionChecker(PermissionSettings()),
+        cwd=tmp_path,
+        model="claude-test",
+        system_prompt="system",
+    )
+    engine.load_messages(history)
+
+    events = [event async for event in engine.submit_message("What failed?")]
+
+    assert not any(isinstance(event, ErrorEvent) for event in events)
+    assert isinstance(events[-1], AssistantTurnComplete)
+    assert events[-1].message.text == "fits now"
+    assert len(api_client.request_sizes) == 2
+    assert api_client.request_sizes[-1] <= api_client.max_chars

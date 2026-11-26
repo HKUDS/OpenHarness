@@ -24,6 +24,7 @@ The format is based on Keep a Changelog, and this project currently tracks chang
 - The `config` tool validates changes using the settings schema before saving them, including structured fields and fields without a current value.
 - Interactive `--debug` reaches the backend, and MCP connection logs report status without including command arguments, request URLs, or credentials.
 - Interrupting parallel tools preserves completed results and marks the remaining calls as interrupted so the conversation can continue.
+- Reactive compaction after a provider "prompt too long" error no longer stops after microcompact. The local token estimate already missed the overflow, so the pass continues to context collapse and session-memory or full compaction before the retry.
 
 - Ohmo gateway now respects `send_tool_hints = false` in the bridge, preventing disabled tool hints from being published to the outbound bus or written to INFO logs.
 - `/resume <session_id>` now keeps writing subsequent turns to the restored session instead of creating a new session snapshot under the runtime's startup ID.

@@ -635,3 +635,35 @@ def test_should_autocompact_uses_custom_context_window():
         AutoCompactState(),
         context_window_tokens=4000,
     ) is True
+
+
+@pytest.mark.asyncio
+async def test_forced_auto_compact_continues_after_microcompact():
+    messages = [ConversationMessage.from_user_text("inspect the repo")]
+    for index in range(8):
+        messages.append(
+            ConversationMessage(
+                role="assistant",
+                content=[ToolUseBlock(id=f"toolu_{index}", name="bash", input={"command": f"cat f{index}"})],
+            )
+        )
+        messages.append(
+            ConversationMessage(
+                role="user",
+                content=[ToolResultBlock(tool_use_id=f"toolu_{index}", content="x" * 400)],
+            )
+        )
+    messages.append(ConversationMessage(role="assistant", content=[TextBlock(text="done")]))
+    messages.append(ConversationMessage.from_user_text("next"))
+
+    result, was_compacted = await auto_compact_if_needed(
+        messages,
+        api_client=_CompactApiClient(["<summary>condensed</summary>"]),
+        model="claude-sonnet-4-6",
+        state=AutoCompactState(),
+        force=True,
+        trigger="reactive",
+    )
+
+    assert was_compacted is True
+    assert result[0].text.startswith("[Compact boundary marker]")
