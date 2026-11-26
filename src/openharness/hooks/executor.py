@@ -13,7 +13,12 @@ from typing import Any
 
 import httpx
 
-from openharness.api.client import ApiMessageCompleteEvent, ApiMessageRequest, SupportsStreamingMessages
+from openharness.api.client import (
+    ApiMessageCompleteEvent,
+    ApiMessageRequest,
+    ApiTextDeltaEvent,
+    SupportsStreamingMessages,
+)
 from openharness.engine.messages import ConversationMessage
 from openharness.hooks.events import HookEvent
 from openharness.hooks.loader import HookRegistry
@@ -188,17 +193,25 @@ class HookExecutor:
             max_tokens=512,
         )
 
-        text_chunks: list[str] = []
-        final_event: ApiMessageCompleteEvent | None = None
-        async for event_item in self._context.api_client.stream_message(request):
-            if isinstance(event_item, ApiMessageCompleteEvent):
-                final_event = event_item
-            else:
-                text_chunks.append(event_item.text)
-
-        text = "".join(text_chunks)
-        if final_event is not None and final_event.message.text:
-            text = final_event.message.text
+        try:
+            text = await asyncio.wait_for(
+                self._collect_model_text(request),
+                timeout=hook.timeout_seconds,
+            )
+        except asyncio.TimeoutError:
+            return HookResult(
+                hook_type=hook.type,
+                success=False,
+                blocked=hook.block_on_failure,
+                reason=f"{hook.type} hook timed out after {hook.timeout_seconds}s",
+            )
+        except Exception as exc:
+            return HookResult(
+                hook_type=hook.type,
+                success=False,
+                blocked=hook.block_on_failure,
+                reason=f"{hook.type} hook request failed: {exc}",
+            )
 
         parsed = _parse_hook_json(text)
         if parsed["ok"]:
@@ -210,6 +223,20 @@ class HookExecutor:
             blocked=hook.block_on_failure,
             reason=parsed.get("reason", "hook rejected the event"),
         )
+
+    async def _collect_model_text(self, request: ApiMessageRequest) -> str:
+        text_chunks: list[str] = []
+        final_event: ApiMessageCompleteEvent | None = None
+        async for event_item in self._context.api_client.stream_message(request):
+            if isinstance(event_item, ApiMessageCompleteEvent):
+                final_event = event_item
+            elif isinstance(event_item, ApiTextDeltaEvent):
+                text_chunks.append(event_item.text)
+            # Other events, such as ApiRetryEvent, carry no model text.
+
+        if final_event is not None and final_event.message.text:
+            return final_event.message.text
+        return "".join(text_chunks)
 
 
 def _matches_hook(hook: HookDefinition, payload: dict[str, Any]) -> bool:
