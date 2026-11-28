@@ -1418,3 +1418,36 @@ def test_help_and_list_do_not_duplicate_aliases():
     help_text = reg.help_text()
     assert help_text.count("/exit ") == 1
     assert "/quit" not in help_text
+
+
+@pytest.mark.asyncio
+async def test_usage_cost_and_status_commands_surface_cached_tokens(tmp_path: Path, monkeypatch):
+    from openharness.api.usage import UsageSnapshot
+
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
+    registry = create_default_command_registry()
+    context = _make_context(tmp_path)
+    context.engine._cost_tracker.add(
+        UsageSnapshot(
+            input_tokens=100,
+            output_tokens=50,
+            cache_creation_input_tokens=400,
+            cache_read_input_tokens=800,
+        )
+    )
+
+    usage_cmd, _ = registry.lookup("/usage")
+    usage_res = await usage_cmd.handler("", context)
+    assert "created=400" in usage_res.message
+    assert "read=800" in usage_res.message
+
+    cost_cmd, _ = registry.lookup("/cost")
+    cost_res = await cost_cmd.handler("", context)
+    assert "Cache creation tokens: 400" in cost_res.message
+    assert "Cache read tokens: 800" in cost_res.message
+    assert "Total tokens: 1350" in cost_res.message
+
+    status_cmd, _ = registry.lookup("/status")
+    status_res = await status_cmd.handler("", context)
+    assert "cache_create=400" in status_res.message
+    assert "cache_read=800" in status_res.message

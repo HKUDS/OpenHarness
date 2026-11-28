@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import shlex
 import shutil
@@ -10,6 +11,9 @@ import sys
 
 # Environment variable to override the teammate command
 TEAMMATE_COMMAND_ENV_VAR = "OPENHARNESS_TEAMMATE_COMMAND"
+# Environment variable to cap concurrently active teammates sharing the session API key
+MAX_CONCURRENT_TEAMMATES_ENV_VAR = "OPENHARNESS_MAX_CONCURRENT_TEAMMATES"
+DEFAULT_MAX_CONCURRENT_TEAMMATES = 4
 
 
 # ---------------------------------------------------------------------------
@@ -76,8 +80,55 @@ _TEAMMATE_ENV_VARS = [
     "OPENHARNESS_MINIMAX_API_KEY",
     "OPENHARNESS_NVIDIA_API_KEY",
     "OPENHARNESS_MODELSCOPE_API_KEY",
+    "OPENHARNESS_MAX_CONCURRENT_TEAMMATES",
     "OPENAI_API_KEY",
 ]
+
+
+def resolve_max_concurrent_teammates(explicit: int | None = None) -> int:
+    """Return the configured teammate concurrency cap (0 means unlimited)."""
+    if explicit is not None:
+        value = int(explicit)
+        if value < 0:
+            raise ValueError("max_concurrent_teammates must be >= 0")
+        return value
+
+    raw_env = os.environ.get(MAX_CONCURRENT_TEAMMATES_ENV_VAR)
+    if raw_env is not None and raw_env.strip():
+        value = int(raw_env.strip())
+        if value < 0:
+            raise ValueError(f"{MAX_CONCURRENT_TEAMMATES_ENV_VAR} must be >= 0")
+        return value
+
+    try:
+        from openharness.config.settings import load_settings
+
+        return max(0, int(load_settings().max_concurrent_teammates))
+    except Exception:
+        return DEFAULT_MAX_CONCURRENT_TEAMMATES
+
+
+def warn_if_shared_key_parallel_teammates(
+    active_count: int,
+    *,
+    logger_obj: logging.Logger,
+    backend_name: str,
+    max_concurrent: int,
+) -> None:
+    """Warn when launching parallel teammates that share the parent API key and rate limits."""
+    if active_count < 1:
+        return
+    cap_label = str(max_concurrent) if max_concurrent > 0 else "unlimited"
+    logger_obj.warning(
+        "[%s] Spawning parallel teammate while %d teammate(s) are already active "
+        "(cap=%s). Parallel teammates share the parent API key and provider rate "
+        "limits, multiplying input token usage; prompt caching reduces repeated "
+        "prefix cost and max_concurrent_teammates / %s controls concurrency.",
+        backend_name,
+        active_count,
+        cap_label,
+        MAX_CONCURRENT_TEAMMATES_ENV_VAR,
+    )
 
 
 def get_teammate_command() -> str:

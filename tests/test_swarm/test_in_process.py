@@ -180,3 +180,151 @@ async def test_shutdown_all(backend, tmp_path, monkeypatch):
 
     await backend.shutdown_all(force=True, timeout=2.0)
     assert backend.active_agents() == []
+
+
+# ---------------------------------------------------------------------------
+# Concurrency cap & shared-key warnings
+# ---------------------------------------------------------------------------
+
+
+async def test_in_process_concurrency_cap_limits_parallel_execution(
+    tmp_path: Path, monkeypatch, caplog
+):
+    import asyncio
+    import importlib
+    import logging
+
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    in_process_mod = importlib.import_module("openharness.swarm.in_process")
+    backend = in_process_mod.InProcessBackend(max_concurrent_teammates=2)
+
+    running = 0
+    max_seen = 0
+    started: list[str] = []
+    release_first_wave = asyncio.Event()
+
+    async def _fake_start(*, config, agent_id, abort_controller, query_context=None):
+        nonlocal running, max_seen
+        del config, abort_controller, query_context
+        running += 1
+        max_seen = max(max_seen, running)
+        started.append(agent_id)
+        try:
+            if len(started) <= 2:
+                await release_first_wave.wait()
+            else:
+                await asyncio.sleep(0.01)
+        finally:
+            running -= 1
+
+    monkeypatch.setattr(in_process_mod, "start_in_process_teammate", _fake_start)
+
+    with caplog.at_level(logging.WARNING, logger="openharness.swarm.in_process"):
+        for idx in range(4):
+            cfg = TeammateSpawnConfig(
+                name=f"worker-{idx}",
+                team="cap-team",
+                prompt="run",
+                cwd=str(tmp_path),
+                parent_session_id="sess",
+            )
+            res = await backend.spawn(cfg)
+            assert res.success is True
+
+        await asyncio.sleep(0.05)
+        assert max_seen == 2
+        assert len(started) == 2
+
+        release_first_wave.set()
+        await asyncio.gather(
+            *(entry.task for entry in list(backend._active.values())),
+            return_exceptions=True,
+        )
+
+    assert max_seen == 2
+    assert len(started) == 4
+    assert any("share the parent API key" in rec.message for rec in caplog.records)
+
+
+async def test_in_process_queued_teammate_cancels_cleanly_without_leaking_slot(
+    tmp_path: Path, monkeypatch
+):
+    import asyncio
+    import importlib
+
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    in_process_mod = importlib.import_module("openharness.swarm.in_process")
+    backend = in_process_mod.InProcessBackend(max_concurrent_teammates=1)
+
+    hold_first = asyncio.Event()
+    executed: list[str] = []
+
+    async def _fake_start(*, config, agent_id, abort_controller, query_context=None):
+        del config, abort_controller, query_context
+        executed.append(agent_id)
+        if agent_id.startswith("first@"):
+            await hold_first.wait()
+
+    monkeypatch.setattr(in_process_mod, "start_in_process_teammate", _fake_start)
+
+    await backend.spawn(
+        TeammateSpawnConfig(
+            name="first", team="t", prompt="1", cwd=str(tmp_path), parent_session_id="s"
+        )
+    )
+    await asyncio.sleep(0.02)
+    await backend.spawn(
+        TeammateSpawnConfig(
+            name="queued", team="t", prompt="2", cwd=str(tmp_path), parent_session_id="s"
+        )
+    )
+    await asyncio.sleep(0.02)
+
+    assert await backend.shutdown("queued@t", force=False, timeout=1.0) is True
+    assert executed == ["first@t"]
+
+    hold_first.set()
+    await asyncio.gather(
+        *(entry.task for entry in list(backend._active.values())),
+        return_exceptions=True,
+    )
+
+    res3 = await backend.spawn(
+        TeammateSpawnConfig(
+            name="third", team="t", prompt="3", cwd=str(tmp_path), parent_session_id="s"
+        )
+    )
+    assert res3.success is True
+    await asyncio.gather(
+        *(entry.task for entry in list(backend._active.values())),
+        return_exceptions=True,
+    )
+    assert executed == ["first@t", "third@t"]
+
+
+async def test_run_query_loop_accumulates_cached_tokens(tmp_path: Path, monkeypatch):
+    from types import SimpleNamespace
+    from openharness.api.usage import UsageSnapshot
+    from openharness.swarm.in_process import _run_query_loop
+    from openharness.swarm.mailbox import TeammateMailbox
+
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+    async def _fake_run_query(query_context, messages):
+        del query_context, messages
+        yield SimpleNamespace(type="assistant"), UsageSnapshot(
+            input_tokens=10,
+            output_tokens=5,
+            cache_creation_input_tokens=200,
+            cache_read_input_tokens=300,
+        )
+
+    monkeypatch.setattr("openharness.engine.query.run_query", _fake_run_query)
+
+    ctx = TeammateContext(agent_id="w@t", agent_name="w", team_name="t")
+    cfg = TeammateSpawnConfig(
+        name="w", team="t", prompt="hi", cwd=str(tmp_path), parent_session_id="s"
+    )
+    await _run_query_loop(object(), cfg, ctx, TeammateMailbox(team_name="t", agent_id="w@t"))
+
+    assert ctx.total_tokens == 515

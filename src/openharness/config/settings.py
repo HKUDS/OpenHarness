@@ -581,6 +581,9 @@ class Settings(BaseModel):
     active_profile: str = "claude-api"
     profiles: dict[str, ProviderProfile] = Field(default_factory=default_provider_profiles)
     max_turns: int = 200
+    # Maximum concurrently active swarm teammates sharing the session API key
+    # (0 disables the cap; positive values enforce an asyncio.Semaphore cap).
+    max_concurrent_teammates: int = Field(default=4, ge=0)
 
     # Behavior
     system_prompt: str | None = None
@@ -972,6 +975,13 @@ def _apply_env_overrides(settings: Settings) -> Settings:
     max_turns = os.environ.get("OPENHARNESS_MAX_TURNS")
     if max_turns:
         updates["max_turns"] = int(max_turns)
+
+    max_concurrent_teammates = os.environ.get("OPENHARNESS_MAX_CONCURRENT_TEAMMATES")
+    if max_concurrent_teammates is not None and max_concurrent_teammates.strip():
+        parsed_cap = int(max_concurrent_teammates.strip())
+        if parsed_cap < 0:
+            raise ValueError("OPENHARNESS_MAX_CONCURRENT_TEAMMATES must be >= 0")
+        updates["max_concurrent_teammates"] = parsed_cap
 
     context_window_tokens = os.environ.get("OPENHARNESS_CONTEXT_WINDOW_TOKENS")
     if context_window_tokens:

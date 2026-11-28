@@ -34,6 +34,9 @@ BASE_DELAY = 1.0  # seconds
 MAX_DELAY = 30.0
 RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 529}
 OAUTH_BETA_HEADER = "oauth-2025-04-20"
+CACHE_CONTROL_EPHEMERAL: dict[str, str] = {"type": "ephemeral"}
+MAX_CACHE_BREAKPOINTS = 4
+_CACHEABLE_MESSAGE_BLOCK_TYPES = frozenset({"image", "document", "tool_use", "tool_result"})
 
 
 @dataclass(frozen=True)
@@ -126,12 +129,14 @@ class AnthropicApiClient:
         base_url: str | None = None,
         claude_oauth: bool = False,
         auth_token_resolver: Callable[[], str] | None = None,
+        prompt_caching: bool = True,
     ) -> None:
         self._api_key = api_key
         self._auth_token = auth_token
         self._base_url = base_url
         self._claude_oauth = claude_oauth
         self._auth_token_resolver = auth_token_resolver
+        self._prompt_caching = prompt_caching
         self._session_id = get_claude_code_session_id() if claude_oauth else ""
         self._client = self._create_client()
 
@@ -207,17 +212,16 @@ class AnthropicApiClient:
             "messages": [message.to_api_param() for message in request.messages],
             "max_tokens": request.max_tokens,
         }
-        if request.system_prompt:
-            params["system"] = request.system_prompt
+        system_text = request.system_prompt or ""
         if self._claude_oauth:
             attribution = claude_attribution_header()
-            params["system"] = (
-                f"{attribution}\n{params['system']}"
-                if params.get("system")
-                else attribution
-            )
+            system_text = f"{attribution}\n{system_text}" if system_text else attribution
+        if system_text:
+            params["system"] = system_text
         if request.tools:
-            params["tools"] = request.tools
+            params["tools"] = [dict(tool) for tool in request.tools]
+        if self._prompt_caching:
+            _apply_prompt_caching(params)
         if self._claude_oauth:
             params["betas"] = claude_oauth_betas()
             params["metadata"] = {
@@ -254,12 +258,126 @@ class AnthropicApiClient:
         usage = getattr(final_message, "usage", None)
         yield ApiMessageCompleteEvent(
             message=assistant_message_from_api(final_message),
-            usage=UsageSnapshot(
-                input_tokens=int(getattr(usage, "input_tokens", 0) or 0),
-                output_tokens=int(getattr(usage, "output_tokens", 0) or 0),
-            ),
+            usage=_parse_anthropic_usage(usage),
             stop_reason=getattr(final_message, "stop_reason", None),
         )
+
+
+def _is_cacheable_block(block: dict[str, Any]) -> bool:
+    """Return True if a serialized content block can host a cache_control breakpoint."""
+    block_type = block.get("type")
+    if block_type == "text":
+        text = block.get("text")
+        return isinstance(text, str) and bool(text.strip())
+    return block_type in _CACHEABLE_MESSAGE_BLOCK_TYPES
+
+
+def _count_cache_breakpoints(params: dict[str, Any]) -> int:
+    """Count existing Anthropic prompt-cache breakpoints across tools, system, and messages."""
+    count = 0
+    tools = params.get("tools")
+    if isinstance(tools, list):
+        count += sum(1 for tool in tools if isinstance(tool, dict) and tool.get("cache_control"))
+
+    system = params.get("system")
+    if isinstance(system, list):
+        count += sum(1 for block in system if isinstance(block, dict) and block.get("cache_control"))
+
+    messages = params.get("messages")
+    if isinstance(messages, list):
+        for message in messages:
+            if not isinstance(message, dict):
+                continue
+            content = message.get("content")
+            if isinstance(content, list):
+                count += sum(
+                    1 for block in content if isinstance(block, dict) and block.get("cache_control")
+                )
+    return count
+
+
+def _apply_prompt_caching(params: dict[str, Any]) -> None:
+    """Attach ephemeral cache_control breakpoints within Anthropic's 4-breakpoint limit."""
+    remaining = max(0, MAX_CACHE_BREAKPOINTS - _count_cache_breakpoints(params))
+    if remaining <= 0:
+        return
+
+    # Tools are evaluated first in Anthropic's cache prefix hierarchy, so caching
+    # the last tool definition lets parent and teammates share tool schemas even
+    # when their system prompts differ.
+    tools = params.get("tools")
+    if isinstance(tools, list) and tools and remaining > 0:
+        copied_tools = [dict(tool) if isinstance(tool, dict) else tool for tool in tools]
+        last_tool = copied_tools[-1]
+        if isinstance(last_tool, dict) and not last_tool.get("cache_control"):
+            last_tool["cache_control"] = dict(CACHE_CONTROL_EPHEMERAL)
+            remaining -= 1
+        params["tools"] = copied_tools
+
+    system = params.get("system")
+    if isinstance(system, str):
+        if system.strip() and remaining > 0:
+            params["system"] = [
+                {
+                    "type": "text",
+                    "text": system,
+                    "cache_control": dict(CACHE_CONTROL_EPHEMERAL),
+                }
+            ]
+            remaining -= 1
+    elif isinstance(system, list) and system and remaining > 0:
+        copied_system = [dict(block) if isinstance(block, dict) else block for block in system]
+        has_system_breakpoint = any(
+            isinstance(block, dict) and block.get("cache_control") for block in copied_system
+        )
+        if not has_system_breakpoint:
+            for block in reversed(copied_system):
+                if isinstance(block, dict) and _is_cacheable_block(block):
+                    block["cache_control"] = dict(CACHE_CONTROL_EPHEMERAL)
+                    remaining -= 1
+                    break
+        params["system"] = copied_system
+
+    messages = params.get("messages")
+    if isinstance(messages, list) and messages and remaining > 0:
+        has_message_breakpoint = any(
+            isinstance(message, dict)
+            and isinstance(message.get("content"), list)
+            and any(
+                isinstance(block, dict) and block.get("cache_control")
+                for block in message["content"]
+            )
+            for message in messages
+        )
+        if not has_message_breakpoint:
+            for message in reversed(messages):
+                if not isinstance(message, dict):
+                    continue
+                content = message.get("content")
+                if not isinstance(content, list):
+                    continue
+                for block in reversed(content):
+                    if isinstance(block, dict) and _is_cacheable_block(block):
+                        block["cache_control"] = dict(CACHE_CONTROL_EPHEMERAL)
+                        return
+
+
+def _read_usage_int(usage: Any, field: str) -> int:
+    if isinstance(usage, dict):
+        return int(usage.get(field, 0) or 0)
+    return int(getattr(usage, field, 0) or 0)
+
+
+def _parse_anthropic_usage(usage: Any) -> UsageSnapshot:
+    """Parse standard and prompt-cache token counts from an Anthropic usage payload."""
+    if usage is None:
+        return UsageSnapshot()
+    return UsageSnapshot(
+        input_tokens=_read_usage_int(usage, "input_tokens"),
+        output_tokens=_read_usage_int(usage, "output_tokens"),
+        cache_creation_input_tokens=_read_usage_int(usage, "cache_creation_input_tokens"),
+        cache_read_input_tokens=_read_usage_int(usage, "cache_read_input_tokens"),
+    )
 
 
 def _translate_api_error(exc: APIError) -> OpenHarnessApiError:
