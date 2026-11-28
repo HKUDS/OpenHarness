@@ -35,6 +35,14 @@ class NotebookEditTool(BaseTool):
         context: ToolExecutionContext,
     ) -> ToolResult:
         path = _resolve_path(context.cwd, arguments.path)
+        cwd_resolved = context.cwd.resolve()
+        try:
+            path.relative_to(cwd_resolved)
+        except ValueError:
+            return ToolResult(
+                output=f"Access denied: {path} is outside the workspace root ({cwd_resolved}).",
+                is_error=True,
+            )
         notebook = _load_notebook(path, create_if_missing=arguments.create_if_missing)
         if notebook is None:
             return ToolResult(output=f"Notebook not found: {path}", is_error=True)

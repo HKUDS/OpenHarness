@@ -25,7 +25,15 @@ class TodoWriteTool(BaseTool):
     input_model = TodoWriteToolInput
 
     async def execute(self, arguments: TodoWriteToolInput, context: ToolExecutionContext) -> ToolResult:
-        path = Path(context.cwd) / arguments.path
+        path = (Path(context.cwd) / arguments.path).resolve()
+        cwd_resolved = Path(context.cwd).resolve()
+        try:
+            path.relative_to(cwd_resolved)
+        except ValueError:
+            return ToolResult(
+                output=f"Access denied: {path} is outside the workspace root ({cwd_resolved}).",
+                is_error=True,
+            )
         existing = path.read_text(encoding="utf-8") if path.exists() else "# TODO\n"
 
         unchecked_line = f"- [ ] {arguments.item}"
