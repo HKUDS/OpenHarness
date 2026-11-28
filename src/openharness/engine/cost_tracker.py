@@ -16,6 +16,13 @@ class CostTracker:
         self._usage = UsageSnapshot(
             input_tokens=self._usage.input_tokens + usage.input_tokens,
             output_tokens=self._usage.output_tokens + usage.output_tokens,
+            cache_creation_input_tokens=(
+                self._usage.cache_creation_input_tokens
+                + usage.cache_creation_input_tokens
+            ),
+            cache_read_input_tokens=(
+                self._usage.cache_read_input_tokens + usage.cache_read_input_tokens
+            ),
         )
 
     @property

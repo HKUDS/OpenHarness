@@ -8,6 +8,8 @@ The format is based on Keep a Changelog, and this project currently tracks chang
 
 ### Added
 
+- `AnthropicApiClient` now places Anthropic prompt-caching breakpoints (`cache_control: {"type": "ephemeral"}`) on shared tool definitions, system prompts, and conversation prefixes (respecting the 4-breakpoint limit), and `UsageSnapshot` / `CostTracker` / `/usage` / `/cost` / `/status` track `cache_creation_input_tokens` and `cache_read_input_tokens`.
+- Added a configurable `max_concurrent_teammates` setting (default `4`, override via `OPENHARNESS_MAX_CONCURRENT_TEAMMATES`, `0` for unlimited) enforced with an `asyncio.Semaphore` in `SubprocessBackend` and `InProcessBackend`, along with shared-key parallel token cost warnings and documentation. See issue #365.
 - `oh cron status/list/history` and `oh autopilot status/list` now support `--json`.
 - `oh plugin enable` and `oh plugin disable` manage installed plugins from the CLI.
 

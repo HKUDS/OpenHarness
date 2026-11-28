@@ -465,10 +465,16 @@ def create_default_command_registry(
         usage = context.engine.total_usage
         state = context.app_state.get() if context.app_state is not None else None
         manager = AuthManager()
+        cache_suffix = (
+            f" cache_create={usage.cache_creation_input_tokens}"
+            f" cache_read={usage.cache_read_input_tokens}"
+            if (usage.cache_creation_input_tokens or usage.cache_read_input_tokens)
+            else ""
+        )
         return CommandResult(
             message=(
                 f"Messages: {len(context.engine.messages)}\n"
-                f"Usage: input={usage.input_tokens} output={usage.output_tokens}\n"
+                f"Usage: input={usage.input_tokens} output={usage.output_tokens}{cache_suffix}\n"
                 f"Profile: {manager.get_active_profile()}\n"
                 f"Effort: {state.effort if state is not None else load_settings().effort}\n"
                 f"Passes: {state.passes if state is not None else load_settings().passes}"
@@ -530,9 +536,16 @@ def create_default_command_registry(
     async def _usage_handler(_: str, context: CommandContext) -> CommandResult:
         usage = context.engine.total_usage
         estimated = estimate_conversation_tokens(context.engine.messages)
+        cache_line = (
+            f"\nCache tokens: created={usage.cache_creation_input_tokens} "
+            f"read={usage.cache_read_input_tokens}"
+            if (usage.cache_creation_input_tokens or usage.cache_read_input_tokens)
+            else ""
+        )
         return CommandResult(
             message=(
-                f"Actual usage: input={usage.input_tokens} output={usage.output_tokens}\n"
+                f"Actual usage: input={usage.input_tokens} output={usage.output_tokens}"
+                f"{cache_line}\n"
                 f"Estimated conversation tokens: {estimated}\n"
                 f"Messages: {len(context.engine.messages)}"
             )
@@ -542,19 +555,26 @@ def create_default_command_registry(
         usage = context.engine.total_usage
         model = context.app_state.get().model if context.app_state is not None else load_settings().model
         estimated_cost = "unavailable"
+        weighted_input = (
+            usage.input_tokens
+            + usage.cache_creation_input_tokens * 1.25
+            + usage.cache_read_input_tokens * 0.1
+        )
         if model.startswith("claude-3-5-sonnet"):
-            estimated = (usage.input_tokens * 3.0 + usage.output_tokens * 15.0) / 1_000_000
+            estimated = (weighted_input * 3.0 + usage.output_tokens * 15.0) / 1_000_000
             estimated_cost = f"${estimated:.4f} (estimated)"
         elif model.startswith("claude-3-7-sonnet"):
-            estimated = (usage.input_tokens * 3.0 + usage.output_tokens * 15.0) / 1_000_000
+            estimated = (weighted_input * 3.0 + usage.output_tokens * 15.0) / 1_000_000
             estimated_cost = f"${estimated:.4f} (estimated)"
         elif model.startswith("claude-3-opus"):
-            estimated = (usage.input_tokens * 15.0 + usage.output_tokens * 75.0) / 1_000_000
+            estimated = (weighted_input * 15.0 + usage.output_tokens * 75.0) / 1_000_000
             estimated_cost = f"${estimated:.4f} (estimated)"
         return CommandResult(
             message=(
                 f"Model: {model}\n"
                 f"Input tokens: {usage.input_tokens}\n"
+                f"Cache creation tokens: {usage.cache_creation_input_tokens}\n"
+                f"Cache read tokens: {usage.cache_read_input_tokens}\n"
                 f"Output tokens: {usage.output_tokens}\n"
                 f"Total tokens: {usage.total_tokens}\n"
                 f"Estimated cost: {estimated_cost}"

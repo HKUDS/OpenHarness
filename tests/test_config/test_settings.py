@@ -931,3 +931,18 @@ class TestModelScopeProvider:
         assert materialized.model == "deepseek-ai/DeepSeek-V4-Flash"
         assert materialized.provider == "modelscope"
         assert materialized.api_format == "openai"
+
+
+def test_max_concurrent_teammates_default_and_env_override(tmp_path: Path, monkeypatch):
+    assert Settings().max_concurrent_teammates == 4
+
+    path = tmp_path / "settings.json"
+    path.write_text(json.dumps({"max_concurrent_teammates": 6}), encoding="utf-8")
+    assert load_settings(path).max_concurrent_teammates == 6
+
+    monkeypatch.setenv("OPENHARNESS_MAX_CONCURRENT_TEAMMATES", "2")
+    assert load_settings(path).max_concurrent_teammates == 2
+
+    monkeypatch.setenv("OPENHARNESS_MAX_CONCURRENT_TEAMMATES", "-1")
+    with pytest.raises(ValueError, match="OPENHARNESS_MAX_CONCURRENT_TEAMMATES"):
+        load_settings(path)

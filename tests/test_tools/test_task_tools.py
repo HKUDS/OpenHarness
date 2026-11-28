@@ -246,3 +246,28 @@ async def test_agent_tool_supports_remote_and_teammate_modes(tmp_path: Path, mon
         assert record is not None
         assert record.type == mode
         await _wait_for_terminal_task(task_id)
+
+
+@pytest.mark.asyncio
+async def test_agent_tool_respects_max_concurrent_teammates_env(tmp_path: Path, monkeypatch):
+    import sys
+
+    monkeypatch.setenv("OPENHARNESS_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("OPENHARNESS_MAX_CONCURRENT_TEAMMATES", "1")
+    context = ToolExecutionContext(cwd=tmp_path)
+
+    async def _run_one(idx: int):
+        return await AgentTool().execute(
+            AgentToolInput(
+                description=f"capped-{idx}",
+                prompt="ok",
+                subagent_type=f"capped-{idx}",
+                command=f"{sys.executable} -u -c \"import time; time.sleep(0.1)\"",
+            ),
+            context,
+        )
+
+    results = await asyncio.gather(_run_one(1), _run_one(2))
+    assert all(not r.is_error for r in results)
+    for res in results:
+        await _wait_for_terminal_task(res.metadata["task_id"])

@@ -76,7 +76,9 @@ def _build_delegation_section() -> str:
             "- Send follow-up instructions with `send_message(task_id=..., message=...)`.",
             "- Read worker output with `task_output(task_id=...)`.",
             "",
-            "Prefer a normal direct answer for simple tasks. Use subagents only when they materially help.",
+            "Prefer a normal direct answer for simple tasks. Use subagents only when they materially help; "
+            "parallel teammates share the parent API key and rate limits, multiplying input token usage "
+            "(bounded by `max_concurrent_teammates`).",
         ]
     )
 

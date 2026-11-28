@@ -154,14 +154,27 @@ class OutputRenderer:
         model: str = "unknown",
         input_tokens: int = 0,
         output_tokens: int = 0,
+        cache_creation_input_tokens: int = 0,
+        cache_read_input_tokens: int = 0,
         permission_mode: str = "default",
     ) -> None:
         """Print a compact status line after each turn."""
         parts = [f"[cyan]model: {model}[/cyan]"]
-        if input_tokens > 0 or output_tokens > 0:
+        if (
+            input_tokens > 0
+            or output_tokens > 0
+            or cache_creation_input_tokens > 0
+            or cache_read_input_tokens > 0
+        ):
             down = "\u2193"
             up = "\u2191"
-            parts.append(f"tokens: {_fmt_num(input_tokens)}{down} {_fmt_num(output_tokens)}{up}")
+            token_text = f"tokens: {_fmt_num(input_tokens)}{down} {_fmt_num(output_tokens)}{up}"
+            if cache_read_input_tokens > 0 or cache_creation_input_tokens > 0:
+                token_text += (
+                    f" (cache: {_fmt_num(cache_read_input_tokens)}r/"
+                    f"{_fmt_num(cache_creation_input_tokens)}w)"
+                )
+            parts.append(token_text)
         parts.append(f"mode: {permission_mode}")
         sep = " \u2502 "
         line = sep.join(parts)

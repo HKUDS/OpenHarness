@@ -612,6 +612,13 @@ OpenHarness is useful as a lightweight harness layer around Claude-style tooling
 - **Claude-style plugins and skills** stay portable because OpenHarness keeps those formats familiar.
 - **ClawTeam-style multi-agent work** maps well onto the built-in team, task, and background execution primitives.
 
+#### Swarm concurrency & prompt caching
+
+Parallel teammates inherit the parent session's provider API key and rate limits (`ANTHROPIC_API_KEY`, `OPENHARNESS_*_API_KEY`), which multiplies input token usage and request concurrency across active agents:
+
+- **Prompt caching**: `AnthropicApiClient` automatically places Anthropic `cache_control: {"type": "ephemeral"}` breakpoints on tool definitions, the system prompt, and the latest conversation turn (within Anthropic's 4-breakpoint limit) so parent and teammates share cached prefixes where supported, and tracks `cache_creation_input_tokens` / `cache_read_input_tokens` in usage reports.
+- **Concurrency cap**: `max_concurrent_teammates` defaults to `4` (set `0` to disable the cap) and can be configured in `settings.json`, via `oh config set max_concurrent_teammates <N>`, or via `OPENHARNESS_MAX_CONCURRENT_TEAMMATES`. OpenHarness logs a warning when parallel teammates are spawned against a shared key.
+
 For concrete usage ideas instead of generic claims, see [`docs/SHOWCASE.md`](docs/SHOWCASE.md).
 
 ### 🛡️ Permissions

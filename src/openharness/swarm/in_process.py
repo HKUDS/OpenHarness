@@ -35,6 +35,10 @@ from openharness.swarm.mailbox import (
     TeammateMailbox,
     create_idle_notification,
 )
+from openharness.swarm.spawn_utils import (
+    resolve_max_concurrent_teammates,
+    warn_if_shared_key_parallel_teammates,
+)
 from openharness.swarm.types import (
     BackendType,
     SpawnResult,
@@ -358,8 +362,10 @@ async def _run_query_loop(
         # Track token usage if usage info is provided
         if usage is not None:
             with contextlib.suppress(AttributeError, TypeError):
-                ctx.total_tokens += getattr(usage, "input_tokens", 0)
-                ctx.total_tokens += getattr(usage, "output_tokens", 0)
+                ctx.total_tokens += int(getattr(usage, "input_tokens", 0) or 0)
+                ctx.total_tokens += int(getattr(usage, "output_tokens", 0) or 0)
+                ctx.total_tokens += int(getattr(usage, "cache_creation_input_tokens", 0) or 0)
+                ctx.total_tokens += int(getattr(usage, "cache_read_input_tokens", 0) or 0)
 
         # Track tool use events
         with contextlib.suppress(AttributeError, TypeError):
@@ -410,6 +416,50 @@ class _TeammateEntry:
     started_at: float = field(default_factory=time.time)
 
 
+async def _acquire_semaphore_or_cancel(
+    semaphore: asyncio.Semaphore,
+    abort_controller: TeammateAbortController,
+) -> bool:
+    """Acquire *semaphore*, aborting immediately if *abort_controller* is triggered."""
+    if abort_controller.is_cancelled:
+        return False
+
+    acquire_task = asyncio.create_task(semaphore.acquire())
+    cancel_task = asyncio.create_task(abort_controller.cancel_event.wait())
+    try:
+        done, pending = await asyncio.wait(
+            {acquire_task, cancel_task},
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        for pending_task in pending:
+            pending_task.cancel()
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
+
+        if (
+            acquire_task in done
+            and not acquire_task.cancelled()
+            and acquire_task.exception() is None
+        ):
+            if abort_controller.is_cancelled:
+                semaphore.release()
+                return False
+            return True
+        return False
+    except asyncio.CancelledError:
+        for waiter in (acquire_task, cancel_task):
+            if not waiter.done():
+                waiter.cancel()
+        await asyncio.gather(acquire_task, cancel_task, return_exceptions=True)
+        if (
+            acquire_task.done()
+            and not acquire_task.cancelled()
+            and acquire_task.exception() is None
+        ):
+            semaphore.release()
+        raise
+
+
 class InProcessBackend:
     """TeammateExecutor that runs agents as asyncio Tasks in the current process.
 
@@ -421,9 +471,32 @@ class InProcessBackend:
 
     type: BackendType = "in_process"
 
-    def __init__(self) -> None:
+    def __init__(self, max_concurrent_teammates: int | None = None) -> None:
         # Maps agent_id -> _TeammateEntry
         self._active: dict[str, _TeammateEntry] = {}
+        self._max_concurrent_teammates = max_concurrent_teammates
+        self._semaphore: asyncio.Semaphore | None = None
+        self._semaphore_loop: asyncio.AbstractEventLoop | None = None
+        self._semaphore_limit: int | None = None
+
+    def _get_semaphore(self) -> tuple[asyncio.Semaphore | None, int]:
+        """Return (semaphore, effective_limit) bound to the running event loop."""
+        limit = resolve_max_concurrent_teammates(self._max_concurrent_teammates)
+        if limit <= 0:
+            return None, 0
+
+        loop = asyncio.get_running_loop()
+        if self._semaphore_loop is not loop:
+            self._semaphore = asyncio.Semaphore(limit)
+            self._semaphore_loop = loop
+            self._semaphore_limit = limit
+        elif self._semaphore is None or (
+            self._semaphore_limit != limit and not self.active_agents()
+        ):
+            self._semaphore = asyncio.Semaphore(limit)
+            self._semaphore_limit = limit
+        assert self._semaphore_limit is not None
+        return self._semaphore, self._semaphore_limit
 
     # ------------------------------------------------------------------
     # TeammateExecutor protocol
@@ -457,16 +530,45 @@ class InProcessBackend:
                     error=f"Agent {agent_id!r} is already running",
                 )
 
+        semaphore, effective_limit = self._get_semaphore()
+        warn_if_shared_key_parallel_teammates(
+            len(self.active_agents()),
+            logger_obj=logger,
+            backend_name="InProcessBackend",
+            max_concurrent=effective_limit,
+        )
+
         abort_controller = TeammateAbortController()
+
+        async def _run_teammate() -> None:
+            if semaphore is not None:
+                if semaphore.locked():
+                    logger.info(
+                        "[InProcessBackend] %s waiting for teammate concurrency slot (limit=%d)",
+                        agent_id,
+                        effective_limit,
+                    )
+                acquired = await _acquire_semaphore_or_cancel(semaphore, abort_controller)
+                if not acquired:
+                    logger.debug(
+                        "[InProcessBackend] %s cancelled before acquiring concurrency slot",
+                        agent_id,
+                    )
+                    return
+            try:
+                await start_in_process_teammate(
+                    config=config,
+                    agent_id=agent_id,
+                    abort_controller=abort_controller,
+                )
+            finally:
+                if semaphore is not None:
+                    semaphore.release()
 
         # asyncio.create_task() copies the current Context automatically,
         # so each Task starts with an independent ContextVar state.
         task = asyncio.create_task(
-            start_in_process_teammate(
-                config=config,
-                agent_id=agent_id,
-                abort_controller=abort_controller,
-            ),
+            _run_teammate(),
             name=f"teammate-{agent_id}",
         )
 

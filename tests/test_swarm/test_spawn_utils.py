@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 import sys
 
 from openharness.swarm.spawn_utils import (
@@ -100,3 +101,23 @@ def test_build_inherited_cli_flags_forwards_system_prompt_as_append():
     idx = flags.index("--append-system-prompt")
     assert "Extra worker instructions." in flags[idx + 1]
     assert "--system-prompt" not in flags
+
+
+def test_build_inherited_env_vars_forwards_max_concurrent_teammates(monkeypatch):
+    monkeypatch.setenv("OPENHARNESS_MAX_CONCURRENT_TEAMMATES", "3")
+
+    env = build_inherited_env_vars()
+
+    assert env["OPENHARNESS_MAX_CONCURRENT_TEAMMATES"] == "3"
+
+
+def test_resolve_max_concurrent_teammates_precedence(monkeypatch, tmp_path: Path):
+    from openharness.swarm.spawn_utils import resolve_max_concurrent_teammates
+
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.delenv("OPENHARNESS_MAX_CONCURRENT_TEAMMATES", raising=False)
+    assert resolve_max_concurrent_teammates() == 4
+
+    monkeypatch.setenv("OPENHARNESS_MAX_CONCURRENT_TEAMMATES", "2")
+    assert resolve_max_concurrent_teammates() == 2
+    assert resolve_max_concurrent_teammates(5) == 5
