@@ -39,6 +39,14 @@ class GrepTool(BaseTool):
 
     async def execute(self, arguments: GrepToolInput, context: ToolExecutionContext) -> ToolResult:
         root = _resolve_path(context.cwd, arguments.root) if arguments.root else context.cwd
+        cwd_resolved = context.cwd.resolve()
+        try:
+            root.relative_to(cwd_resolved)
+        except ValueError:
+            return ToolResult(
+                output=f"Access denied: {root} is outside the workspace root ({cwd_resolved}).",
+                is_error=True,
+            )
         if not root.exists():
             return ToolResult(
                 output=(
