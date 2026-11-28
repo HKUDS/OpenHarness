@@ -135,8 +135,13 @@ class BackgroundTaskManager:
         if command is None and argv is None:
             effective_api_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
             if not effective_api_key:
+                from openharness.config.settings import load_settings
+
+                effective_api_key = load_settings().api_key or None
+            if not effective_api_key:
                 raise ValueError(
-                    "Local agent tasks require ANTHROPIC_API_KEY or an explicit command/argv override"
+                    "Local agent tasks require an API key. Set ANTHROPIC_API_KEY, configure "
+                    "api_key in settings.json, or supply an explicit command/argv override."
                 )
             argv = ["python", "-m", "openharness", "--api-key", effective_api_key]
             if model:
