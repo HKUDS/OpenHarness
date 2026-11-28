@@ -101,11 +101,8 @@ class PermissionChecker:
         if tool_name in self._settings.denied_tools:
             return PermissionDecision(allowed=False, reason=f"{tool_name} is explicitly denied")
 
-        # Explicit tool allow list
-        if tool_name in self._settings.allowed_tools:
-            return PermissionDecision(allowed=True, reason=f"{tool_name} is explicitly allowed")
-
-        # Check path-level rules
+        # Check path-level rules — evaluated before the allow list so that a
+        # path deny rule cannot be bypassed by listing the tool in allowed_tools.
         if file_path and self._path_rules:
             for candidate_path in _policy_match_paths(file_path):
                 for rule in self._path_rules:
@@ -116,7 +113,8 @@ class PermissionChecker:
                                 reason=f"Path {file_path} matches deny rule: {rule.pattern}",
                             )
 
-        # Check command deny patterns (e.g. deny "rm -rf /")
+        # Check command deny patterns (e.g. deny "rm -rf /") — also evaluated
+        # before the allow list for the same reason as path deny rules above.
         if command:
             for pattern in getattr(self._settings, "denied_commands", []):
                 if isinstance(pattern, str) and fnmatch.fnmatch(command, pattern):
@@ -124,6 +122,11 @@ class PermissionChecker:
                         allowed=False,
                         reason=f"Command matches deny pattern: {pattern}",
                     )
+
+        # Explicit tool allow list — checked after all deny rules so that deny
+        # always wins when both an allow-list entry and a deny rule match.
+        if tool_name in self._settings.allowed_tools:
+            return PermissionDecision(allowed=True, reason=f"{tool_name} is explicitly allowed")
 
         # Full auto: allow everything
         if self._settings.mode == PermissionMode.FULL_AUTO:
