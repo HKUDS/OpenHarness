@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import builtins
+import sys
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -12,6 +13,7 @@ from openharness.swarm import lockfile
 from openharness.utils import file_lock
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="fcntl unavailable on Windows")
 def test_exclusive_file_lock_creates_lock_file_on_posix(tmp_path: Path):
     lock_path = tmp_path / "locks" / "mailbox.lock"
 

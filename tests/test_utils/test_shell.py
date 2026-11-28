@@ -170,6 +170,10 @@ async def test_create_shell_subprocess_defaults_stdin_to_devnull(monkeypatch, tm
         return _FakeProcess()
 
     monkeypatch.setattr(
+        "openharness.utils.shell.get_platform",
+        lambda: "linux"
+    )
+    monkeypatch.setattr(
         "openharness.utils.shell.asyncio.create_subprocess_exec",
         fake_create_subprocess_exec,
     )
