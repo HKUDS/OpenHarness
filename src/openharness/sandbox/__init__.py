@@ -8,7 +8,10 @@ from openharness.sandbox.adapter import (
     wrap_command_for_sandbox,
 )
 from openharness.sandbox.docker_backend import DockerSandboxSession, get_docker_availability
-from openharness.sandbox.path_validator import validate_sandbox_path
+from openharness.sandbox.path_validator import (
+    validate_sandbox_path,
+    validate_workspace_path,
+)
 from openharness.sandbox.session import (
     get_docker_sandbox,
     is_docker_sandbox_active,
@@ -28,6 +31,7 @@ __all__ = [
     "start_docker_sandbox",
     "stop_docker_sandbox",
     "validate_sandbox_path",
+    "validate_workspace_path",
     "wrap_command_for_sandbox",
 ]
 

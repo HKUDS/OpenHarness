@@ -32,6 +32,16 @@ class FileWriteTool(BaseTool):
     ) -> ToolResult:
         path = _resolve_path(context.cwd, arguments.path)
 
+        # Default-on workspace containment: keep model-supplied writes inside the
+        # repository root even when the optional Docker sandbox is not active and
+        # the run is non-interactive (e.g. the headless task-worker auto-approves
+        # mutating tools and supplies no edit-diff approval callback).
+        from openharness.sandbox.path_validator import validate_workspace_path
+
+        allowed, reason = validate_workspace_path(path, context.cwd, context.metadata)
+        if not allowed:
+            return ToolResult(output=reason, is_error=True)
+
         from openharness.sandbox.session import is_docker_sandbox_active
 
         if is_docker_sandbox_active():

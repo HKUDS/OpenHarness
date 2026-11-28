@@ -424,6 +424,9 @@ async def build_runtime(
             "edit_approval_prompt": edit_approval_prompt,
             "vision_model_config": _resolve_vision_config(settings),
             "image_generation_config": _resolve_image_generation_config(settings),
+            "restrict_to_workspace": settings.filesystem.restrict_to_workspace,
+            "workspace_root": str(cwd),
+            "workspace_allow_paths": list(settings.filesystem.allow_paths),
             **restored_metadata,
         },
     )
