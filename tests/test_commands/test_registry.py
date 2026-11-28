@@ -159,12 +159,12 @@ async def test_bridge_command_is_marked_local_only(tmp_path: Path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_bridge_command_supports_explicit_remote_admin_opt_in(tmp_path: Path, monkeypatch):
+async def test_bridge_command_is_not_remote_admin_opted_in(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(tmp_path / "config"))
     registry = create_default_command_registry()
     command, _ = registry.lookup("/bridge spawn id")
     assert command is not None
-    assert getattr(command, "remote_admin_opt_in", False) is True
+    assert getattr(command, "remote_admin_opt_in", False) is False
 
 
 @pytest.mark.asyncio
