@@ -129,6 +129,58 @@ def test_pattern_with_surrounding_whitespace_is_stripped():
     assert decision.allowed is False
 
 
+# --- deny precedence over allow list ---
+
+
+class TestDenyPrecedenceOverAllowList:
+    """Deny rules must take precedence over an explicit allow-list entry."""
+
+    def test_denied_command_blocks_allow_listed_tool(self):
+        """A denied_commands pattern blocks an allow-listed tool (e.g. bash)."""
+        settings = PermissionSettings.model_construct(
+            mode=PermissionMode.DEFAULT,
+            allowed_tools=["bash"],
+            denied_tools=[],
+            denied_commands=["*rm -rf /*"],
+            path_rules=[],
+        )
+        decision = PermissionChecker(settings).evaluate(
+            "bash", is_read_only=False, command="rm -rf / --no-preserve-root"
+        )
+        assert decision.allowed is False
+        assert "deny pattern" in decision.reason
+
+    def test_path_deny_rule_blocks_allow_listed_tool(self):
+        """A path deny-rule blocks an allow-listed tool (e.g. write_file)."""
+        settings = PermissionSettings.model_construct(
+            mode=PermissionMode.DEFAULT,
+            allowed_tools=["write_file"],
+            denied_tools=[],
+            denied_commands=[],
+            path_rules=[PathRuleConfig(pattern="/etc/*", allow=False)],
+        )
+        decision = PermissionChecker(settings).evaluate(
+            "write_file", is_read_only=False, file_path="/etc/passwd"
+        )
+        assert decision.allowed is False
+        assert "deny rule" in decision.reason
+
+    def test_allow_listed_tool_still_runs_when_no_deny_matches(self):
+        """The allow-list still grants tools that no deny rule blocks."""
+        settings = PermissionSettings.model_construct(
+            mode=PermissionMode.DEFAULT,
+            allowed_tools=["bash"],
+            denied_tools=[],
+            denied_commands=["*rm -rf /*"],
+            path_rules=[PathRuleConfig(pattern="/etc/*", allow=False)],
+        )
+        decision = PermissionChecker(settings).evaluate(
+            "bash", is_read_only=False, command="echo hello"
+        )
+        assert decision.allowed is True
+        assert "explicitly allowed" in decision.reason
+
+
 # --- built-in sensitive path protection tests ---
 
 
