@@ -12,12 +12,15 @@ _DEFAULT_BASE_DIR = ".openharness"
 _CONFIG_FILE_NAME = "settings.json"
 
 
-def get_config_dir() -> Path:
-    """Return the configuration directory, creating it if needed.
+def get_config_dir(*, create: bool = True) -> Path:
+    """Return the configuration directory.
 
     Resolution order:
     1. OPENHARNESS_CONFIG_DIR environment variable
     2. ~/.openharness/
+
+    Creates the directory unless ``create=False`` — used by read-only callers
+    (e.g. instruction-file discovery) that must not have filesystem side effects.
     """
     env_dir = os.environ.get("OPENHARNESS_CONFIG_DIR")
     if env_dir:
@@ -25,7 +28,8 @@ def get_config_dir() -> Path:
     else:
         config_dir = Path.home() / _DEFAULT_BASE_DIR
 
-    config_dir.mkdir(parents=True, exist_ok=True)
+    if create:
+        config_dir.mkdir(parents=True, exist_ok=True)
     return config_dir
 
 

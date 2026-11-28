@@ -31,6 +31,73 @@ def test_discover_claude_md_files(tmp_path: Path):
     assert rules_dir / "python.md" in files
 
 
+def test_discover_finds_agents_md(tmp_path: Path):
+    """A repo authored with the cross-tool AGENTS.md convention is picked up."""
+    repo = tmp_path / "repo"
+    nested = repo / "pkg"
+    nested.mkdir(parents=True)
+    (repo / "AGENTS.md").write_text("agents-standard instructions", encoding="utf-8")
+
+    files = discover_claude_md_files(nested)
+
+    assert repo / "AGENTS.md" in files
+
+
+def test_discover_loads_both_agents_and_claude_md(tmp_path: Path):
+    """When both files exist in a dir, both are discovered."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "AGENTS.md").write_text("agents", encoding="utf-8")
+    (repo / "CLAUDE.md").write_text("claude", encoding="utf-8")
+
+    files = discover_claude_md_files(repo)
+
+    assert repo / "AGENTS.md" in files
+    assert repo / "CLAUDE.md" in files
+
+
+def test_discover_appends_global_agents_md_last(tmp_path: Path, monkeypatch):
+    """~/.openharness/AGENTS.md is the least-specific fallback, loaded last."""
+    config_dir = tmp_path / "cfg"
+    config_dir.mkdir()
+    (config_dir / "AGENTS.md").write_text("global instructions", encoding="utf-8")
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(config_dir))
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "AGENTS.md").write_text("repo instructions", encoding="utf-8")
+
+    files = discover_claude_md_files(repo)
+
+    assert config_dir / "AGENTS.md" in files
+    # Repo-local instructions precede the global fallback.
+    assert files.index(repo / "AGENTS.md") < files.index(config_dir / "AGENTS.md")
+
+
+def test_discover_does_not_create_config_dir(tmp_path: Path, monkeypatch):
+    """Discovery is read-only: it must not materialize the config dir."""
+    config_dir = tmp_path / "cfg"  # deliberately not created
+    monkeypatch.setenv("OPENHARNESS_CONFIG_DIR", str(config_dir))
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    discover_claude_md_files(repo)
+
+    assert not config_dir.exists()
+
+
+def test_load_agents_md_prompt(tmp_path: Path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "AGENTS.md").write_text("prefer ripgrep", encoding="utf-8")
+
+    prompt = load_claude_md_prompt(repo)
+
+    assert prompt is not None
+    assert "Project Instructions" in prompt
+    assert "prefer ripgrep" in prompt
+
+
 def test_load_claude_md_prompt(tmp_path: Path):
     repo = tmp_path / "repo"
     repo.mkdir()
