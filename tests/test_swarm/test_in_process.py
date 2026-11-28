@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from openharness.swarm.in_process import (
     InProcessBackend,
+    TeammateAbortController,
     TeammateContext,
     get_teammate_context,
     set_teammate_context,
+    start_in_process_teammate,
 )
 from openharness.swarm.types import TeammateMessage, TeammateSpawnConfig
 
@@ -153,6 +156,45 @@ async def test_send_message_writes_to_mailbox(backend, tmp_path, monkeypatch):
 async def test_send_message_invalid_agent_id_raises(backend):
     with pytest.raises(ValueError, match="agentName@teamName"):
         await backend.send_message("no-at-sign", TeammateMessage(text="hi", from_agent="l"))
+
+
+async def test_teammate_receives_message_sent_by_leader(backend, tmp_path, monkeypatch):
+    # send_message writes to the inbox keyed by the bare agent name, so the
+    # running teammate must poll that same inbox. Regression guard for the key
+    # mismatch where start_in_process_teammate polled "name@team" instead and
+    # every leader -> teammate message was silently dropped.
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    config = TeammateSpawnConfig(
+        name="rcvr",
+        team="myteam",
+        prompt="wait",
+        cwd="/tmp",
+        parent_session_id="s",
+    )
+
+    await backend.send_message(
+        "rcvr@myteam", TeammateMessage(text="work on it", from_agent="leader")
+    )
+
+    # Drive a single query turn so the teammate drains its mailbox exactly once.
+    async def fake_run_query(query_context, messages):
+        yield SimpleNamespace(type="text"), None
+
+    monkeypatch.setattr("openharness.engine.query.run_query", fake_run_query)
+
+    await start_in_process_teammate(
+        config=config,
+        agent_id="rcvr@myteam",
+        abort_controller=TeammateAbortController(),
+        query_context=object(),
+    )
+
+    from openharness.swarm.mailbox import TeammateMailbox
+
+    inbox = TeammateMailbox(team_name="myteam", agent_id="rcvr")
+    assert await inbox.read_all(unread_only=True) == []
+    delivered = await inbox.read_all(unread_only=False)
+    assert any(m.payload.get("content") == "work on it" for m in delivered)
 
 
 # ---------------------------------------------------------------------------

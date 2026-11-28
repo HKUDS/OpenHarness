@@ -242,7 +242,9 @@ async def start_in_process_teammate(
     )
     set_teammate_context(ctx)
 
-    mailbox = TeammateMailbox(team_name=config.team, agent_id=agent_id)
+    # Poll the inbox keyed by the bare agent name — that is where the leader's
+    # send_message() delivers, not the fully-qualified ``name@team`` id.
+    mailbox = TeammateMailbox(team_name=config.team, agent_id=config.name)
 
     logger.debug("[in_process] %s: starting", agent_id)
 
